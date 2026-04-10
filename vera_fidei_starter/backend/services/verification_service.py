@@ -47,7 +47,7 @@ class VerificationService:
             db.commit()
 
     def verify(self, payload: VerifyCitationRequest) -> VerifyCitationResponse:
-        text_hits = self.text_search.search(payload.quote, limit=5)
+        text_hits = self.text_search.search(payload.quote, attributed_to=payload.attributed_to, limit=5)
         semantic_hits = self.semantic_search.search(payload.quote, limit=5)
         semantic_map = {hit.chunk_id: hit.score for hit in semantic_hits}
 
