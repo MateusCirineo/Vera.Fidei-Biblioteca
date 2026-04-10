@@ -8,6 +8,7 @@ class VerifyCitationRequest(BaseModel):
 
 
 class MatchReference(BaseModel):
+    """Localização exata do trecho na fonte primária."""
     collection: str
     volume: int | None = None
     column_start: int | None = None
@@ -15,6 +16,15 @@ class MatchReference(BaseModel):
     chapter_or_section: str | None = None
     pdf_page: int | None = None
     visual_anchor: str | None = None
+    # Proveniência completa da versão
+    edition_label: str | None = None
+    source_label: str | None = None
+    language: str | None = None
+    editor: str | None = None
+    translator: str | None = None
+    is_primary_source: bool = True
+    # Navegação no PDF
+    pdf_file_id: int | None = None
 
 
 class VerifyCitationResponse(BaseModel):
