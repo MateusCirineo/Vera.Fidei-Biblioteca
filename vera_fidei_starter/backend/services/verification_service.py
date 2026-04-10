@@ -20,6 +20,30 @@ class VerificationService:
     def _seed_demo_if_needed(self) -> None:
         with SessionLocal() as db:
             if db.query(Book).count() > 0:
+                # PostgreSQL já tem dados — garantir que ES e ChromaDB também estão indexados
+                chunks = db.query(Chunk).all()
+                es_count = self.text_search.es.count(index="vera_fidei_chunks").get("count", 0)
+                if es_count == 0:
+                    for chunk in chunks:
+                        book = db.get(Book, chunk.book_id)
+                        self.text_search.index_chunk(chunk.id, {
+                            "text": chunk.text,
+                            "author": book.author,
+                            "work_title": book.title,
+                            "collection": book.collection,
+                            "volume": chunk.volume,
+                            "column_start": chunk.column_start,
+                            "language": book.language,
+                            "pdf_page": chunk.pdf_page,
+                            "edition_label": book.edition_label,
+                            "chapter_or_section": chunk.chapter_or_section,
+                            "char_offset_start": chunk.char_offset_start,
+                            "char_offset_end": chunk.char_offset_end,
+                        })
+                        self.semantic_search.index_chunk(chunk.id, chunk.text, {
+                            "author": book.author,
+                            "work_title": book.title,
+                        })
                 return
             book = Book(
                 collection="PL",
@@ -45,6 +69,27 @@ class VerificationService:
             )
             db.add(chunk)
             db.commit()
+            db.refresh(chunk)
+            db.refresh(book)
+
+        self.text_search.index_chunk(chunk.id, {
+            "text": chunk.text,
+            "author": book.author,
+            "work_title": book.title,
+            "collection": book.collection,
+            "volume": chunk.volume,
+            "column_start": chunk.column_start,
+            "language": book.language,
+            "pdf_page": chunk.pdf_page,
+            "edition_label": book.edition_label,
+            "chapter_or_section": chunk.chapter_or_section,
+            "char_offset_start": chunk.char_offset_start,
+            "char_offset_end": chunk.char_offset_end,
+        })
+        self.semantic_search.index_chunk(chunk.id, chunk.text, {
+            "author": book.author,
+            "work_title": book.title,
+        })
 
     def verify(self, payload: VerifyCitationRequest) -> VerifyCitationResponse:
         text_hits = self.text_search.search(payload.quote, attributed_to=payload.attributed_to, limit=5)
