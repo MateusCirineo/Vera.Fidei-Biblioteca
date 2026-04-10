@@ -1,0 +1,27 @@
+O design do aplicativo Vera.fidei foi pensado desde o início para refletir não apenas funcionalidade, mas também identidade, autoridade e fidelidade à tradição católica.
+
+A proposta visual do app não segue o padrão comum de aplicativos modernos genéricos. Em vez disso, ele se inspira diretamente em elementos clássicos da Igreja, como bibliotecas antigas, manuscritos medievais e documentos patrísticos. Isso se traduz em uma identidade visual baseada em cores como vinho escuro, dourado e preto, criando uma sensação de seriedade, tradição e confiabilidade.
+
+Ao mesmo tempo, existe um cuidado importante: o aplicativo não pode ser visualmente poluído ou exageradamente artístico. Por isso, foi definida uma regra central no design: o ambiente pode ser clássico e simbólico, mas o conteúdo precisa ser limpo e altamente legível. Ou seja, o usuário deve sentir que está diante de uma ferramenta séria, não apenas de um conteúdo religioso decorativo.
+
+A navegação do aplicativo segue um modelo simples e intuitivo, baseado em uma barra inferior com quatro seções principais: Apresentação, Biblioteca, Verificador e Santos.
+
+A aba Apresentação funciona como a entrada do sistema. Nela, o usuário encontra uma explicação clara do que é o Vera.fidei, sua missão e propósito. Além disso, essa tela já oferece acesso direto ao verificador de citações, que é a principal funcionalidade da plataforma.
+
+A aba Biblioteca é o centro estrutural do aplicativo. Todo o conteúdo do sistema está concentrado aqui, organizado de forma hierárquica e acadêmica. Dentro da biblioteca, o usuário pode navegar por grandes categorias como Patrologia Latina, Patrologia Grega e Patrologia Oriental. Além disso, também estão incluídos os Concílios, Encíclicas, Bulas e documentos oficiais da Igreja.
+
+Cada uma dessas categorias se organiza internamente em níveis, como autores e obras. Por exemplo, ao acessar a Patrologia Latina, o usuário encontra os autores, como Santo Agostinho ou São Cipriano, e dentro de cada autor, suas respectivas obras. Esse modelo segue o padrão de bibliotecas acadêmicas e garante organização, escalabilidade e precisão na navegação.
+
+Os concílios também fazem parte da biblioteca e são organizados em subdivisões, como concílios ecumênicos e regionais, incluindo exemplos como Niceia (325), Roma (382) e Hipona (397). Da mesma forma, encíclicas e bulas são organizadas por papas e períodos históricos.
+
+A aba Verificador é a principal funcionalidade do sistema. É nela que o usuário insere uma citação e o nome do autor atribuído. O sistema então realiza uma análise baseada exclusivamente em fontes primárias indexadas, retornando um resultado classificado, como confirmado, paráfrase, fora de contexto ou falso. Essa tela é projetada para ser simples, direta e altamente funcional, sem distrações visuais.
+
+Já a aba Santos tem como objetivo complementar a experiência do usuário, oferecendo acesso ao martirológio romano diário e à hagiologia católica. Nela, o usuário pode visualizar o santo do dia, sua história, martírio e, quando aplicável, acessar também suas obras dentro da própria biblioteca.
+
+Um ponto fundamental do design é a integração entre as partes do sistema. Por exemplo, um santo pode levar diretamente às suas obras na biblioteca, e uma citação verificada pode abrir o trecho exato no documento original. Isso cria um ecossistema conectado, e não apenas um conjunto de telas isoladas.
+
+Outro elemento essencial é a presença da identidade visual do Vera.fidei. A logo do projeto deve aparecer nas áreas principais do aplicativo, como tela inicial, cabeçalho e momentos de carregamento, mas sem excesso, para não comprometer a experiência do usuário.
+
+Por fim, o design do Vera.fidei segue uma lógica clara de desenvolvimento: primeiro a funcionalidade, depois a interface básica e, por último, o refinamento visual. Isso garante que o sistema seja sólido, confiável e escalável antes de se preocupar com estética avançada.
+
+Em resumo, o Vera.fidei não é apenas um aplicativo. Ele é uma plataforma teológica estruturada, que une tecnologia moderna com tradição histórica, oferecendo uma experiência única de acesso, estudo e verificação das fontes primárias da fé católica.

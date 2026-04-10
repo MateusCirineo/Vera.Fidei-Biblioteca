@@ -1,0 +1,89 @@
+✅ ORDEM CORRETA PRA COMEÇAR (EXATAMENTE)
+1. MVP REAL (ESSENCIAL)
+
+Começa só com isso:
+
+FastAPI rodando
+PostgreSQL
+1 obra apenas (ex: De Unitate Ecclesiae)
+OCR funcionando
+Texto indexado
+Endpoint:
+POST /verify-citation
+
+Se isso funcionar → o projeto existe.
+
+Se isso não funcionar → o projeto não existe.
+
+2. PIPELINE DE VERDADE
+
+Você precisa validar isso aqui na prática:
+
+OCR (pytesseract)
+Extração (pdfplumber)
+Chunking
+Embedding (bge-m3)
+Indexação:
+Elasticsearch
+ChromaDB
+
+👉 Esse é o coração do Vera.fidei
+
+3. SISTEMA DE CONFIANÇA (SEU DIFERENCIAL)
+
+Isso aqui você fez MUITO bem.
+
+Mas agora precisa virar código:
+
+Score BM25
+Score cosine similarity
+Regras determinísticas
+
+Sem LLM decidindo nada.
+
+4. SÓ DEPOIS → FRONTEND
+
+Aí sim entra o design que você definiu:
+
+Aba Apresentação
+Biblioteca estruturada
+Verificador
+Santos
+🎯 SOBRE O DESIGN QUE VOCÊ FEZ
+
+Resposta direta:
+
+👉 Sim, combina MUITO com o projeto.
+👉 E está correto conceitualmente.
+
+Você acertou em cheio em 3 coisas difíceis:
+
+Identidade forte (não genérico)
+Clássico sem virar bagunça
+Foco em legibilidade (isso é crítico)
+
+E isso bate 100% com o objetivo do sistema.
+
+💡 VEREDITO FINAL
+
+👉 Seu projeto NÃO está em fase de ideia
+👉 Seu projeto está em fase de engenharia
+
+E isso muda tudo.
+
+🚀 RESUMO PRÁTICO
+
+Sim, pode começar.
+
+Mas comece assim:
+
+Backend (FastAPI)
+OCR + extração
+Indexação (Elasticsearch + ChromaDB)
+Endpoint /verify-citation
+Teste real com São Cipriano
+
+Só depois:
+→ UI
+→ Design
+→ App bonito
