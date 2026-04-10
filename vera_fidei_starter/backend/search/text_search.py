@@ -35,6 +35,8 @@ class TextSearchClient:
                         "chapter_or_section":{"type": "keyword"},
                         "char_offset_start": {"type": "integer"},
                         "char_offset_end":   {"type": "integer"},
+                        "translation_text":  {"type": "text", "analyzer": "standard"},
+                        "translation_language": {"type": "keyword"},
                     }
                 }
             })
@@ -46,7 +48,7 @@ class TextSearchClient:
         body = {
             "query": {
                 "bool": {
-                    "must": [{"match": {"text": query}}],
+                    "must": [{"multi_match": {"query": query, "fields": ["text", "translation_text"]}}],
                     "should": ([{"match": {"author": attributed_to}}] if attributed_to else []),
                 }
             },

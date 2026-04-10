@@ -49,12 +49,23 @@ class SemanticSearchClient:
             ))
         return hits
 
-    def index_chunk(self, chunk_id: int, text: str, metadata: dict) -> None:
+    def index_chunk(self, chunk_id: int, text: str, metadata: dict, language: str = "la") -> None:
         model = _get_model()
         embedding = model.encode([text]).tolist()
         self.collection.add(
             ids=[str(chunk_id)],
             embeddings=embedding,
             documents=[text],
-            metadatas=[{**metadata, "chunk_id": str(chunk_id)}],
+            metadatas=[{**metadata, "chunk_id": str(chunk_id), "language": language}],
+        )
+
+    def index_translation(self, chunk_id: int, text: str, metadata: dict, language: str = "pt") -> None:
+        model = _get_model()
+        embedding = model.encode([text]).tolist()
+        translation_id = f"{chunk_id}_translation_{language}"
+        self.collection.add(
+            ids=[translation_id],
+            embeddings=embedding,
+            documents=[text],
+            metadatas=[{**metadata, "chunk_id": str(chunk_id), "language": language, "is_translation": "true"}],
         )

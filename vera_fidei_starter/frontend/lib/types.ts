@@ -19,6 +19,8 @@ export type StatusCode =
   | 'CONFIRMADA_EXATA'
   | 'ATRIBUICAO_DUVIDOSA'
   | 'CONFIRMADA_TRADUCAO'
+  | 'TRADUCAO_FIEL'
+  | 'TRADUCAO_IMPRECISA'
   | 'PARAFRASE_PLAUSIVEL'
   | 'NAO_ENCONTRADA'
 
@@ -35,6 +37,10 @@ export interface VerifyCitationResponse {
   context_before: string | null
   context_after: string | null
   explanation: string
+  matched_translation: string | null
+  translation_language: string | null
+  translation_fidelity: 'fiel' | 'imprecisa' | 'nao_encontrada' | null
+  translator: string | null
 }
 
 export interface BookFile {

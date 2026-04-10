@@ -40,3 +40,7 @@ class VerifyCitationResponse(BaseModel):
     context_before: str | None = None
     context_after: str | None = None
     explanation: str | None = None
+    matched_translation: str | None = None
+    translation_language: str | None = None
+    translation_fidelity: str | None = None
+    translator: str | None = None

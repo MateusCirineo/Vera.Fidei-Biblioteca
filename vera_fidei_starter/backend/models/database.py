@@ -53,6 +53,9 @@ class Chunk(Base):
 
     book: Mapped["Book"] = relationship(back_populates="chunks")
     source_file: Mapped["BookFile | None"] = relationship(back_populates="chunks")
+    translations: Mapped[list["Translation"]] = relationship(
+        back_populates="chunk", cascade="all, delete-orphan"
+    )
 
 
 class BookFile(Base):
@@ -71,6 +74,19 @@ class BookFile(Base):
 
     book: Mapped["Book"] = relationship(back_populates="files")
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="source_file")
+
+
+class Translation(Base):
+    __tablename__ = "translations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id"))
+    language: Mapped[str] = mapped_column(String(10))
+    text: Mapped[str] = mapped_column(Text)
+    translator: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    edition_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    chunk: Mapped["Chunk"] = relationship(back_populates="translations")
 
 
 engine = create_engine(settings.database_url, future=True)

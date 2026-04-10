@@ -19,6 +19,16 @@ const config: Record<
     text: 'text-amber-300',
     label: 'Atribuição duvidosa',
   },
+  TRADUCAO_FIEL: {
+    bg: 'bg-green-900/40',
+    text: 'text-green-300',
+    label: 'Tradução fiel',
+  },
+  TRADUCAO_IMPRECISA: {
+    bg: 'bg-amber-900/40',
+    text: 'text-amber-300',
+    label: 'Tradução imprecisa',
+  },
   PARAFRASE_PLAUSIVEL: {
     bg: 'bg-orange-900/40',
     text: 'text-orange-300',

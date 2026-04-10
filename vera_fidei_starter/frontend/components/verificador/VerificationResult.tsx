@@ -40,21 +40,53 @@ export default function VerificationResult({
         </div>
       )}
 
-      {/* Matched excerpt with context */}
+      {/* Texto original + tradução lado a lado */}
       {result.matched_excerpt && (
-        <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
-          {result.context_before && (
-            <p className="text-xs text-texto-terciario leading-relaxed line-clamp-2">
-              {result.context_before}
-            </p>
+        <div className="space-y-3">
+          {/* Indicador de fidelidade */}
+          {result.translation_fidelity && result.translation_fidelity !== 'nao_encontrada' && (
+            <div className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full ${
+              result.translation_fidelity === 'fiel'
+                ? 'bg-green-900/40 text-green-400'
+                : 'bg-amber-900/40 text-amber-400'
+            }`}>
+              {result.translation_fidelity === 'fiel' ? '✓ Tradução fiel' : '⚠ Tradução imprecisa'}
+            </div>
           )}
-          <blockquote className="border-l-2 border-dourado pl-3 text-sm text-texto leading-relaxed">
-            {result.matched_excerpt}
-          </blockquote>
-          {result.context_after && (
-            <p className="text-xs text-texto-terciario leading-relaxed line-clamp-2">
-              {result.context_after}
+
+          {/* Bloco original latim */}
+          <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-texto-terciario">
+              Texto original ({result.original_language ?? 'Latim'})
             </p>
+            {result.context_before && (
+              <p className="text-xs text-texto-terciario leading-relaxed line-clamp-2">
+                {result.context_before}
+              </p>
+            )}
+            <blockquote className="border-l-2 border-dourado pl-3 text-sm text-texto leading-relaxed italic">
+              {result.matched_excerpt}
+            </blockquote>
+            {result.context_after && (
+              <p className="text-xs text-texto-terciario leading-relaxed line-clamp-2">
+                {result.context_after}
+              </p>
+            )}
+          </div>
+
+          {/* Bloco tradução PT */}
+          {result.matched_translation && (
+            <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-texto-terciario">
+                Tradução de referência (Português)
+                {result.translator && (
+                  <span className="normal-case font-normal ml-1">— {result.translator}</span>
+                )}
+              </p>
+              <blockquote className="border-l-2 border-dourado/50 pl-3 text-sm text-texto-secundario leading-relaxed">
+                {result.matched_translation}
+              </blockquote>
+            </div>
           )}
         </div>
       )}
