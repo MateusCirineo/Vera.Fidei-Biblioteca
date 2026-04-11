@@ -23,6 +23,24 @@ class Book(Base):
     source_label: Mapped[str] = mapped_column(String(255), default="")
     is_primary_source: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Organização da biblioteca
+    # library_section:     "patristica" | "documentos"
+    # patristic_tradition: "grega" | "oriental" | "latina" | "portuguesa"
+    # document_type:       "concilio" | "bula" | "enciclica" | "constituicao_apostolica" | "carta_apostolica" | "outro"
+    library_section: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    patristic_tradition: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    document_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Campos canônicos (auto-detectados na ingestão)
+    canonical_author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    canonical_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Metadados para Documentos da Igreja
+    pope: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    document_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_ecumenical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    document_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="book",
         cascade="all, delete-orphan"
@@ -97,3 +115,22 @@ def init_db(reset: bool = False) -> None:
     if reset:
         Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _migrate_add_library_columns()
+
+
+def _migrate_add_library_columns() -> None:
+    """Migração incremental: adiciona colunas de organização e enriquecimento se não existirem."""
+    migrations = [
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS library_section VARCHAR(30)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS patristic_tradition VARCHAR(30)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_type VARCHAR(50)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS canonical_author VARCHAR(255)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS canonical_title VARCHAR(255)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS pope VARCHAR(255)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_year INTEGER",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS is_ecumenical BOOLEAN",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_status VARCHAR(50)",
+    ]
+    with engine.begin() as conn:
+        for sql in migrations:
+            conn.execute(__import__("sqlalchemy").text(sql))

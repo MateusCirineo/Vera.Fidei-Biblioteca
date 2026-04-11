@@ -41,14 +41,24 @@ class TextSearchClient:
                 }
             })
 
-    def search(self, query: str, attributed_to: str = "", limit: int = 5) -> list[TextSearchHit]:
+    def search(self, query: str, attributed_to: str = "", limit: int = 5, query_language: str = "unknown") -> list[TextSearchHit]:
         if not query.strip():
             return []
+
+        _ORIGINAL_LANGS = {"la", "grc", "el", "he"}
+        _TRANSLATION_LANGS = {"pt", "es", "fr", "it", "en", "de"}
+
+        if query_language in _TRANSLATION_LANGS:
+            fields = ["translation_text^2", "text"]
+        elif query_language in _ORIGINAL_LANGS:
+            fields = ["text^2", "translation_text"]
+        else:
+            fields = ["text^1.2", "translation_text^1.2"]
 
         body = {
             "query": {
                 "bool": {
-                    "must": [{"multi_match": {"query": query, "fields": ["text", "translation_text"]}}],
+                    "must": [{"multi_match": {"query": query, "fields": fields}}],
                     "should": ([{"match": {"author": attributed_to}}] if attributed_to else []),
                 }
             },

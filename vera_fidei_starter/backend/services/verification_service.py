@@ -1,3 +1,5 @@
+from langdetect import detect, LangDetectException
+
 from models.database import SessionLocal, Chunk, Book, BookFile, Translation, init_db
 from schemas.citation import VerifyCitationRequest, VerifyCitationResponse, MatchReference
 from search.text_search import TextSearchClient
@@ -5,6 +7,26 @@ from search.semantic_search import SemanticSearchClient
 from confidence.scorer import CombinedScorer
 from confidence.classifier import DeterministicClassifier
 from confidence.explainer import ResultExplainer
+from utils.language import normalize_lang as _normalize_lang, ORIGINAL_LANGS, TRANSLATION_LANGS, classify_book, detect_latin_heuristic
+from utils.author_detection import detect_author, detect_canonical_title
+
+
+def _detect_language(text: str, hint: str | None = None) -> str:
+    """
+    Detecta o idioma da query.
+    Prioridade: hint do payload > heurística latina > langdetect > "unknown".
+    "unknown" ≠ "la": evita enviesar o boosting de busca.
+    A heurística latina previne que langdetect retorne "it" ou "es" em textos
+    curtos com vocabulário patrístico.
+    """
+    if hint:
+        return hint.strip().lower()
+    if detect_latin_heuristic(text):
+        return "la"
+    try:
+        return detect(text)
+    except LangDetectException:
+        return "unknown"
 
 
 def _translation_fidelity(query: str, reference: str) -> str:
@@ -34,6 +56,29 @@ class VerificationService:
     def _seed_demo_if_needed(self) -> None:
         with SessionLocal() as db:
             if db.query(Book).count() > 0:
+                # Backfill: classificar livros sem library_section
+                unclassified = db.query(Book).filter(Book.library_section.is_(None)).all()
+                if unclassified:
+                    for b in unclassified:
+                        section, tradition, doctype = classify_book(
+                            b.collection, b.language, b.is_primary_source
+                        )
+                        b.library_section = section
+                        b.patristic_tradition = tradition
+                        b.document_type = doctype
+                    db.commit()
+
+                # Backfill canonical_author/canonical_title no seed (único livro, sem risco)
+                uncanonical = db.query(Book).filter(Book.canonical_author.is_(None)).all()
+                if uncanonical:
+                    for b in uncanonical:
+                        detected_author, _ = detect_author(b.title)
+                        b.canonical_author = detected_author if detected_author else b.author
+                        b.canonical_title = (
+                            detect_canonical_title(b.title) if detected_author else b.title
+                        )
+                    db.commit()
+
                 chunks = db.query(Chunk).all()
                 es_count = self.text_search.es.count(index="vera_fidei_chunks").get("count", 0)
                 chroma_count = self.semantic_search.collection.count()
@@ -53,12 +98,12 @@ class VerificationService:
                             self.semantic_search.index_chunk(chunk.id, chunk.text, {
                                 "author": book.author,
                                 "work_title": book.title,
-                            })
+                            }, language=_normalize_lang(book.language))
                             if translation_pt:
                                 self.semantic_search.index_translation(chunk.id, translation_pt.text, {
                                     "author": book.author,
                                     "work_title": book.title,
-                                }, language="pt")
+                                }, language=_normalize_lang(translation_pt.language))
 
                 # Garantir tradução PT no banco para chunks sem ela
                 for chunk in chunks:
@@ -87,13 +132,21 @@ class VerificationService:
                 return
 
             # Seed inicial: livro + chunk + tradução PT
+            seed_title = "De Unitate Ecclesiae"
+            seed_author = "São Cipriano de Cartago"
+            _detected, _ = detect_author(seed_title)
             book = Book(
                 collection="PL",
-                title="De Unitate Ecclesiae",
-                author="São Cipriano de Cartago",
+                title=seed_title,
+                author=seed_author,
                 language="Latim",
                 edition_label="Migne PL — edição 1844",
                 source_label="Archive.org",
+                library_section="patristica",
+                patristic_tradition="latina",
+                document_type=None,
+                canonical_author=_detected if _detected else seed_author,
+                canonical_title=detect_canonical_title(seed_title) if _detected else seed_title,
             )
             db.add(book)
             db.flush()
@@ -140,7 +193,7 @@ class VerificationService:
         self.semantic_search.index_chunk(chunk_id, chunk_text, {
             "author": book_author,
             "work_title": book_title,
-        })
+        }, language=doc.get("language", "la"))
         self.semantic_search.index_translation(chunk_id, translation_text, {
             "author": book_author,
             "work_title": book_title,
@@ -165,7 +218,7 @@ class VerificationService:
             "collection": book.collection,
             "volume": chunk.volume,
             "column_start": chunk.column_start,
-            "language": book.language,
+            "language": _normalize_lang(book.language),
             "pdf_page": chunk.pdf_page,
             "edition_label": book.edition_label,
             "chapter_or_section": chunk.chapter_or_section,
@@ -174,11 +227,18 @@ class VerificationService:
         }
         if translation_pt:
             doc["translation_text"] = translation_pt.text
-            doc["translation_language"] = translation_pt.language
+            doc["translation_language"] = _normalize_lang(translation_pt.language)
         return doc
 
     def verify(self, payload: VerifyCitationRequest) -> VerifyCitationResponse:
-        text_hits = self.text_search.search(payload.quote, attributed_to=payload.attributed_to, limit=5)
+        detected_lang = _detect_language(payload.quote, hint=payload.language)
+
+        text_hits = self.text_search.search(
+            payload.quote,
+            attributed_to=payload.attributed_to,
+            limit=5,
+            query_language=detected_lang,
+        )
         semantic_hits = self.semantic_search.search(payload.quote, limit=5)
         semantic_map = {hit.chunk_id: hit.score for hit in semantic_hits}
 
@@ -237,9 +297,9 @@ class VerificationService:
                 Translation.language == "pt",
             ).first()
 
-            # Avaliar fidelidade da tradução se a query parecer em português
+            # Avaliar fidelidade apenas para idiomas vernáculos (não para latim/grego/hebraico nem desconhecido)
             fidelity = None
-            if translation_pt:
+            if translation_pt and detected_lang in TRANSLATION_LANGS:
                 fidelity = _translation_fidelity(payload.quote, translation_pt.text)
 
             result = self.classifier.classify(combined, exact_match, author_match, translation_fidelity=fidelity)

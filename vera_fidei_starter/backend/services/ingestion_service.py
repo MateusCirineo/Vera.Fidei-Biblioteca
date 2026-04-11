@@ -13,6 +13,7 @@ from search.text_search import TextSearchClient
 from search.semantic_search import SemanticSearchClient
 from ingestion.pdf_extractor import PDFExtractor
 from ingestion.chunker import Chunker
+from utils.author_detection import detect_author, detect_canonical_title
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "pdfs")
 
@@ -77,6 +78,30 @@ class IngestionService:
         # Preparar dados dos chunks com sequence_index
         for i, chunk_data in enumerate(raw_chunks):
             chunk_data["sequence_index"] = next_seq + i
+
+        # Amostra do conteúdo das primeiras páginas para detecção de metadados
+        content_sample = " ".join(
+            p.get("text", "") for p in pages[:3] if isinstance(p, dict)
+        )
+        if not content_sample and pages:
+            # extrator retorna strings diretas em vez de dicts
+            content_sample = " ".join(str(p) for p in pages[:3])
+        content_sample = content_sample[:1000]
+
+        # Detectar autor e título canônicos ANTES de salvar definitivamente
+        with SessionLocal() as db:
+            book = db.get(Book, book_id)
+            if book is None:
+                raise HTTPException(status_code=404, detail=f"Livro {book_id} não encontrado.")
+            if book.canonical_author is None:
+                detected_author, _ = detect_author(book.title, content_sample)
+                book.canonical_author = detected_author if detected_author else book.author
+                book.canonical_title = (
+                    detect_canonical_title(book.title, content_sample)
+                    if detected_author
+                    else book.title
+                )
+                db.commit()
 
         # Abrir sessão, fazer flush para obter IDs, tentar indexar ES/Chroma,
         # só commit se tudo der certo — rollback se qualquer indexação falhar.

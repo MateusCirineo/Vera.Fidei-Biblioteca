@@ -6,6 +6,7 @@ from sqlalchemy import func
 from models.database import SessionLocal, Book, Chunk
 from schemas.book import BookCreate, BookResponse, BookFileResponse, IngestPDFResponse
 from services.ingestion_service import IngestionService
+from utils.language import classify_book
 
 router = APIRouter()
 _ingestion_service: IngestionService | None = None
@@ -22,24 +23,49 @@ def _chunk_count(db, book_id: int) -> int:
     return db.query(func.count(Chunk.id)).filter(Chunk.book_id == book_id).scalar() or 0
 
 
+def _book_to_response(db, b: Book) -> BookResponse:
+    return BookResponse(
+        id=b.id,
+        collection=b.collection,
+        title=b.title,
+        author=b.author,
+        language=b.language,
+        edition_label=b.edition_label,
+        source_label=b.source_label,
+        is_primary_source=b.is_primary_source,
+        chunk_count=_chunk_count(db, b.id),
+        library_section=b.library_section,
+        patristic_tradition=b.patristic_tradition,
+        document_type=b.document_type,
+        canonical_author=b.canonical_author,
+        canonical_title=b.canonical_title,
+        pope=b.pope,
+        document_year=b.document_year,
+        is_ecumenical=b.is_ecumenical,
+        document_status=b.document_status,
+    )
+
+
 @router.get("", response_model=list[BookResponse])
 def list_books() -> list[BookResponse]:
     with SessionLocal() as db:
         books = db.query(Book).all()
-        return [
-            BookResponse(
-                id=b.id,
-                collection=b.collection,
-                title=b.title,
-                author=b.author,
-                language=b.language,
-                edition_label=b.edition_label,
-                source_label=b.source_label,
-                is_primary_source=b.is_primary_source,
-                chunk_count=_chunk_count(db, b.id),
-            )
-            for b in books
-        ]
+
+        # Backfill: classificar livros sem library_section (migração incremental)
+        needs_commit = False
+        for b in books:
+            if b.library_section is None:
+                section, tradition, doctype = classify_book(
+                    b.collection, b.language, b.is_primary_source
+                )
+                b.library_section = section
+                b.patristic_tradition = tradition
+                b.document_type = doctype
+                needs_commit = True
+        if needs_commit:
+            db.commit()
+
+        return [_book_to_response(db, b) for b in books]
 
 
 @router.post("", response_model=BookResponse, status_code=201)
@@ -68,6 +94,15 @@ def create_book(payload: BookCreate) -> BookResponse:
             edition_label=payload.edition_label,
             source_label=payload.source_label,
             is_primary_source=payload.is_primary_source,
+            library_section=payload.library_section,
+            patristic_tradition=payload.patristic_tradition,
+            document_type=payload.document_type,
+            canonical_author=payload.canonical_author,
+            canonical_title=payload.canonical_title,
+            pope=payload.pope,
+            document_year=payload.document_year,
+            is_ecumenical=payload.is_ecumenical,
+            document_status=payload.document_status,
         )
         db.add(book)
         db.commit()
@@ -82,6 +117,15 @@ def create_book(payload: BookCreate) -> BookResponse:
             source_label=book.source_label,
             is_primary_source=book.is_primary_source,
             chunk_count=0,
+            library_section=book.library_section,
+            patristic_tradition=book.patristic_tradition,
+            document_type=book.document_type,
+            canonical_author=book.canonical_author,
+            canonical_title=book.canonical_title,
+            pope=book.pope,
+            document_year=book.document_year,
+            is_ecumenical=book.is_ecumenical,
+            document_status=book.document_status,
         )
 
 
@@ -91,17 +135,7 @@ def get_book(book_id: int) -> BookResponse:
         book = db.get(Book, book_id)
         if book is None:
             raise HTTPException(status_code=404, detail="Livro não encontrado.")
-        return BookResponse(
-            id=book.id,
-            collection=book.collection,
-            title=book.title,
-            author=book.author,
-            language=book.language,
-            edition_label=book.edition_label,
-            source_label=book.source_label,
-            is_primary_source=book.is_primary_source,
-            chunk_count=_chunk_count(db, book.id),
-        )
+        return _book_to_response(db, book)
 
 
 @router.post("/{book_id}/ingest-pdf", response_model=IngestPDFResponse, status_code=201)
