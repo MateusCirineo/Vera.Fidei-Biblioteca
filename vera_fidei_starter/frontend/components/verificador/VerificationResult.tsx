@@ -4,44 +4,59 @@ import MatchReferenceCard from './MatchReferenceCard'
 
 export default function VerificationResult({
   result,
+  originalQuery,
 }: {
   result: VerifyCitationResponse
+  originalQuery?: string
 }) {
   return (
     <div className="space-y-5">
       {/* Status */}
       <StatusBadge code={result.status_code} confidence={result.confidence} />
 
-      {/* Author / Work */}
-      {(result.author || result.work) && (
-        <div>
-          {result.author && (
-            <p className="font-garamond text-lg text-texto">{result.author}</p>
+      {/* Quando não encontrada: mostrar só o status + análise, sem conteúdo aleatório */}
+      {result.status_code !== 'NAO_ENCONTRADA' && (
+        <>
+          {/* Author / Work */}
+          {(result.author || result.work) && (
+            <div>
+              {result.author && (
+                <p className="font-garamond text-lg text-texto">{result.author}</p>
+              )}
+              {result.work && (
+                <p className="text-sm italic text-texto-secundario">{result.work}</p>
+              )}
+            </div>
           )}
-          {result.work && (
-            <p className="text-sm italic text-texto-secundario">{result.work}</p>
+
+          {/* Reference card */}
+          {result.reference && (
+            <div className="space-y-2">
+              {result.reference.is_primary_source ? (
+                <MatchReferenceCard
+                  reference={result.reference}
+                  quote={originalQuery ?? undefined}
+                  fallbackQuote={result.matched_excerpt ?? undefined}
+                />
+              ) : (
+                <>
+                  <MatchReferenceCard
+                    reference={result.reference}
+                    quote={originalQuery ?? undefined}
+                    fallbackQuote={result.matched_excerpt ?? undefined}
+                  />
+                  <p className="text-xs text-texto-terciario pl-1">
+                    Fonte primária não disponível no acervo atual.
+                  </p>
+                </>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
 
-      {/* Reference card — primary source first */}
-      {result.reference && (
-        <div className="space-y-2">
-          {result.reference.is_primary_source ? (
-            <MatchReferenceCard reference={result.reference} />
-          ) : (
-            <>
-              <MatchReferenceCard reference={result.reference} />
-              <p className="text-xs text-texto-terciario pl-1">
-                Fonte primária não disponível no acervo atual.
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Texto original + tradução lado a lado */}
-      {result.matched_excerpt && (
+      {/* Texto original + tradução — apenas para resultados confirmados */}
+      {result.status_code !== 'NAO_ENCONTRADA' && result.matched_excerpt && (
         <div className="space-y-3">
           {/* Indicador de fidelidade */}
           {result.translation_fidelity && result.translation_fidelity !== 'nao_encontrada' && (
@@ -79,8 +94,10 @@ export default function VerificationResult({
             <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-texto-terciario">
                 Tradução de referência (Português)
-                {result.translator && (
-                  <span className="normal-case font-normal ml-1">— {result.translator}</span>
+                {(result.translator ?? result.translation_edition) && (
+                  <span className="normal-case font-normal ml-1">
+                    — {result.translator ?? result.translation_edition}
+                  </span>
                 )}
               </p>
               <blockquote className="border-l-2 border-dourado/50 pl-3 text-sm text-texto-secundario leading-relaxed">

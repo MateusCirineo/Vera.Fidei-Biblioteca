@@ -1,6 +1,6 @@
 'use client'
 
-import { getPdfUrl } from '@/lib/api'
+import Link from 'next/link'
 import type { Book } from '@/lib/types'
 
 export default function BookDetail({ book }: { book: Book }) {
@@ -94,18 +94,12 @@ export default function BookDetail({ book }: { book: Book }) {
                     </span>
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    window.open(
-                      getPdfUrl(file.id),
-                      '_blank',
-                      'noopener,noreferrer'
-                    )
-                  }
+                <Link
+                  href={`/visualizar/${file.id}`}
                   className="shrink-0 rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
                 >
-                  Abrir PDF
-                </button>
+                  Ler PDF
+                </Link>
               </div>
             ))}
           </div>

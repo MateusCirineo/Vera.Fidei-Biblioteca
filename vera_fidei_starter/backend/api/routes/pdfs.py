@@ -24,8 +24,11 @@ def serve_pdf(file_id: int) -> FileResponse:
     if not os.path.exists(book_file.stored_path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado no disco.")
 
+    # Content-Disposition: inline → browser abre no viewer nativo (não faz download)
+    # filename= preservado para o caso de o usuário salvar manualmente
+    safe_name = book_file.original_filename.replace('"', "'")
     return FileResponse(
         path=book_file.stored_path,
         media_type="application/pdf",
-        filename=book_file.original_filename,
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )

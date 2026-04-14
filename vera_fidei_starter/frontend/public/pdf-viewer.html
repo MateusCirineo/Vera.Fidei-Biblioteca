@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vera.Fidei — Trecho no PDF</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f0e0d;
+      color: #e5e0d8;
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    #header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(15, 14, 13, 0.96);
+      border-bottom: 1px solid #2a2520;
+      padding: 10px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    #page-info {
+      font-size: 13px;
+      color: #c8bfb0;
+    }
+
+    #page-info strong { color: #fff; }
+
+    #quote-info {
+      font-size: 11px;
+      color: #6b6058;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 800px;
+    }
+
+    #status {
+      font-size: 11px;
+      color: #6b6058;
+      min-height: 14px;
+    }
+
+    #status.found    { color: #4ade80; }
+    #status.notfound { color: #f5a623; }
+    #status.error    { color: #f87171; }
+    #status.loading  { color: #6b6058; }
+
+    #scroll-container {
+      height: calc(100vh - 70px);
+      overflow: auto;
+      padding: 24px 16px;
+    }
+
+    #canvas-wrap {
+      position: relative;
+      margin: 0 auto;
+      width: fit-content;
+    }
+
+    canvas {
+      display: block;
+      border-radius: 4px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.7);
+    }
+
+    #overlay {
+      pointer-events: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <p id="page-info">Carregando...</p>
+    <p id="quote-info"></p>
+    <p id="status" class="loading">Abrindo PDF...</p>
+  </div>
+
+  <div id="scroll-container">
+    <div id="canvas-wrap">
+      <canvas id="pdf-canvas"></canvas>
+      <div id="overlay"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    // ─── Importa pdfjs do CDN (sem passar pelo webpack do Next.js) ──────────
+    import { getDocument, GlobalWorkerOptions, Util }
+      from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/build/pdf.min.mjs'
+
+    GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/build/pdf.worker.min.mjs'
+
+    // ─── Params ──────────────────────────────────────────────────────────────
+    const params        = new URLSearchParams(location.search)
+    const fileUrl       = params.get('file') || ''
+    const quote         = (params.get('quote')         || '').slice(0, 800)
+    const fallbackQuote = (params.get('fallbackQuote') || '').slice(0, 400)
+    let   page          = Math.max(1, parseInt(params.get('page') || '1', 10) || 1)
+
+    // ─── Segurança: validar origem do PDF ────────────────────────────────────
+    const ALLOWED_ORIGINS = [
+      'http://localhost:8001',
+      'http://localhost:8000',
+      'http://192.168.0.3:8001',
+    ]
+
+    function isAllowedFileUrl(url) {
+      if (!url) return false
+      try {
+        const u = new URL(url)
+        return ALLOWED_ORIGINS.includes(u.origin) && u.pathname.startsWith('/pdfs/')
+      } catch {
+        return false
+      }
+    }
+
+    // ─── UI helpers ──────────────────────────────────────────────────────────
+    const elStatus    = document.getElementById('status')
+    const elPageInfo  = document.getElementById('page-info')
+    const elQuoteInfo = document.getElementById('quote-info')
+    const elCanvas    = document.getElementById('pdf-canvas')
+    const elOverlay   = document.getElementById('overlay')
+    const elScroll    = document.getElementById('scroll-container')
+
+    function setStatus(msg, cls = '') {
+      elStatus.textContent = msg
+      elStatus.className   = cls
+    }
+
+    // ─── Normalização de texto ───────────────────────────────────────────────
+    function normalizeText(text) {
+      return (text || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')   // remove diacritics
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')  // remove pontuação, preserva todos os scripts Unicode
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+    }
+
+    function buildJoinedText(items) {
+      const parts = []
+      let cursor  = 0
+      for (const item of items) {
+        const normalized = normalizeText(item.str || '')
+        const start = cursor
+        const end   = start + normalized.length
+        parts.push({ normalized, start, end, item })
+        cursor = end + 1
+      }
+      const fullNormalized = parts.map(p => p.normalized).join(' ')
+      return { parts, fullNormalized }
+    }
+
+    function findQuoteRange(fullNormalized, rawQuote) {
+      const nq = normalizeText(rawQuote)
+      if (!nq) return null
+
+      // Estratégia 1: frase completa normalizada
+      const idx = fullNormalized.indexOf(nq)
+      if (idx !== -1) return { start: idx, end: idx + nq.length }
+
+      // Estratégia 2: janelas deslizantes de tamanhos decrescentes
+      const words = nq.split(' ').filter(Boolean)
+      for (const size of [10, 7, 5, 4]) {
+        if (size > words.length) continue
+        for (let i = 0; i <= words.length - size; i++) {
+          const window = words.slice(i, i + size).join(' ')
+          const widx = fullNormalized.indexOf(window)
+          if (widx !== -1) return { start: widx, end: widx + window.length }
+        }
+      }
+
+      return null
+    }
+
+    // ─── Cálculo de caixas de highlight ─────────────────────────────────────
+    // Após Util.transform(viewport.transform, item.transform):
+    //   tx[4] = x do texto (canvas px)
+    //   tx[5] = y da baseline (canvas px, eixo Y para baixo)
+    //   |tx[3]| = altura da fonte em canvas px
+
+    function getItemBox(viewport, item) {
+      const tx         = Util.transform(viewport.transform, item.transform)
+      const fontHeight = Math.abs(tx[3])
+      const left       = tx[4]
+      const top        = tx[5] - fontHeight
+      // largura: escala proporcional ao fator tx[0]/item.transform[0]
+      const scaleX     = item.transform[0] !== 0
+        ? Math.abs(tx[0] / item.transform[0])
+        : viewport.scale
+      const width      = item.width * scaleX
+      const height     = fontHeight
+      return { left, top, width, height }
+    }
+
+    // Fallback por densidade de palavras-chave: quando nem as janelas deslizantes
+    // encontram a frase (PDF escaneado com OCR imperfeito), destaca os itens da
+    // página que contêm o maior cluster de palavras-chave da citação.
+    function computeHighlightByKeywords(viewport, parts, rawQuote) {
+      const keywords = normalizeText(rawQuote).split(' ').filter(w => w.length >= 4)
+      if (keywords.length === 0) return []
+
+      // Marcar quais itens contêm cada keyword
+      const matchedParts = parts
+        .filter(p => p.normalized.length > 0)
+        .map(p => ({
+          ...p,
+          hits: keywords.reduce((n, kw) => n + (p.normalized.includes(kw) ? 1 : 0), 0),
+        }))
+        .filter(p => p.hits > 0)
+
+      if (matchedParts.length === 0) return []
+
+      // Janela deslizante de até 20 itens para achar o cluster mais denso
+      const W = 20
+      let bestStart = 0, bestScore = 0
+      for (let i = 0; i < matchedParts.length; i++) {
+        const score = matchedParts
+          .slice(i, Math.min(i + W, matchedParts.length))
+          .reduce((s, p) => s + p.hits, 0)
+        if (score > bestScore) { bestScore = score; bestStart = i }
+      }
+
+      // Exige ao menos 3 keywords únicas no cluster para evitar falso-positivo
+      const cluster = matchedParts.slice(bestStart, Math.min(bestStart + W, matchedParts.length))
+      const uniqueHits = new Set(
+        cluster.flatMap(p => keywords.filter(kw => p.normalized.includes(kw)))
+      )
+      if (uniqueHits.size < 3) return []
+
+      return cluster.map(p => getItemBox(viewport, p.item))
+    }
+
+    // Retorna { boxes, mode } onde mode = 'phrase' | 'keyword' | 'none'
+    function computeHighlightBoxes(viewport, items, rawQuote) {
+      const { parts, fullNormalized } = buildJoinedText(items)
+
+      // Tenta busca por frase/janela primeiro
+      const range = findQuoteRange(fullNormalized, rawQuote)
+      if (range) {
+        const boxes = parts
+          .filter(p => p.normalized && !(p.end < range.start || p.start > range.end))
+          .map(p => getItemBox(viewport, p.item))
+        return { boxes, mode: 'phrase' }
+      }
+
+      // Último recurso: densidade de palavras-chave (OCR imperfeito)
+      const boxes = computeHighlightByKeywords(viewport, parts, rawQuote)
+      return { boxes, mode: boxes.length > 0 ? 'keyword' : 'none' }
+    }
+
+    // ─── Renderização principal ──────────────────────────────────────────────
+    async function main() {
+      // Mostrar quote no header
+      const displayQuote = quote || fallbackQuote
+      if (displayQuote) {
+        elQuoteInfo.textContent = `Procurando: "${displayQuote.slice(0, 120)}${displayQuote.length > 120 ? '…' : ''}"`
+      }
+
+      // Validações
+      if (!fileUrl) {
+        setStatus('URL do PDF não informada.', 'error')
+        elPageInfo.textContent = 'Erro'
+        return
+      }
+      if (!isAllowedFileUrl(fileUrl)) {
+        setStatus('Endereço do PDF não autorizado.', 'error')
+        elPageInfo.textContent = 'Erro'
+        return
+      }
+
+      try {
+        const loadingTask = getDocument(fileUrl)
+        const pdf = await loadingTask.promise
+
+        // Clamp de página
+        page = Math.min(Math.max(1, page), pdf.numPages)
+        elPageInfo.innerHTML = `Página <strong>${page}</strong> de ${pdf.numPages}`
+
+        const pdfPage  = await pdf.getPage(page)
+        const scale    = 1.6
+        const viewport = pdfPage.getViewport({ scale })
+
+        // Configurar canvas
+        const ctx = elCanvas.getContext('2d')
+        elCanvas.width         = viewport.width
+        elCanvas.height        = viewport.height
+        elCanvas.style.width   = `${viewport.width}px`
+        elCanvas.style.height  = `${viewport.height}px`
+
+        // Configurar overlay
+        elOverlay.style.width  = `${viewport.width}px`
+        elOverlay.style.height = `${viewport.height}px`
+        elOverlay.innerHTML    = ''
+
+        // Renderizar página
+        await pdfPage.render({ canvasContext: ctx, viewport }).promise
+
+        // Extrair texto e calcular highlights
+        const textContent = await pdfPage.getTextContent()
+        const items = (textContent.items || []).filter(i => i.str)
+
+        if (!quote && !fallbackQuote) {
+          setStatus('', '')
+          return
+        }
+
+        // Tenta highlight em dois passos: query original → trecho do chunk
+        let result       = quote ? computeHighlightBoxes(viewport, items, quote) : { boxes: [], mode: 'none' }
+        let usedFallback = false
+
+        if (result.boxes.length === 0 && fallbackQuote) {
+          result       = computeHighlightBoxes(viewport, items, fallbackQuote)
+          usedFallback = true
+        }
+
+        const { boxes, mode } = result
+
+        if (boxes.length === 0) {
+          setStatus('Citação não encontrada na camada de texto — PDF pode ser imagem.', 'notfound')
+          return
+        }
+
+        // Desenhar highlights
+        boxes.forEach((box, i) => {
+          // fundo amarelo suave
+          const bg = document.createElement('div')
+          Object.assign(bg.style, {
+            position:     'absolute',
+            left:         `${box.left}px`,
+            top:          `${box.top}px`,
+            width:        `${box.width}px`,
+            height:       `${box.height}px`,
+            background:   'rgba(255, 220, 0, 0.22)',
+            borderRadius: '2px',
+            pointerEvents:'none',
+          })
+          elOverlay.appendChild(bg)
+
+          // sublinhado dourado
+          const line = document.createElement('div')
+          Object.assign(line.style, {
+            position:     'absolute',
+            left:         `${box.left}px`,
+            top:          `${box.top + box.height + 1}px`,
+            width:        `${box.width}px`,
+            height:       '2.5px',
+            background:   '#f5c518',
+            borderRadius: '999px',
+            pointerEvents:'none',
+          })
+          elOverlay.appendChild(line)
+
+          // scroll automático até o primeiro highlight
+          if (i === 0) {
+            setTimeout(() => {
+              elScroll.scrollTo({
+                top:      Math.max(box.top - 160, 0),
+                behavior: 'smooth',
+              })
+            }, 150)
+          }
+        })
+
+        const statusMsg =
+          usedFallback && mode === 'keyword'
+            ? 'Trecho da fonte localizado por palavras-chave (texto OCR).'
+            : usedFallback
+            ? 'Trecho da fonte localizado. A citação digitada não aparece literalmente neste idioma.'
+            : mode === 'keyword'
+            ? 'Citação localizada por palavras-chave (correspondência aproximada).'
+            : 'Citação localizada.'
+        setStatus(statusMsg, 'found')
+
+      } catch (err) {
+        console.error('[pdf-viewer]', err)
+        const msg = err?.message || ''
+        if (msg.includes('CORS') || msg.includes('cross-origin') || msg.includes('fetch')) {
+          setStatus('Erro de CORS ao carregar o PDF. Verifique se o backend está rodando em localhost:8001.', 'error')
+        } else if (msg.includes('Invalid PDF') || msg.includes('Missing PDF')) {
+          setStatus('Arquivo PDF inválido ou não encontrado.', 'error')
+        } else if (msg.includes('password')) {
+          setStatus('PDF protegido por senha.', 'error')
+        } else {
+          setStatus(`Erro ao carregar o PDF: ${msg || 'erro desconhecido'}`, 'error')
+        }
+        elPageInfo.textContent = 'Erro'
+      }
+    }
+
+    main()
+  </script>
+</body>
+</html>

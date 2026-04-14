@@ -11,6 +11,7 @@ export default function VerificationForm() {
   const [language, setLanguage] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<VerifyCitationResponse | null>(null)
+  const [submittedQuote, setSubmittedQuote] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -20,6 +21,7 @@ export default function VerificationForm() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setSubmittedQuote(quote.trim())
 
     try {
       const res = await verifyCitation(
@@ -134,7 +136,7 @@ export default function VerificationForm() {
         </div>
       )}
 
-      {result && <VerificationResult result={result} />}
+      {result && <VerificationResult result={result} originalQuery={submittedQuote} />}
     </div>
   )
 }

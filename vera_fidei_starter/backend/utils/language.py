@@ -75,6 +75,45 @@ def normalize_lang(raw: str) -> str:
     return LANGUAGE_NORMALIZE.get(raw.strip().lower(), raw.strip().lower())
 
 
+# ─── Script detection by Unicode block ───────────────────────────────────────
+
+# (lo, hi inclusive, iso_code)
+_SCRIPT_RANGES: list[tuple[int, int, str]] = [
+    (0x0370, 0x03D6, "grc"),   # Grego básico (α–ω, Α–Ω, etc.)
+    (0x1F00, 0x1FFF, "grc"),   # Grego Extendido (polítonico)
+    (0x0700, 0x074F, "syc"),   # Siríaco
+    (0x2C80, 0x2CFF, "cop"),   # Copta
+    (0x03E2, 0x03EF, "cop"),   # Copta (letras no bloco Grego)
+    (0x0530, 0x058F, "hy"),    # Armênio
+    (0x10D0, 0x10FF, "ka"),    # Georgiano (Mkhedruli)
+    (0x1200, 0x137F, "gez"),   # Etíope (Ge'ez)
+    (0x0590, 0x05FF, "he"),    # Hebraico
+    (0x0600, 0x06FF, "ar"),    # Árabe
+]
+
+
+def detect_script_heuristic(text: str) -> str | None:
+    """
+    Detecta o script de um texto a partir de blocos Unicode.
+    Analisa os primeiros 300 caracteres e retorna o código ISO do script dominante,
+    ou None se nenhum script não-latino for detectado com confiança (≥ 3 chars).
+
+    Útil para queries em grego polítonico, siríaco, copta, armênio, árabe, etc.
+    onde langdetect falha ou retorna resultados incorretos.
+    """
+    counts: dict[str, int] = {}
+    for ch in text[:300]:
+        cp = ord(ch)
+        for lo, hi, lang in _SCRIPT_RANGES:
+            if lo <= cp <= hi:
+                counts[lang] = counts.get(lang, 0) + 1
+                break
+    if not counts:
+        return None
+    best = max(counts, key=counts.__getitem__)
+    return best if counts[best] >= 3 else None
+
+
 def classify_book(
     collection: str,
     language: str,

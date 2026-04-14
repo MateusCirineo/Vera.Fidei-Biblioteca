@@ -81,3 +81,9 @@ class TextSearchClient:
 
     def index_chunk(self, chunk_id: int, doc: dict) -> None:
         self.es.index(index=ES_INDEX, id=str(chunk_id), document={**doc, "chunk_id": chunk_id})
+
+    def delete_chunk(self, chunk_id: int) -> None:
+        try:
+            self.es.delete(index=ES_INDEX, id=str(chunk_id), ignore=[404])
+        except Exception:
+            pass

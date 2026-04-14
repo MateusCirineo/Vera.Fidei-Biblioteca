@@ -59,6 +59,17 @@ class SemanticSearchClient:
             metadatas=[{**metadata, "chunk_id": str(chunk_id), "language": language}],
         )
 
+    def delete_chunk(self, chunk_id: int) -> None:
+        try:
+            self.collection.delete(ids=[str(chunk_id)])
+        except Exception:
+            pass
+        # Remove também a tradução associada, se existir
+        try:
+            self.collection.delete(ids=[f"{chunk_id}_translation_pt"])
+        except Exception:
+            pass
+
     def index_translation(self, chunk_id: int, text: str, metadata: dict, language: str = "pt") -> None:
         model = _get_model()
         embedding = model.encode([text]).tolist()

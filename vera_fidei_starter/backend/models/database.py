@@ -15,7 +15,7 @@ class Book(Base):
     __tablename__ = "books"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    collection: Mapped[str] = mapped_column(String(50))
+    collection: Mapped[str | None] = mapped_column(String(50), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
     author: Mapped[str] = mapped_column(String(255))
     language: Mapped[str] = mapped_column(String(50))

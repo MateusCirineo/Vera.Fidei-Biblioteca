@@ -1,4 +1,4 @@
-import type { Book, VerifyCitationResponse } from './types'
+import type { Book, AuthorCatalogEntry, VerifyCitationResponse } from './types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
@@ -25,10 +25,82 @@ export async function listBooks(): Promise<Book[]> {
   return res.json()
 }
 
+export async function listAuthorsCatalog(): Promise<AuthorCatalogEntry[]> {
+  const res = await fetch(`${BASE}/authors/catalog`, { cache: 'no-store' })
+  if (!res.ok) throw new Error('Erro ao carregar catálogo de autores')
+  return res.json()
+}
+
 export async function getBook(id: number): Promise<Book> {
   const res = await fetch(`${BASE}/books/${id}`, { cache: 'no-store' })
   if (!res.ok) throw new Error('Obra não encontrada')
   return res.json()
+}
+
+export interface AutoIngestResult {
+  id: number
+  file_id: number
+  title: string
+  author: string
+  collection: string | null
+  language: string
+  canonical_author: string | null
+  canonical_title: string | null
+  library_section: string | null
+  patristic_tradition: string | null
+  chunks_indexed: number
+}
+
+export async function ingestAuto(
+  file: File,
+  titleOverride?: string,
+  editor?: string,
+  translator?: string,
+): Promise<AutoIngestResult> {
+  const form = new FormData()
+  form.append('file', file)
+  if (titleOverride?.trim()) form.append('title_override', titleOverride.trim())
+  if (editor?.trim()) form.append('editor', editor.trim())
+  if (translator?.trim()) form.append('translator', translator.trim())
+  const res = await fetch(`${BASE}/books/ingest-auto`, { method: 'POST', body: form })
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(err || 'Erro ao ingerir PDF')
+  }
+  return res.json()
+}
+
+export async function getBookStatus(
+  bookId: number,
+): Promise<{ book_id: number; status: string; chunks_indexed: number }> {
+  const res = await fetch(`${BASE}/books/${bookId}/status`, { cache: 'no-store' })
+  if (!res.ok) throw new Error('Erro ao consultar status')
+  return res.json()
+}
+
+export async function deleteBook(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/books/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(err || 'Erro ao excluir livro')
+  }
+}
+
+export async function updateBookFileMeta(
+  bookId: number,
+  fileId: number,
+  editor: string | null,
+  translator: string | null,
+): Promise<void> {
+  const res = await fetch(`${BASE}/books/${bookId}/files/${fileId}/metadata`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editor, translator }),
+  })
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(err || 'Erro ao atualizar metadados')
+  }
 }
 
 export function getPdfUrl(file_id: number, pdf_page?: number | null): string {

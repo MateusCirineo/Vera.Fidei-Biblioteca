@@ -4,22 +4,118 @@ import os
 import re
 import tempfile
 import datetime
+import threading
 
+import pdfplumber
 from fastapi import HTTPException
+from langdetect import detect, LangDetectException
 from sqlalchemy import func
 
-from models.database import SessionLocal, Book, Chunk, BookFile
+from models.database import SessionLocal, Book, Chunk, BookFile, Translation
 from search.text_search import TextSearchClient
 from search.semantic_search import SemanticSearchClient
 from ingestion.pdf_extractor import PDFExtractor
 from ingestion.chunker import Chunker
+from utils.patristic_parser import parse_patristic_book
 from utils.author_detection import detect_author, detect_canonical_title
+from utils.language import detect_latin_heuristic
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "pdfs")
+
+# ─── Detecção de tradutor nas primeiras páginas ───────────────────────────────
+
+_BAD_TRANSLATOR_WORDS = frozenset({
+    "edição", "edicao", "editora", "coleção", "colecao", "prefácio", "prefacio",
+    "introducao", "revisão", "revisao", "apresentação", "coordenação", "organizacao",
+    "volume", "tomo", "copyright", "isbn", "paulus", "loyola", "vozes", "paulinas",
+})
+
+_TRANSLATOR_RE = [
+    re.compile(r"[Tt]radu[çc][aã]o\s+d[eo]\s+([A-ZÀ-Ÿ][A-Za-zÀ-ÿ '\-\.]{3,80})(?:\n|[,;]|$)"),
+    re.compile(r"[Tt]raduzido\s+por\s+([A-ZÀ-Ÿ][A-Za-zÀ-ÿ '\-\.]{3,80})(?:\n|[,;]|$)"),
+    re.compile(r"[Tt]radutora?\s*:\s*([A-ZÀ-Ÿ][A-Za-zÀ-ÿ '\-\.]{3,80})(?:\n|[,;]|$)"),
+    re.compile(r"[Tt]ranslated\s+by\s+([A-Z][A-Za-z '\-\.]{3,80})(?:\n|[,;]|$)"),
+]
+
+_PUBLISHER_RE = [
+    (re.compile(r"\bPaulus\b", re.IGNORECASE), "Paulus"),
+    (re.compile(r"\bLoyola\b", re.IGNORECASE), "Loyola"),
+    (re.compile(r"\bVozes\b", re.IGNORECASE), "Vozes"),
+    (re.compile(r"\bPaulinas\b", re.IGNORECASE), "Paulinas"),
+    (re.compile(r"\bSantu[aá]rio\b", re.IGNORECASE), "Santuário"),
+]
+
+
+def _detect_translator(text: str) -> str | None:
+    for pattern in _TRANSLATOR_RE:
+        m = pattern.search(text)
+        if m:
+            name = m.group(1).strip().rstrip(".,;:-")
+            name = re.split(
+                r"\b(?:revis[aã]o|edi[cç][aã]o|cole[cç][aã]o|pref[aá]cio|introdu[cç][aã]o)\b",
+                name, flags=re.IGNORECASE,
+            )[0].strip()
+            if len(name) < 5 or len(name) > 80:
+                continue
+            if any(w in name.lower() for w in _BAD_TRANSLATOR_WORDS):
+                continue
+            parts = name.split()
+            if sum(1 for p in parts if p[:1].isupper()) < 2:
+                continue
+            return name
+    return None
+
+
+def _detect_publisher(text: str) -> str | None:
+    for pattern, label in _PUBLISHER_RE:
+        if pattern.search(text):
+            return label
+    return None
+
+
+# Status em memória: book_id → "processing" | "done" | "error"
+_processing_status: dict[int, str] = {}
+_status_lock = threading.Lock()
+
+
+def _set_status(book_id: int, status: str) -> None:
+    with _status_lock:
+        _processing_status[book_id] = status
+
+
+def get_processing_status(book_id: int) -> str:
+    with _status_lock:
+        return _processing_status.get(book_id, "done")
 
 
 def _sanitize_filename(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]", "_", name)
+
+
+def _detect_lang(text: str) -> str:
+    """Detecta idioma. Prioriza heurística latina antes do langdetect."""
+    if not text.strip():
+        return "la"
+    if detect_latin_heuristic(text):
+        return "la"
+    try:
+        return detect(text)
+    except LangDetectException:
+        return "la"
+
+
+def _extract_sample_pages(pdf_path: str, n: int = 8) -> list[dict]:
+    """Extrai as primeiras N páginas com pdfplumber (rápido, sem OCR).
+    N=8 porque PDFs com capa/índice imageados só têm texto a partir da p. 4-5.
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            return [
+                {"page_number": i + 1, "text": (page.extract_text() or "")}
+                for i, page in enumerate(pdf.pages[:n])
+            ]
+    except Exception:
+        return []
 
 
 class IngestionService:
@@ -28,6 +124,8 @@ class IngestionService:
         self.semantic_search = SemanticSearchClient()
         self.extractor = PDFExtractor()
         self.chunker = Chunker()
+
+    # ─── Fluxo manual (POST /books/{id}/ingest-pdf) ──────────────────────────
 
     def ingest(
         self,
@@ -45,13 +143,11 @@ class IngestionService:
             if book is None:
                 raise HTTPException(status_code=404, detail=f"Livro {book_id} não encontrado.")
 
-            # Calcular sequence_index de partida (aditivo)
             max_seq = db.query(func.max(Chunk.sequence_index)).filter(
                 Chunk.book_id == book_id
             ).scalar()
             next_seq = (max_seq + 1) if max_seq is not None else 0
 
-        # Salvar PDF em disco com nome único
         timestamp = int(datetime.datetime.utcnow().timestamp())
         safe_name = _sanitize_filename(original_filename)
         stored_filename = f"{book_id}_{timestamp}_{safe_name}"
@@ -60,7 +156,6 @@ class IngestionService:
         with open(stored_path, "wb") as f:
             f.write(pdf_bytes)
 
-        # Extrair texto e gerar chunks
         try:
             pages = self.extractor.extract(stored_path)
             document_meta: dict = {}
@@ -75,20 +170,16 @@ class IngestionService:
             os.remove(stored_path)
             raise HTTPException(status_code=422, detail="Nenhum texto extraído do PDF.")
 
-        # Preparar dados dos chunks com sequence_index
         for i, chunk_data in enumerate(raw_chunks):
             chunk_data["sequence_index"] = next_seq + i
 
-        # Amostra do conteúdo das primeiras páginas para detecção de metadados
         content_sample = " ".join(
             p.get("text", "") for p in pages[:3] if isinstance(p, dict)
         )
         if not content_sample and pages:
-            # extrator retorna strings diretas em vez de dicts
             content_sample = " ".join(str(p) for p in pages[:3])
         content_sample = content_sample[:1000]
 
-        # Detectar autor e título canônicos ANTES de salvar definitivamente
         with SessionLocal() as db:
             book = db.get(Book, book_id)
             if book is None:
@@ -103,8 +194,6 @@ class IngestionService:
                 )
                 db.commit()
 
-        # Abrir sessão, fazer flush para obter IDs, tentar indexar ES/Chroma,
-        # só commit se tudo der certo — rollback se qualquer indexação falhar.
         with SessionLocal() as db:
             book_file = BookFile(
                 book_id=book_id,
@@ -136,7 +225,7 @@ class IngestionService:
                 db.add(chunk)
                 chunk_records.append(chunk)
 
-            db.flush()  # obtém IDs sem commit
+            db.flush()
 
             book = db.get(Book, book_id)
             try:
@@ -174,3 +263,251 @@ class IngestionService:
             db.commit()
             db.refresh(book_file)
             return book_file, len(chunk_records)
+
+    # ─── Fluxo automático (POST /books/ingest-auto) ───────────────────────────
+
+    def ingest_auto(
+        self,
+        pdf_bytes: bytes,
+        original_filename: str,
+        title_override: str | None = None,
+        editor: str | None = None,
+        translator: str | None = None,
+    ) -> dict:
+        """
+        Fase 1 (síncrona, rápida): detecta metadados das primeiras páginas,
+        cria o Book e responde imediatamente.
+
+        Fase 2 (background thread): extrai todas as páginas, cria chunks,
+        indexa ES + ChromaDB.
+        """
+        os.makedirs(PDF_DIR, exist_ok=True)
+
+        # Fase 1 — amostra rápida das 3 primeiras páginas (sem OCR completo)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+
+        try:
+            sample_pages = _extract_sample_pages(tmp_path, n=8)
+        finally:
+            os.remove(tmp_path)
+
+        full_sample_text = "\n".join(p.get("text", "") for p in sample_pages)
+        content_sample = full_sample_text[:1000]
+
+        raw_title = (
+            title_override
+            or os.path.splitext(original_filename)[0]
+               .replace("_", " ").replace("-", " ").strip()
+        )
+
+        metadata_text = raw_title + "\n" + content_sample
+        parsed = parse_patristic_book(metadata_text)
+        detected_author = parsed.author
+        canonical_title = parsed.canonical_title or raw_title
+        language = parsed.language or _detect_lang(content_sample)
+        # "PT" para edições Paulus em português; None para desconhecido (não assumir PG/PL)
+        collection = "PT" if (parsed.publisher == "Paulus" and language == "pt") else None
+
+        # Auto-detecção de editora e tradutor (quando não fornecidos pelo usuário)
+        auto_editor = editor or parsed.publisher or _detect_publisher(full_sample_text) or None
+        auto_translator = translator or _detect_translator(full_sample_text) or None
+        # Fallback: editoras como Paulus são responsáveis pela tradução quando não há tradutor individual
+        if not auto_translator and auto_editor:
+            auto_translator = f"{auto_editor} Editora" if not auto_editor.lower().endswith("editora") else auto_editor
+        tradition = parsed.patristic_tradition
+        section = parsed.library_section or "patristica"
+        doctype = None
+
+        # Criar Book no banco
+        with SessionLocal() as db:
+            book = Book(
+                collection=collection,
+                title=canonical_title,
+                author=detected_author or "Desconhecido",
+                language=language,
+                edition_label="",
+                source_label="",
+                is_primary_source=True,
+                library_section=section,
+                patristic_tradition=tradition,
+                document_type=doctype,
+                canonical_author=parsed.canonical_author,
+                canonical_title=parsed.canonical_title if parsed.canonical_author else None,
+            )
+            db.add(book)
+            db.commit()
+            db.refresh(book)
+            book_id = book.id
+            book_snapshot = {
+                "id": book.id,
+                "title": book.title,
+                "author": book.author,
+                "collection": book.collection,
+                "language": book.language,
+                "canonical_author": book.canonical_author,
+                "canonical_title": book.canonical_title,
+                "library_section": book.library_section,
+                "patristic_tradition": book.patristic_tradition,
+            }
+
+        # Salvar PDF em disco permanentemente
+        timestamp = int(datetime.datetime.utcnow().timestamp())
+        safe_name = _sanitize_filename(original_filename)
+        stored_filename = f"{book_id}_{timestamp}_{safe_name}"
+        stored_path = os.path.join(PDF_DIR, stored_filename)
+        with open(stored_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        # Criar BookFile na fase síncrona para ter file_id real na resposta
+        with SessionLocal() as db:
+            book_file = BookFile(
+                book_id=book_id,
+                original_filename=original_filename,
+                stored_path=stored_path,
+                volume_number=None,
+                editor=auto_editor,
+                translator=auto_translator,
+            )
+            db.add(book_file)
+            db.commit()
+            db.refresh(book_file)
+            file_id = book_file.id
+
+        # Marcar como em processamento e iniciar thread
+        _set_status(book_id, "processing")
+        thread = threading.Thread(
+            target=self._ingest_background,
+            args=(book_id, file_id, stored_path),
+            daemon=True,
+        )
+        thread.start()
+
+        return {
+            **book_snapshot,
+            "file_id": file_id,
+            "chunks_indexed": 0,
+            "status": "processing",
+        }
+
+    # ─── Remoção completa de um livro ────────────────────────────────────────
+
+    def delete_book(self, book_id: int) -> None:
+        """
+        Remove um livro e todo seu conteúdo:
+        ES, ChromaDB, Chunks, BookFiles, PDF em disco e o Book em si.
+        """
+        from fastapi import HTTPException
+
+        with SessionLocal() as db:
+            book = db.get(Book, book_id)
+            if book is None:
+                raise HTTPException(status_code=404, detail="Livro não encontrado.")
+
+            chunks = db.query(Chunk).filter(Chunk.book_id == book_id).all()
+
+            # 1. Remover do ES e ChromaDB
+            for chunk in chunks:
+                self.text_search.delete_chunk(chunk.id)
+                self.semantic_search.delete_chunk(chunk.id)
+
+            # 2. Remover PDFs do disco
+            files = db.query(BookFile).filter(BookFile.book_id == book_id).all()
+            for f in files:
+                try:
+                    os.remove(f.stored_path)
+                except OSError:
+                    pass
+
+            # 3. Deletar registros (Translation → Chunk → BookFile → Book)
+            chunk_ids = [c.id for c in chunks]
+            if chunk_ids:
+                db.query(Translation).filter(Translation.chunk_id.in_(chunk_ids)).delete(synchronize_session=False)
+            db.query(Chunk).filter(Chunk.book_id == book_id).delete()
+            db.query(BookFile).filter(BookFile.book_id == book_id).delete()
+            db.delete(book)
+            db.commit()
+
+    def _ingest_background(
+        self,
+        book_id: int,
+        book_file_id: int,
+        stored_path: str,
+    ) -> None:
+        """Thread de background: extrai todas as páginas, cria chunks, indexa."""
+        try:
+            pages = self.extractor.extract(stored_path)
+            raw_chunks = self.chunker.chunk(pages, {})
+
+            if not raw_chunks:
+                _set_status(book_id, "error")
+                return
+
+            with SessionLocal() as db:
+                max_seq = db.query(func.max(Chunk.sequence_index)).filter(
+                    Chunk.book_id == book_id
+                ).scalar()
+                next_seq = (max_seq + 1) if max_seq is not None else 0
+
+            for i, chunk_data in enumerate(raw_chunks):
+                chunk_data["sequence_index"] = next_seq + i
+
+            with SessionLocal() as db:
+                chunk_records: list[Chunk] = []
+                for chunk_data in raw_chunks:
+                    chunk = Chunk(
+                        book_id=book_id,
+                        book_file_id=book_file_id,
+                        text=chunk_data["text"],
+                        sequence_index=chunk_data["sequence_index"],
+                        volume=chunk_data.get("volume_number"),
+                        column_start=chunk_data.get("column_start"),
+                        column_end=chunk_data.get("column_end"),
+                        pdf_page=chunk_data.get("pdf_page"),
+                        char_offset_start=chunk_data.get("char_offset_start"),
+                        char_offset_end=chunk_data.get("char_offset_end"),
+                        visual_anchor=f"col{chunk_data.get('column_start', '')}",
+                        chapter_or_section=chunk_data.get("chapter_or_section", ""),
+                    )
+                    db.add(chunk)
+                    chunk_records.append(chunk)
+
+                db.flush()
+
+                book = db.get(Book, book_id)
+                try:
+                    for chunk in chunk_records:
+                        es_doc = {
+                            "text": chunk.text,
+                            "author": book.author,
+                            "work_title": book.title,
+                            "collection": book.collection,
+                            "volume": chunk.volume,
+                            "column_start": chunk.column_start,
+                            "language": book.language,
+                            "pdf_page": chunk.pdf_page,
+                            "edition_label": book.edition_label,
+                            "chapter_or_section": chunk.chapter_or_section,
+                            "char_offset_start": chunk.char_offset_start,
+                            "char_offset_end": chunk.char_offset_end,
+                        }
+                        self.text_search.index_chunk(chunk.id, es_doc)
+
+                        chroma_meta = {
+                            "author": book.author,
+                            "work_title": book.title,
+                        }
+                        self.semantic_search.index_chunk(chunk.id, chunk.text, chroma_meta)
+
+                except Exception:
+                    db.rollback()
+                    _set_status(book_id, "error")
+                    return
+
+                db.commit()
+
+            _set_status(book_id, "done")
+
+        except Exception:
+            _set_status(book_id, "error")

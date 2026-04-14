@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy import func
 
-from models.database import SessionLocal, Book, Chunk
-from schemas.book import BookCreate, BookResponse, BookFileResponse, IngestPDFResponse
+from models.database import SessionLocal, Book, Chunk, BookFile
+from schemas.book import BookCreate, BookResponse, BookFileResponse, IngestPDFResponse, AutoIngestResponse, BookStatusResponse
+from services.ingestion_service import get_processing_status
 from services.ingestion_service import IngestionService
 from utils.language import classify_book
 
@@ -24,6 +27,7 @@ def _chunk_count(db, book_id: int) -> int:
 
 
 def _book_to_response(db, b: Book) -> BookResponse:
+    files = db.query(BookFile).filter(BookFile.book_id == b.id).all()
     return BookResponse(
         id=b.id,
         collection=b.collection,
@@ -43,6 +47,7 @@ def _book_to_response(db, b: Book) -> BookResponse:
         document_year=b.document_year,
         is_ecumenical=b.is_ecumenical,
         document_status=b.document_status,
+        files=[BookFileResponse.model_validate(f) for f in files] if files else None,
     )
 
 
@@ -54,7 +59,7 @@ def list_books() -> list[BookResponse]:
         # Backfill: classificar livros sem library_section (migração incremental)
         needs_commit = False
         for b in books:
-            if b.library_section is None:
+            if b.library_section is None and b.collection is not None:
                 section, tradition, doctype = classify_book(
                     b.collection, b.language, b.is_primary_source
                 )
@@ -129,6 +134,47 @@ def create_book(payload: BookCreate) -> BookResponse:
         )
 
 
+@router.post("/ingest-auto", response_model=AutoIngestResponse, status_code=201)
+async def ingest_auto(
+    file: UploadFile = File(...),
+    title_override: str | None = Form(None),
+    editor: str | None = Form(None),
+    translator: str | None = Form(None),
+) -> AutoIngestResponse:
+    """
+    Upload zero-input: extrai texto, detecta autor/título/coleção/idioma,
+    cria o Book e indexa tudo automaticamente.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="O arquivo enviado deve ser um PDF.")
+
+    pdf_bytes = await file.read()
+    service = _get_ingestion_service()
+    result = service.ingest_auto(
+        pdf_bytes=pdf_bytes,
+        original_filename=file.filename,
+        title_override=title_override or None,
+        editor=editor or None,
+        translator=translator or None,
+    )
+    return AutoIngestResponse(**result)
+
+
+@router.get("/{book_id}/status", response_model=BookStatusResponse)
+def get_book_status(book_id: int) -> BookStatusResponse:
+    """Retorna o status de processamento e quantidade de chunks indexados."""
+    with SessionLocal() as db:
+        book = db.get(Book, book_id)
+        if book is None:
+            raise HTTPException(status_code=404, detail="Livro não encontrado.")
+        chunks = db.query(func.count(Chunk.id)).filter(Chunk.book_id == book_id).scalar() or 0
+    return BookStatusResponse(
+        book_id=book_id,
+        status=get_processing_status(book_id),
+        chunks_indexed=chunks,
+    )
+
+
 @router.get("/{book_id}", response_model=BookResponse)
 def get_book(book_id: int) -> BookResponse:
     with SessionLocal() as db:
@@ -136,6 +182,36 @@ def get_book(book_id: int) -> BookResponse:
         if book is None:
             raise HTTPException(status_code=404, detail="Livro não encontrado.")
         return _book_to_response(db, book)
+
+
+@router.delete("/{book_id}")
+def delete_book(book_id: int) -> Response:
+    """Remove um livro e todos os seus chunks, arquivos e entradas de índice."""
+    service = _get_ingestion_service()
+    service.delete_book(book_id)
+    return Response(status_code=204)
+
+
+class BookFileMetaUpdate(BaseModel):
+    editor: str | None = None
+    translator: str | None = None
+
+
+@router.patch("/{book_id}/files/{file_id}/metadata")
+def update_book_file_metadata(
+    book_id: int,
+    file_id: int,
+    payload: BookFileMetaUpdate,
+) -> dict:
+    """Atualiza editor e tradutor de um BookFile existente."""
+    with SessionLocal() as db:
+        book_file = db.get(BookFile, file_id)
+        if book_file is None or book_file.book_id != book_id:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+        book_file.editor = payload.editor or None
+        book_file.translator = payload.translator or None
+        db.commit()
+    return {"ok": True}
 
 
 @router.post("/{book_id}/ingest-pdf", response_model=IngestPDFResponse, status_code=201)
@@ -167,3 +243,4 @@ async def ingest_pdf(
         editor=editor,
         translator=translator,
     )
+

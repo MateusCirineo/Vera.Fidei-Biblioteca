@@ -18,7 +18,7 @@ export interface MatchReference {
 export type StatusCode =
   | 'CONFIRMADA_EXATA'
   | 'ATRIBUICAO_DUVIDOSA'
-  | 'CONFIRMADA_TRADUCAO'
+  | 'CORRESPONDENCIA_FORTE'
   | 'TRADUCAO_FIEL'
   | 'TRADUCAO_IMPRECISA'
   | 'PARAFRASE_PLAUSIVEL'
@@ -41,6 +41,7 @@ export interface VerifyCitationResponse {
   translation_language: string | null
   translation_fidelity: 'fiel' | 'imprecisa' | 'nao_encontrada' | null
   translator: string | null
+  translation_edition: string | null
 }
 
 export interface BookFile {
@@ -52,9 +53,19 @@ export interface BookFile {
   created_at: string
 }
 
+export type PatristicTradition = 'grega' | 'oriental' | 'latina' | 'portuguesa'
+export type LibrarySection = 'patristica' | 'documentos'
+export type DocumentType =
+  | 'concilio'
+  | 'bula'
+  | 'enciclica'
+  | 'constituicao_apostolica'
+  | 'carta_apostolica'
+  | 'outro'
+
 export interface Book {
   id: number
-  collection: string
+  collection: string | null
   title: string
   author: string | null
   language: string | null
@@ -63,4 +74,44 @@ export interface Book {
   is_primary_source: boolean
   chunk_count?: number
   files?: BookFile[]
+  // Organização da biblioteca
+  library_section: LibrarySection | null
+  patristic_tradition: PatristicTradition | null
+  document_type: DocumentType | null
+  // Campos canônicos e metadados de documento
+  canonical_author: string | null
+  canonical_title: string | null
+  pope: string | null
+  document_year: number | null
+  is_ecumenical: boolean | null
+  document_status: string | null
+}
+
+// ─── Catálogo de autores (API /authors/catalog) ───────────────────────────────
+
+export interface AuthorCatalogEntry {
+  name: string
+  tradition: 'grega' | 'latina' | 'oriental'
+  collection: 'PG' | 'PL' | 'PO'
+  book_count: number
+  chunk_count: number
+  books: Book[]
+}
+
+// ─── Estrutura organizada da biblioteca (client-side) ─────────────────────────
+
+export interface AuthorWork {
+  title: string
+  books: Book[]
+}
+
+export interface AuthorEntry {
+  author: string
+  works: AuthorWork[]
+}
+
+export interface LibraryStructure {
+  patristica: Record<PatristicTradition, Book[]>
+  obras_por_autor: AuthorEntry[]
+  documentos: Record<DocumentType, Book[]>
 }

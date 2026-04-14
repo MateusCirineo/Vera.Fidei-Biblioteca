@@ -9,10 +9,10 @@ const config: Record<
     text: 'text-green-300',
     label: 'Confirmada',
   },
-  CONFIRMADA_TRADUCAO: {
+  CORRESPONDENCIA_FORTE: {
     bg: 'bg-blue-900/40',
     text: 'text-blue-300',
-    label: 'Confirmada (tradução)',
+    label: 'Forte correspondência',
   },
   ATRIBUICAO_DUVIDOSA: {
     bg: 'bg-amber-900/40',

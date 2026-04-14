@@ -1,12 +1,16 @@
 'use client'
 
-import { getPdfUrl } from '@/lib/api'
 import type { MatchReference } from '@/lib/types'
+import { getPdfUrl } from '@/lib/api'
 
 export default function MatchReferenceCard({
   reference,
+  quote,
+  fallbackQuote,
 }: {
   reference: MatchReference
+  quote?: string
+  fallbackQuote?: string
 }) {
   const isPrimary = reference.is_primary_source
 
@@ -20,10 +24,23 @@ export default function MatchReferenceCard({
   if (reference.chapter_or_section) locationParts.push(reference.chapter_or_section)
   if (reference.pdf_page) locationParts.push(`p. ${reference.pdf_page}`)
 
-  function openPdf() {
+  function openPdfViewer() {
     if (!reference.pdf_file_id) return
-    const url = getPdfUrl(reference.pdf_file_id, reference.pdf_page)
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const fileUrl           = getPdfUrl(reference.pdf_file_id)   // URL limpa, sem âncora de página
+    const page              = reference.pdf_page ?? 1
+    const safeQuote         = (quote ?? '').slice(0, 800)
+    // Recorte central do fallback: evita transições de chunk nas bordas, mais estável para highlight
+    const fb     = fallbackQuote ?? ''
+    const fbMid  = Math.floor(fb.length / 2)
+    const fbHalf = 200
+    const safeFallbackQuote = fb.slice(Math.max(0, fbMid - fbHalf), fbMid + fbHalf)
+    const params            = new URLSearchParams({
+      file: fileUrl,
+      page: String(page),
+      ...(safeQuote         ? { quote:         safeQuote         } : {}),
+      ...(safeFallbackQuote ? { fallbackQuote: safeFallbackQuote } : {}),
+    })
+    window.open(`/pdf-viewer.html?${params.toString()}`, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -93,14 +110,10 @@ export default function MatchReferenceCard({
       {/* Open PDF button */}
       {reference.pdf_file_id && (
         <button
-          onClick={openPdf}
+          onClick={openPdfViewer}
           className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
         >
-          <svg
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="w-3.5 h-3.5"
-          >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
             <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
             <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
           </svg>

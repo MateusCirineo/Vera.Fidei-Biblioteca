@@ -8,7 +8,7 @@ from utils.language import classify_book
 
 
 class BookCreate(BaseModel):
-    collection: str
+    collection: str | None = None
     title: str
     author: str
     language: str
@@ -31,7 +31,7 @@ class BookCreate(BaseModel):
 
     @model_validator(mode="after")
     def auto_classify(self) -> "BookCreate":
-        if self.library_section is None:
+        if self.library_section is None and self.collection is not None:
             section, tradition, doctype = classify_book(
                 self.collection, self.language, self.is_primary_source
             )
@@ -41,9 +41,21 @@ class BookCreate(BaseModel):
         return self
 
 
+class BookFileResponse(BaseModel):
+    id: int
+    book_id: int
+    original_filename: str
+    volume_number: int | None
+    editor: str | None
+    translator: str | None
+    created_at: datetime.datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class BookResponse(BaseModel):
     id: int
-    collection: str
+    collection: str | None
     title: str
     author: str
     language: str
@@ -65,15 +77,8 @@ class BookResponse(BaseModel):
     is_ecumenical: bool | None
     document_status: str | None
 
-
-class BookFileResponse(BaseModel):
-    id: int
-    book_id: int
-    original_filename: str
-    volume_number: int | None
-    editor: str | None
-    translator: str | None
-    created_at: datetime.datetime
+    # Arquivos vinculados (populados via GET /books/{id})
+    files: list[BookFileResponse] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,3 +90,24 @@ class IngestPDFResponse(BaseModel):
     volume_number: int | None
     editor: str | None
     translator: str | None
+
+
+class AutoIngestResponse(BaseModel):
+    id: int
+    file_id: int | None
+    title: str
+    author: str
+    collection: str | None
+    language: str
+    canonical_author: str | None
+    canonical_title: str | None
+    library_section: str | None
+    patristic_tradition: str | None
+    chunks_indexed: int
+    status: str  # "processing" | "done" | "error"
+
+
+class BookStatusResponse(BaseModel):
+    book_id: int
+    status: str   # "processing" | "done" | "error"
+    chunks_indexed: int

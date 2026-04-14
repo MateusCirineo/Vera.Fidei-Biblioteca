@@ -28,19 +28,26 @@ class Chunker:
         return markers
 
     def _split(self, full_text: str, page_offsets: list[dict], column_markers: list[dict], meta: dict) -> list[dict]:
-        words = full_text.split()
+        # Constrói lista de (palavra, posição_real) usando regex — evita o bug
+        # de full_text.find() que retornava sempre a 1ª ocorrência da palavra.
+        word_spans = [(m.group(), m.start()) for m in re.finditer(r'\S+', full_text)]
+
         step = CHUNK_SIZE - CHUNK_OVERLAP
         chunks = []
 
-        for i in range(0, len(words), step):
-            chunk_words = words[i: i + CHUNK_SIZE]
-            if not chunk_words:
+        for i in range(0, len(word_spans), step):
+            slice_ = word_spans[i: i + CHUNK_SIZE]
+            if not slice_:
                 break
 
-            text = re.sub(r'\s+', ' ', " ".join(chunk_words)).strip()
-            char_start = full_text.find(chunk_words[0])
-            char_end = char_start + len(text)
+            words_text = [w for w, _ in slice_]
+            text = re.sub(r'\s+', ' ', " ".join(words_text)).strip()
 
+            # Posição real do primeiro e último token do chunk no full_text
+            char_start = slice_[0][1]
+            char_end   = slice_[-1][1] + len(slice_[-1][0])
+
+            # Página: última entrada de page_offsets cujo offset <= char_start
             page_num = 1
             for po in page_offsets:
                 if po["offset"] <= char_start:

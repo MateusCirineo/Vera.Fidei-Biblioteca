@@ -1,10 +1,11 @@
 """
 Detecção de autores patrísticos e normalização de títulos canônicos.
 
-O número exato de Padres da Igreja varia por tradição e critério de inclusão
-(Católica Romana: ~70-80; Ortodoxa: ~88; Anglican: varia).
-Esta lista segue o corpus patrístico clássico reconhecido pelo magistério católico,
-organizado por período e tradição.
+O corpus patrístico clássico reconhecido pelo magistério católico romano inclui
+autores do séc. I ao VIII (Ocidente) e até João Damasceno (†749) no Oriente.
+Alguns autores de ortodoxia contestada (Orígenes, Tertuliano, Evágrio Pôntico,
+Teodoro de Mopsuéstia) são incluídos por fazerem parte integrante do corpus
+patrístico estudado.
 
 Limitações documentadas:
   - PDFs coletânea podem retornar o autor mais citado, não o principal
@@ -19,146 +20,21 @@ from __future__ import annotations
 import re
 
 
-# ─── Banco de dados de autores ─────────────────────────────────────────────────
-# Total: 69 autores organizados por período e tradição
+# ─── Banco de dados de autores (ordem alfabética) ─────────────────────────────
 
 PATRISTIC_AUTHORS: dict[str, dict] = {
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PADRES APOSTÓLICOS (séc. I-II)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São Clemente de Roma": {
-        "patterns": [r"clement.*roman", r"clemente.*roma", r"clemens\s+rom"],
-        "works": [r"ad\s+corinthios.*clem", r"epistul.*clement.*rom"],
+    "Afraates, o Persa": {
+        "patterns": [r"aphrahat", r"afraates", r"afrahat", r"persian\s+sage"],
+        "works": [r"demonstrationes.*aphrahat"],
+        "collection": "PO",
+        "tradition": "oriental",
+    },
+    "Aristides de Atenas": {
+        "patterns": [r"aristid.*athen", r"aristides.*atenas"],
+        "works": [r"apologi.*aristid"],
         "collection": "PG",
         "tradition": "grega",
-    },
-    "Santo Inácio de Antioquia": {
-        "patterns": [r"ignati[uo]", r"inácio.*antioch", r"ignace.*antioch"],
-        "works": [r"ad\s+ephes.*ignati", r"ad\s+romanos.*ignati",
-                  r"ad\s+smyrn", r"ad\s+polycarp.*ignati"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Policarpo de Esmirna": {
-        "patterns": [r"polycarp", r"policarpo"],
-        "works": [r"ad\s+philippens.*polycarp", r"martyrium.*polycarp"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Papias de Hierápolis": {
-        "patterns": [r"papias", r"papías"],
-        "works": [r"expositio.*papias", r"logion.*kyriakes.*papias"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Hermas": {
-        "patterns": [r"\bhermas\b", r"pastor.*hermas"],
-        "works": [r"pastor.*hermas", r"shepherd.*hermas", r"poimen.*herma"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # APOLOGISTAS GREGOS (séc. II)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São Justino Mártir": {
-        "patterns": [r"justinus.*martyr", r"justino.*mártir", r"justin.*martyr"],
-        "works": [r"apologia.*justin", r"dialogus.*tryph"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Atenágoras de Atenas": {
-        "patterns": [r"athenagoras", r"atenágoras"],
-        "works": [r"legatio.*christian", r"de\s+resurrectione.*athenag"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Melito de Sardes": {
-        "patterns": [r"melito", r"melitão"],
-        "works": [r"peri\s+pascha", r"homili.*pascha.*melit"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Teófilo de Antioquia": {
-        "patterns": [r"theophil.*antioch", r"teófilo.*antioch"],
-        "works": [r"ad\s+autolycum"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Taciano, o Sírio": {
-        "patterns": [r"\btatian", r"\btaciano\b"],
-        "works": [r"diatessaron", r"oratio.*graecos.*tati"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PADRES ANTI-GNÓSTICOS E ALEXANDRINOS (séc. II-III)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "Santo Ireneu de Lião": {
-        "patterns": [r"irenaeus", r"ireneu", r"irén[eé]"],
-        "works": [r"adversus\s+haereses", r"contra\s+haeres", r"demonstratio.*apostol"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Clemente de Alexandria": {
-        "patterns": [r"clement\w*\s+alex", r"clemens\s+alex"],
-        "works": [r"stromata", r"protrepticus", r"paedagogus"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Orígenes": {
-        "patterns": [r"origen[es]?", r"[oó]rigenes"],
-        "works": [r"de\s+principiis", r"contra\s+celsum", r"hexapla", r"peri\s+archon"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Hipólito de Roma": {
-        "patterns": [r"hippolyt", r"hipólito.*roma"],
-        "works": [r"refutatio.*omnium.*haeres", r"traditio.*apostolica", r"de\s+antichristo.*hippol"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PADRES LATINOS (séc. II-III)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "Minúcio Félix": {
-        "patterns": [r"minucius\s+felix", r"minúcio\s+félix"],
-        "works": [r"octavius"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "Tertuliano": {
-        "patterns": [r"tertullian", r"tertulian"],
-        "works": [r"apologetic", r"de\s+praescriptione", r"adversus\s+praxean",
-                  r"de\s+anima.*tertul", r"de\s+carne\s+christi"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Cipriano de Cartago": {
-        "patterns": [r"cyprianus", r"cipriano", r"\bcartag"],
-        "works": [r"de\s+unitate\s+eccles", r"de\s+lapsis",
-                  r"de\s+dominica\s+oratione", r"de\s+mortalitate"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "Novaciano": {
-        "patterns": [r"novatian", r"novaciano"],
-        "works": [r"de\s+trinitate.*novat"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "Lactâncio": {
-        "patterns": [r"lactanti[uo]", r"lactâncio"],
-        "works": [r"divinae\s+institutiones", r"de\s+mortibus\s+persecutorum", r"de\s+ira\s+dei"],
-        "collection": "PL",
-        "tradition": "latina",
     },
     "Arnóbio de Sica": {
         "patterns": [r"arnobius.*sic", r"arnóbio.*sica", r"arnobius.*senior"],
@@ -166,263 +42,11 @@ PATRISTIC_AUTHORS: dict[str, dict] = {
         "collection": "PL",
         "tradition": "latina",
     },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PADRES DO SÉC. III (ORIENTE)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São Dionísio de Alexandria": {
-        "patterns": [r"dionys.*bishop.*alex", r"dionísio.*bispo.*alex",
-                     r"dionysius\s+great"],
-        "works": [r"epistul.*dionys.*alex"],
+    "Atenágoras de Atenas": {
+        "patterns": [r"athenagoras", r"atenágoras"],
+        "works": [r"legatio.*christian", r"de\s+resurrectione.*athenag"],
         "collection": "PG",
         "tradition": "grega",
-    },
-    "São Gregório Taumaturgo": {
-        "patterns": [r"gregor.*thaumaturg", r"gregório.*taumaturgo", r"gregory.*wonder"],
-        "works": [r"panegyricus.*origen", r"de\s+fide.*gregor.*thaumaturg"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Metódio de Olimpo": {
-        "patterns": [r"methodius.*olymp", r"metódio.*olimpo"],
-        "works": [r"symposium.*methodius", r"de\s+resurrectione.*methodius"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Afraates, o Persa": {
-        "patterns": [r"aphrahat", r"afraates", r"afrahat", r"persian\s+sage"],
-        "works": [r"demonstrationes.*aphrahat"],
-        "collection": "PO",
-        "tradition": "oriental",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # ERA DE OURO — SÉC. IV
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "Eusébio de Cesareia": {
-        "patterns": [r"eusebius.*caes", r"eusébio.*cesar", r"eusebius\s+pamphili"],
-        "works": [r"historia\s+ecclesiastica", r"praeparatio\s+evangelica",
-                  r"vita\s+constantini"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Alexandre de Alexandria": {
-        "patterns": [r"alexander\s+of\s+alex", r"alexandre.*bispo.*alex",
-                     r"alexandr.*patriarc.*alex"],
-        "works": [r"epistul.*alexandr.*alex"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Atanásio de Alexandria": {
-        "patterns": [r"athanas", r"atan[aá]sio"],
-        "works": [r"de\s+incarnatione", r"contra\s+arian", r"vita\s+antonii",
-                  r"epistul\s+festales"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Cirilo de Jerusalém": {
-        "patterns": [r"cyril.*jerus", r"cirilo.*jerusal"],
-        "works": [r"catecheses.*cyril", r"mystagog.*cyril"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Hilário de Poitiers": {
-        "patterns": [r"hilari[uo].*pictav", r"hilário.*poitiers", r"hilary.*poitiers"],
-        "works": [r"de\s+trinitate.*hilar", r"in\s+matthaeum.*hilar"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Epifânio de Salamina": {
-        "patterns": [r"epiphanius", r"epifânio"],
-        "works": [r"panarion", r"ancoratus"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Basílio Magno": {
-        "patterns": [r"basilius", r"bas[ií]lio", r"basil.*magn", r"basil.*caesare"],
-        "works": [r"hexaemeron.*basil", r"de\s+spiritu\s+sancto",
-                  r"contra\s+eunomium.*basil", r"regulae.*basil"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Gregório Nazianzeno": {
-        "patterns": [r"gregor\w+\s+nazianzen", r"greg[oó]rio\s+nazianzeno",
-                     r"gregory.*theolog"],
-        "works": [r"orationes\s+theologicae", r"carmen.*gregor.*naz"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Gregório de Nissa": {
-        "patterns": [r"gregor\w+\s+nyss", r"greg[oó]rio\s+de\s+nissa",
-                     r"gregory.*nyssa"],
-        "works": [r"de\s+vita\s+moysis", r"in\s+canticum.*gregor.*niss",
-                  r"de\s+anima\s+et\s+resurrectione"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Ambrósio de Milão": {
-        "patterns": [r"ambrosius", r"ambr[oó]sio", r"\bambrose\b"],
-        "works": [r"de\s+officiis.*ambros", r"de\s+mysteriis",
-                  r"de\s+sacramentis", r"hexaemeron.*ambros"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Efrém Sírio": {
-        "patterns": [r"ephraem", r"ephrem", r"efr[eé]m"],
-        "works": [r"hymni\s+de\s+fide", r"hymni\s+de\s+paradiso", r"sermo.*ephrem"],
-        "collection": "PO",
-        "tradition": "oriental",
-    },
-    "São João Crisóstomo": {
-        "patterns": [r"chrysostom", r"cris[oó]stom", r"ioann.{0,5}chrysost"],
-        "works": [r"homili.*antioch", r"de\s+sacerdot",
-                  r"in\s+matth.*chrysost", r"in\s+johan.*chrysost"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Jerônimo": {
-        "patterns": [r"hieronymus", r"\bjerome\b", r"jer[oô]nimo"],
-        "works": [r"de\s+viris\s+illustr", r"adversus\s+jovinian",
-                  r"hebraic", r"vulgatam"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Paulino de Nola": {
-        "patterns": [r"paulinus.*nola", r"paulino.*nola"],
-        "works": [r"carmina.*paulin.*nola", r"epistul.*paulin.*nola"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "Santo Agostinho de Hipona": {
-        "patterns": [r"august[iu]n", r"agostinho", r"\bhippo\b"],
-        "works": [r"confessione", r"civitate\s+dei", r"de\s+trinitate",
-                  r"enchirid", r"de\s+doctrina", r"retract",
-                  r"de\s+libero\s+arbitrio"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Cromácio de Aquileia": {
-        "patterns": [r"chromati[uo]", r"cromácio"],
-        "works": [r"tractatus.*chromat", r"sermo.*chromat"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SÉC. V
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São Cirilo de Alexandria": {
-        "patterns": [r"cyril.*alexandr", r"cirilo.*alexandr"],
-        "works": [r"in\s+iohannem.*cyril", r"contra\s+nestor",
-                  r"de\s+adoratione", r"dialogus.*trinitat.*cyril"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "Teodoreto de Ciro": {
-        "patterns": [r"theodoret", r"teodoreto"],
-        "works": [r"historia\s+ecclesiastica.*theodoret",
-                  r"haereticarum.*fabularium", r"de\s+providentia.*theodoret"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Proclo de Constantinopla": {
-        "patterns": [r"proclus.*constanti", r"proclo.*constanti"],
-        "works": [r"sermo.*procl", r"tomus.*procl"],
-        "collection": "PG",
-        "tradition": "grega",
-    },
-    "São Vicente de Lérins": {
-        "patterns": [r"vincenti[uo].*lerin", r"vicente.*lérins", r"vincent.*lerins"],
-        "works": [r"commonitorium"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Próspero de Aquitânia": {
-        "patterns": [r"prosper.*aquitan", r"próspero.*aquitânia"],
-        "works": [r"contra\s+collatorem", r"de\s+gratia.*prosper"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São João Cassiano": {
-        "patterns": [r"cassian[uo]", r"john\s+cassian"],
-        "works": [r"collationes", r"de\s+institutis"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Leão Magno": {
-        "patterns": [r"leo\s+magn", r"le[aã]o\s+magno", r"\bleo\s+i\b", r"pope\s+leo"],
-        "works": [r"tomus\s+ad\s+flavian", r"sermo.*leo.*magn"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Pedro Crisólogo": {
-        "patterns": [r"petrus\s+chrysolog", r"pedro\s+crisólogo",
-                     r"peter\s+chrysolog"],
-        "works": [r"sermo.*chrysolog"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Sulpício Severo": {
-        "patterns": [r"sulpici[uo].*sever", r"sulpício\s+severo"],
-        "works": [r"vita\s+martini", r"chronica.*sulpic"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "Quodvultdeus": {
-        "patterns": [r"quodvultdeus"],
-        "works": [r"de\s+promissionibus", r"sermo.*quodvult"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Máximo de Turim": {
-        "patterns": [r"maxim[uo].*taur", r"máximo.*turim"],
-        "works": [r"sermo.*maxim.*taur"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "Salviano de Marselha": {
-        "patterns": [r"salvian[uo].*massil", r"salviano.*marselha",
-                     r"salvian.*marseill"],
-        "works": [r"de\s+gubernatione\s+dei", r"epistul.*salvian"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SÉC. V-VI (ORIENTAL)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São Tiago de Saruge": {
-        "patterns": [r"jacob.*sarug", r"tiago.*saruge", r"james.*sarug"],
-        "works": [r"memre.*jakob.*sarug", r"homili.*jakob.*sarug"],
-        "collection": "PO",
-        "tradition": "oriental",
-    },
-    "Filoxênio de Mabugue": {
-        "patterns": [r"philoxen", r"filoxênio"],
-        "works": [r"discours.*philoxen", r"epistul.*philoxen"],
-        "collection": "PO",
-        "tradition": "oriental",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SÉC. VI
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São Fulgêncio de Ruspe": {
-        "patterns": [r"fulgenti[uo].*ruspe", r"fulgêncio.*ruspe"],
-        "works": [r"de\s+fide.*fulgent", r"ad\s+monimum"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Cesário de Arles": {
-        "patterns": [r"caesari[uo].*arles", r"cesário.*arles"],
-        "works": [r"sermo.*caesar.*arles", r"regula.*caesari"],
-        "collection": "PL",
-        "tradition": "latina",
     },
     "Boécio": {
         "patterns": [r"boeth[iu]", r"bo[eé]cio"],
@@ -437,31 +61,169 @@ PATRISTIC_AUTHORS: dict[str, dict] = {
         "collection": "PL",
         "tradition": "latina",
     },
-    "São Gregório Magno": {
-        "patterns": [r"gregor\w+\s+magn", r"greg[oó]rio\s+magno",
-                     r"gregory\s+great"],
-        "works": [r"moralia\s+in\s+iob", r"regula\w*\s+pastoralis",
-                  r"dialogu.*gregor", r"registrum\s+epistul"],
+    "Clemente de Alexandria": {
+        "patterns": [r"clement\w*\s+alex", r"clemens\s+alex"],
+        "works": [r"stromata", r"protrepticus", r"paedagogus"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Dídimo, o Cego": {
+        "patterns": [r"didymus.*blind", r"dídimo.*cego", r"didimus.*alex"],
+        "works": [r"de\s+trinitate.*didym", r"in\s+genesim.*didym",
+                  r"contra\s+manichaeos.*didym"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Ênodio de Pavia": {
+        "patterns": [r"ennodius", r"ênodio.*pavia", r"ennodio.*pavia"],
+        "works": [r"vita.*epiphanii.*ennod", r"opuscula.*ennod"],
         "collection": "PL",
         "tradition": "latina",
     },
-    "São Leandro de Sevilha": {
-        "patterns": [r"leandrus.*hispal", r"leandro.*sevilha"],
-        "works": [r"de\s+institutione\s+virginum.*leand"],
+    "Eusébio de Cesareia": {
+        "patterns": [r"eusebius.*caes", r"eusébio.*cesar", r"eusebius\s+pamphili"],
+        "works": [r"historia\s+ecclesiastica", r"praeparatio\s+evangelica",
+                  r"vita\s+constantini"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Evágrio Pôntico": {
+        "patterns": [r"evagri[uo].*pont", r"evágrio.*pôntico",
+                     r"evagrius.*pont"],
+        "works": [r"practicus.*evagr", r"kephalaia.*evagr",
+                  r"de\s+oratione.*evagr"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Filoxênio de Mabugue": {
+        "patterns": [r"philoxen", r"filoxênio"],
+        "works": [r"discours.*philoxen", r"epistul.*philoxen"],
+        "collection": "PO",
+        "tradition": "oriental",
+    },
+    "Hermas": {
+        "patterns": [r"\bhermas\b", r"pastor.*hermas"],
+        "works": [r"pastor.*hermas", r"shepherd.*hermas", r"poimen.*herma"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Hesíquio de Jerusalém": {
+        "patterns": [r"hesychi[uo].*jerus", r"hesíquio.*jerusal",
+                     r"hesychius.*jerus"],
+        "works": [r"homili.*hesych", r"commentari.*hesych"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Lactâncio": {
+        "patterns": [r"lactanti[uo]", r"lactâncio"],
+        "works": [r"divinae\s+institutiones", r"de\s+mortibus\s+persecutorum",
+                  r"de\s+ira\s+dei"],
         "collection": "PL",
         "tradition": "latina",
     },
-    "São Gregório de Tours": {
-        "patterns": [r"gregor.*turon", r"gregório.*tours"],
-        "works": [r"historia\s+francorum", r"de\s+gloria\s+martyrum"],
+    "Marco, o Monge": {
+        "patterns": [r"marcus.*monachus", r"marco.*monge",
+                     r"mark.*monk", r"mark.*ascet"],
+        "works": [r"de\s+lege\s+spirituali", r"de\s+his\s+qui\s+putant",
+                  r"epistul.*marco.*monge"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Minúcio Félix": {
+        "patterns": [r"minucius\s+felix", r"minúcio\s+félix"],
+        "works": [r"octavius"],
         "collection": "PL",
         "tradition": "latina",
     },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SÉC. VII
-    # ═══════════════════════════════════════════════════════════════════════════
-
+    "Nilo de Âncira": {
+        "patterns": [r"nil[uo].*ancyr", r"nilo.*âncira", r"nilus.*ancyr"],
+        "works": [r"de\s+oratione.*nil", r"epistul.*nili",
+                  r"de\s+monastica.*exercit"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Novaciano": {
+        "patterns": [r"novatian", r"novaciano"],
+        "works": [r"de\s+trinitate.*novat"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Orígenes": {
+        "patterns": [r"origen[es]?", r"[oó]rigenes"],
+        "works": [r"de\s+principiis", r"contra\s+celsum", r"hexapla", r"peri\s+archon"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Papias de Hierápolis": {
+        "patterns": [r"papias", r"papías"],
+        "works": [r"expositio.*papias", r"logion.*kyriakes.*papias"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Pseudo-Dionísio Areopagita": {
+        "patterns": [r"dionysi[uo].*areopag", r"dionísio.*areopag",
+                     r"pseudo.*dionysi"],
+        "works": [r"de\s+caelesti\s+hierarchia",
+                  r"de\s+ecclesiastica\s+hierarchia",
+                  r"de\s+mystica\s+theologia", r"de\s+divinis\s+nominibus"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Quodvultdeus": {
+        "patterns": [r"quodvultdeus"],
+        "works": [r"de\s+promissionibus", r"sermo.*quodvult"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Rufino de Aquileia": {
+        "patterns": [r"rufin[uo].*aquilei", r"rufino.*aquileia",
+                     r"rufinus.*aquil"],
+        "works": [r"historia\s+ecclesiastica.*rufin",
+                  r"de\s+principiis.*rufin"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Salviano de Marselha": {
+        "patterns": [r"salvian[uo].*massil", r"salviano.*marselha",
+                     r"salvian.*marseill"],
+        "works": [r"de\s+gubernatione\s+dei", r"epistul.*salvian"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Santo Agostinho de Hipona": {
+        "patterns": [r"august[iu]n", r"agostinho", r"\bhippo\b"],
+        "works": [r"confessione", r"civitate\s+dei", r"de\s+trinitate",
+                  r"enchirid", r"de\s+doctrina", r"retract",
+                  r"de\s+libero\s+arbitrio"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Santo Antão do Egito": {
+        "patterns": [r"antonius.*aegypt", r"antão.*egito", r"anthony.*great",
+                     r"antony.*desert"],
+        "works": [r"vita\s+antonii", r"epistulae.*antonii"],
+        "collection": "PG",
+        "tradition": "oriental",
+    },
+    "Santo Ildefonso de Toledo": {
+        "patterns": [r"ildefons[uo]", r"ildefonso.*toledo"],
+        "works": [r"de\s+virginitate.*ildefons"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Santo Inácio de Antioquia": {
+        "patterns": [r"ignati[uo]", r"inácio.*antioch", r"ignace.*antioch"],
+        "works": [r"ad\s+ephes.*ignati", r"ad\s+romanos.*ignati",
+                  r"ad\s+smyrn", r"ad\s+polycarp.*ignati"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Santo Ireneu de Lião": {
+        "patterns": [r"irenaeus", r"ireneu", r"irén[eé]"],
+        "works": [r"adversus\s+haereses", r"contra\s+haeres", r"demonstratio.*apostol"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
     "Santo Isidoro de Sevilha": {
         "patterns": [r"isidor[uo].*hispal", r"isidoro.*sevilha",
                      r"isidore.*seville"],
@@ -470,24 +232,205 @@ PATRISTIC_AUTHORS: dict[str, dict] = {
         "collection": "PL",
         "tradition": "latina",
     },
-    "Santo Ildefonso de Toledo": {
-        "patterns": [r"ildefons[uo]", r"ildefonso.*toledo"],
-        "works": [r"de\s+virginitate.*ildefons"],
-        "collection": "PL",
-        "tradition": "latina",
-    },
-    "São Máximo Confessor": {
-        "patterns": [r"maxim[uo].*confessor", r"máximo.*confessor"],
-        "works": [r"mystagogia.*maxim", r"centuria\s+de\s+caritate",
-                  r"ambigua.*maxim"],
+    "São Alexandre de Alexandria": {
+        "patterns": [r"alexander\s+of\s+alex", r"alexandre.*bispo.*alex",
+                     r"alexandr.*patriarc.*alex"],
+        "works": [r"epistul.*alexandr.*alex"],
         "collection": "PG",
         "tradition": "grega",
     },
-    "Pseudo-Dionísio Areopagita": {
-        "patterns": [r"dionysi[uo].*areopag", r"dionísio.*areopag",
-                     r"pseudo.*dionysi"],
-        "works": [r"de\s+caelesti\s+hierarchia", r"de\s+ecclesiastica\s+hierarchia",
-                  r"de\s+mystica\s+theologia", r"de\s+divinis\s+nominibus"],
+    "São Ambrósio de Milão": {
+        "patterns": [r"ambrosius", r"ambr[oó]sio", r"\bambrose\b"],
+        "works": [r"de\s+officiis.*ambros", r"de\s+mysteriis",
+                  r"de\s+sacramentis", r"hexaemeron.*ambros"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Amfilóquio de Icônio": {
+        "patterns": [r"amphilochi[uo]", r"amfilóquio"],
+        "works": [r"iambi.*amphiloch", r"epistul.*amphiloch"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São André de Creta": {
+        "patterns": [r"andrew.*cret", r"andré.*creta", r"andreas.*cret"],
+        "works": [r"canon.*magnus.*andrea", r"sermo.*andrea.*cret"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Atanásio de Alexandria": {
+        "patterns": [r"athanas", r"atan[aá]sio"],
+        "works": [r"de\s+incarnatione", r"contra\s+arian", r"vita\s+antonii",
+                  r"epistul\s+festales"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Barnabé": {
+        "patterns": [r"barnab[ae]", r"barnabé", r"pseudo.*barnab"],
+        "works": [r"epistula.*barnab", r"epistle.*barnab"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Basílio Magno": {
+        "patterns": [r"basilius", r"bas[ií]lio", r"basil.*magn",
+                     r"basil.*caesare"],
+        "works": [r"hexaemeron.*basil", r"de\s+spiritu\s+sancto",
+                  r"contra\s+eunomium.*basil", r"regulae.*basil"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Beda, o Venerável": {
+        "patterns": [r"beda.*venerab", r"bede.*venerable", r"\bbeda\b",
+                     r"\bbede\b"],
+        "works": [r"historia\s+ecclesiastica.*gentis\s+anglorum",
+                  r"de\s+temporum\s+ratione", r"in\s+lucam.*beda"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Bento de Núrsia": {
+        "patterns": [r"benedict.*nurs", r"bento.*núrsia", r"benedikt.*nurs"],
+        "works": [r"regula.*benedicti", r"regula\s+monasteriorum"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Cesário de Arles": {
+        "patterns": [r"caesari[uo].*arles", r"cesário.*arles"],
+        "works": [r"sermo.*caesar.*arles", r"regula.*caesari"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Cipriano de Cartago": {
+        "patterns": [r"cyprianus", r"cipriano", r"\bcartag"],
+        "works": [r"de\s+unitate\s+eccles", r"de\s+lapsis",
+                  r"de\s+dominica\s+oratione", r"de\s+mortalitate"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Cirilo de Alexandria": {
+        "patterns": [r"cyril.*alexandr", r"cirilo.*alexandr"],
+        "works": [r"in\s+iohannem.*cyril", r"contra\s+nestor",
+                  r"de\s+adoratione", r"dialogus.*trinitat.*cyril"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Cirilo de Jerusalém": {
+        "patterns": [r"cyril.*jerus", r"cirilo.*jerusal"],
+        "works": [r"catecheses.*cyril", r"mystagog.*cyril"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Clemente de Roma": {
+        "patterns": [r"clement.*roman", r"clemente.*roma", r"clemens\s+rom"],
+        "works": [r"ad\s+corinthios.*clem", r"epistul.*clement.*rom"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Columbano": {
+        "patterns": [r"columban[uo]", r"columbanus", r"kolumban"],
+        "works": [r"regula.*columban", r"instructiones.*columban",
+                  r"epistul.*columban"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Cromácio de Aquileia": {
+        "patterns": [r"chromati[uo]", r"cromácio"],
+        "works": [r"tractatus.*chromat", r"sermo.*chromat"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Dionísio de Alexandria": {
+        "patterns": [r"dionys.*bishop.*alex", r"dionísio.*bispo.*alex",
+                     r"dionysius\s+great"],
+        "works": [r"epistul.*dionys.*alex"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Efrém Sírio": {
+        "patterns": [r"ephraem", r"ephrem", r"efr[eé]m"],
+        "works": [r"hymni\s+de\s+fide", r"hymni\s+de\s+paradiso",
+                  r"sermo.*ephrem"],
+        "collection": "PO",
+        "tradition": "oriental",
+    },
+    "São Epifânio de Salamina": {
+        "patterns": [r"epiphanius", r"epifânio"],
+        "works": [r"panarion", r"ancoratus"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Fulgêncio de Ruspe": {
+        "patterns": [r"fulgenti[uo].*ruspe", r"fulgêncio.*ruspe"],
+        "works": [r"de\s+fide.*fulgent", r"ad\s+monimum"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Gaudêncio de Bréscia": {
+        "patterns": [r"gaudenti[uo].*bresci", r"gaudêncio.*bréscia",
+                     r"gaudentius.*brix"],
+        "works": [r"tractatus.*gaudent", r"sermo.*gaudent"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Germano de Constantinopla": {
+        "patterns": [r"germanus.*constanti", r"germano.*constanti"],
+        "works": [r"historia.*mystica.*germa", r"sermo.*germa.*constanti"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Gregório de Nissa": {
+        "patterns": [r"gregor\w+\s+nyss", r"greg[oó]rio\s+de\s+nissa",
+                     r"gregory.*nyssa"],
+        "works": [r"de\s+vita\s+moysis", r"in\s+canticum.*gregor.*niss",
+                  r"de\s+anima\s+et\s+resurrectione"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Gregório de Tours": {
+        "patterns": [r"gregor.*turon", r"gregório.*tours"],
+        "works": [r"historia\s+francorum", r"de\s+gloria\s+martyrum"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Gregório Magno": {
+        "patterns": [r"gregor\w+\s+magn", r"greg[oó]rio\s+magno",
+                     r"gregory\s+great"],
+        "works": [r"moralia\s+in\s+iob", r"regula\w*\s+pastoralis",
+                  r"dialogu.*gregor", r"registrum\s+epistul"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Gregório Nazianzeno": {
+        "patterns": [r"gregor\w+\s+nazianzen", r"greg[oó]rio\s+nazianzeno",
+                     r"gregory.*theolog"],
+        "works": [r"orationes\s+theologicae", r"carmen.*gregor.*naz"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Gregório Taumaturgo": {
+        "patterns": [r"gregor.*thaumaturg", r"gregório.*taumaturgo",
+                     r"gregory.*wonder"],
+        "works": [r"panegyricus.*origen", r"de\s+fide.*gregor.*thaumaturg"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Hilário de Arles": {
+        "patterns": [r"hilari[uo].*arelat", r"hilário.*arles",
+                     r"hilary.*arles"],
+        "works": [r"vita\s+honorati", r"sermo.*hilar.*arles"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Hilário de Poitiers": {
+        "patterns": [r"hilari[uo].*pictav", r"hilário.*poitiers",
+                     r"hilary.*poitiers"],
+        "works": [r"de\s+trinitate.*hilar", r"in\s+matthaeum.*hilar"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Hipólito de Roma": {
+        "patterns": [r"hippolyt", r"hipólito.*roma"],
+        "works": [r"refutatio.*omnium.*haeres", r"traditio.*apostolica",
+                  r"de\s+antichristo.*hippol"],
         "collection": "PG",
         "tradition": "grega",
     },
@@ -497,27 +440,30 @@ PATRISTIC_AUTHORS: dict[str, dict] = {
         "collection": "PO",
         "tradition": "oriental",
     },
-    "São Macário do Egito": {
-        "patterns": [r"macari[uo].*aegypt", r"macário.*egito",
-                     r"macarius.*egypt"],
-        "works": [r"homiliae\s+spirituales", r"de\s+elevatione\s+mentis.*macari"],
-        "collection": "PO",
-        "tradition": "oriental",
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SÉC. VII-VIII
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    "São André de Creta": {
-        "patterns": [r"andrew.*cret", r"andré.*creta", r"andreas.*cret"],
-        "works": [r"canon.*magnus.*andrea", r"sermo.*andrea.*cret"],
+    "São Isidoro de Pelúsio": {
+        "patterns": [r"isidor[uo].*pelus", r"isidoro.*pelúsio",
+                     r"isidore.*pelus"],
+        "works": [r"epistul.*isidor.*pelus"],
         "collection": "PG",
         "tradition": "grega",
     },
-    "São Germano de Constantinopla": {
-        "patterns": [r"germanus.*constanti", r"germano.*constanti"],
-        "works": [r"historia.*mystica.*germa", r"sermo.*germa.*constanti"],
+    "São Jerônimo": {
+        "patterns": [r"hieronymus", r"\bjerome\b", r"jer[oô]nimo"],
+        "works": [r"de\s+viris\s+illustr", r"adversus\s+jovinian",
+                  r"hebraic", r"vulgatam"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São João Cassiano": {
+        "patterns": [r"cassian[uo]", r"john\s+cassian"],
+        "works": [r"collationes", r"de\s+institutis"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São João Crisóstomo": {
+        "patterns": [r"chrysostom", r"cris[oó]stom", r"ioann.{0,5}chrysost"],
+        "works": [r"homili.*antioch", r"de\s+sacerdot",
+                  r"in\s+matth.*chrysost", r"in\s+johan.*chrysost"],
         "collection": "PG",
         "tradition": "grega",
     },
@@ -528,11 +474,165 @@ PATRISTIC_AUTHORS: dict[str, dict] = {
         "collection": "PG",
         "tradition": "oriental",
     },
-    "São Beda, o Venerável": {
-        "patterns": [r"beda.*venerab", r"bede.*venerable", r"\bbeda\b",
-                     r"\bbede\b"],
-        "works": [r"historia\s+ecclesiastica.*gentis\s+anglorum",
-                  r"de\s+temporum\s+ratione", r"in\s+lucam.*beda"],
+    "São Justino Mártir": {
+        "patterns": [r"justinus.*martyr", r"justino.*mártir", r"justin.*martyr"],
+        "works": [r"apologia.*justin", r"dialogus.*tryph"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Leandro de Sevilha": {
+        "patterns": [r"leandrus.*hispal", r"leandro.*sevilha"],
+        "works": [r"de\s+institutione\s+virginum.*leand"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Leão Magno": {
+        "patterns": [r"leo\s+magn", r"le[aã]o\s+magno", r"\bleo\s+i\b",
+                     r"pope\s+leo"],
+        "works": [r"tomus\s+ad\s+flavian", r"sermo.*leo.*magn"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Macário do Egito": {
+        "patterns": [r"macari[uo].*aegypt", r"macário.*egito",
+                     r"macarius.*egypt", r"macarius.*magn"],
+        "works": [r"homiliae\s+spirituales", r"apophthegmata.*macari"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Martinho de Braga": {
+        "patterns": [r"martin[uo].*braccar", r"martinho.*braga",
+                     r"martin.*braga"],
+        "works": [r"formula\s+vitae\s+honestae", r"de\s+correctione\s+rusticorum"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Máximo Confessor": {
+        "patterns": [r"maxim[uo].*confessor", r"máximo.*confessor"],
+        "works": [r"mystagogia.*maxim", r"centuria\s+de\s+caritate",
+                  r"ambigua.*maxim"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Máximo de Turim": {
+        "patterns": [r"maxim[uo].*taur", r"máximo.*turim"],
+        "works": [r"sermo.*maxim.*taur"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Melito de Sardes": {
+        "patterns": [r"melito", r"melitão"],
+        "works": [r"peri\s+pascha", r"homili.*pascha.*melit"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Metódio de Olimpo": {
+        "patterns": [r"methodius.*olymp", r"metódio.*olimpo"],
+        "works": [r"symposium.*methodius", r"de\s+resurrectione.*methodius"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Pacômio": {
+        "patterns": [r"pachomi[uo]", r"pacômio", r"pacomio"],
+        "works": [r"regula.*pachom", r"vita.*pachom", r"praecepta.*pachom"],
+        "collection": "PO",
+        "tradition": "oriental",
+    },
+    "São Paládio de Galácia": {
+        "patterns": [r"palladi[uo].*galat", r"paládio.*galácia",
+                     r"palladius.*lausiac"],
+        "works": [r"historia\s+lausiaca", r"dialogus.*chrysost.*pallad"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Paulino de Nola": {
+        "patterns": [r"paulinus.*nola", r"paulino.*nola"],
+        "works": [r"carmina.*paulin.*nola", r"epistul.*paulin.*nola"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Pedro Crisólogo": {
+        "patterns": [r"petrus\s+chrysolog", r"pedro\s+crisólogo",
+                     r"peter\s+chrysolog"],
+        "works": [r"sermo.*chrysolog"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Policarpo de Esmirna": {
+        "patterns": [r"polycarp", r"policarpo"],
+        "works": [r"ad\s+philippens.*polycarp", r"martyrium.*polycarp"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Proclo de Constantinopla": {
+        "patterns": [r"proclus.*constanti", r"proclo.*constanti"],
+        "works": [r"sermo.*procl", r"tomus.*procl"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Próspero de Aquitânia": {
+        "patterns": [r"prosper.*aquitan", r"próspero.*aquitânia"],
+        "works": [r"contra\s+collatorem", r"de\s+gratia.*prosper"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Sofrônio de Jerusalém": {
+        "patterns": [r"sophronius.*jerus", r"sofrônio.*jerusal",
+                     r"sophronios.*jerus"],
+        "works": [r"synodica.*sophron", r"vita.*cyri.*ioann.*sophron"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "São Sulpício Severo": {
+        "patterns": [r"sulpici[uo].*sever", r"sulpício\s+severo"],
+        "works": [r"vita\s+martini", r"chronica.*sulpic"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "São Tiago de Saruge": {
+        "patterns": [r"jacob.*sarug", r"tiago.*saruge", r"james.*sarug"],
+        "works": [r"memre.*jakob.*sarug", r"homili.*jakob.*sarug"],
+        "collection": "PO",
+        "tradition": "oriental",
+    },
+    "São Vicente de Lérins": {
+        "patterns": [r"vincenti[uo].*lerin", r"vicente.*lérins",
+                     r"vincent.*lerins"],
+        "works": [r"commonitorium"],
+        "collection": "PL",
+        "tradition": "latina",
+    },
+    "Taciano, o Sírio": {
+        "patterns": [r"\btatian", r"\btaciano\b"],
+        "works": [r"diatessaron", r"oratio.*graecos.*tati"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Teodoro de Mopsuéstia": {
+        "patterns": [r"theodor.*mopsue", r"theodore.*mopsue",
+                     r"teodoro.*mopsuéstia"],
+        "works": [r"commentari.*theodor.*mops", r"catecheses.*theodor.*mops"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Teodoreto de Ciro": {
+        "patterns": [r"theodoret", r"teodoreto"],
+        "works": [r"historia\s+ecclesiastica.*theodoret",
+                  r"haereticarum.*fabularium",
+                  r"de\s+providentia.*theodoret"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Teófilo de Antioquia": {
+        "patterns": [r"theophil.*antioch", r"teófilo.*antioch"],
+        "works": [r"ad\s+autolycum"],
+        "collection": "PG",
+        "tradition": "grega",
+    },
+    "Tertuliano": {
+        "patterns": [r"tertullian", r"tertulian"],
+        "works": [r"apologetic", r"de\s+praescriptione", r"adversus\s+praxean",
+                  r"de\s+anima.*tertul", r"de\s+carne\s+christi"],
         "collection": "PL",
         "tradition": "latina",
     },
@@ -578,7 +678,7 @@ CANONICAL_TITLES: dict[str, str] = {
     r"de\s+fide\s+orthodoxa": "A Fé Ortodoxa",
     # Ireneu
     r"adversus\s+haereses": "Contra as Heresias",
-    # Isidoro
+    # Isidoro de Sevilha
     r"etymologiae": "Etimologias",
     # Eusébio
     r"historia\s+ecclesiastica": "História Eclesiástica",
@@ -599,6 +699,12 @@ CANONICAL_TITLES: dict[str, str] = {
     r"de\s+caelesti\s+hierarchia": "Da Hierarquia Celeste",
     # Sulpício Severo
     r"vita\s+martini": "Vida de São Martinho",
+    # Bento de Núrsia
+    r"regula.*benedicti": "Regra de São Bento",
+    # Paládio
+    r"historia\s+lausiaca": "História Lausíaca",
+    # Macário
+    r"homiliae\s+spirituales": "Homilias Espirituais",
 }
 
 

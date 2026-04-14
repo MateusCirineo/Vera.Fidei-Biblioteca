@@ -44,3 +44,4 @@ class VerifyCitationResponse(BaseModel):
     translation_language: str | None = None
     translation_fidelity: str | None = None
     translator: str | None = None
+    translation_edition: str | None = None

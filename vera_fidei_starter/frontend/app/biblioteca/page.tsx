@@ -1,19 +1,20 @@
-import { listBooks } from '@/lib/api'
-import type { Book } from '@/lib/types'
-import BookList from '@/components/biblioteca/BookList'
+import { listBooks, listAuthorsCatalog } from '@/lib/api'
+import type { Book, AuthorCatalogEntry } from '@/lib/types'
+import LibraryView from '@/components/biblioteca/LibraryView'
 
 export default async function BibliotecaPage() {
   let books: Book[] = []
+  let catalog: AuthorCatalogEntry[] = []
   let fetchError = false
 
   try {
-    books = await listBooks()
+    ;[books, catalog] = await Promise.all([listBooks(), listAuthorsCatalog()])
   } catch {
     fetchError = true
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pt-8 pb-4">
+    <div className="mx-auto max-w-2xl px-4 pt-8 pb-24">
       <div className="mb-6">
         <h1 className="font-garamond text-3xl font-semibold text-texto">
           Biblioteca
@@ -35,7 +36,7 @@ export default async function BibliotecaPage() {
           </p>
         </div>
       ) : (
-        <BookList books={books} />
+        <LibraryView books={books} catalog={catalog} />
       )}
     </div>
   )

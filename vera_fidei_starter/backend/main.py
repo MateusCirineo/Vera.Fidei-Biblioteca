@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes.citations import router as citations_router
 from api.routes.books import router as books_router
 from api.routes.pdfs import router as pdfs_router
+from api.routes.authors import router as authors_router
 
 app = FastAPI(
     title="Vera.fidei API",
@@ -20,6 +21,7 @@ app.add_middleware(
 app.include_router(citations_router, prefix="/citations", tags=["Citations"])
 app.include_router(books_router, prefix="/books", tags=["Books"])
 app.include_router(pdfs_router, prefix="/pdfs", tags=["PDFs"])
+app.include_router(authors_router, prefix="/authors", tags=["Authors"])
 
 
 @app.get("/")
