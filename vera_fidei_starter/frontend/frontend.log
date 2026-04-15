@@ -1,0 +1,51 @@
+
+> frontend@0.1.0 dev
+> next dev --webpack
+
+▲ Next.js 16.2.3 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://172.26.96.1:3000
+- Environments: .env.local
+✓ Ready in 423ms
+
+ GET / 307 in 1142ms (next.js: 954ms, application-code: 188ms)
+ GET / 307 in 48ms (next.js: 4ms, application-code: 44ms)
+ GET /verificador 200 in 394ms (next.js: 288ms, application-code: 105ms)
+ GET /verificador 200 in 49ms (next.js: 2ms, application-code: 47ms)
+ GET /biblioteca 200 in 872ms (next.js: 818ms, application-code: 54ms)
+ GET /biblioteca 200 in 56ms (next.js: 3ms, application-code: 53ms)
+ GET /biblioteca 200 in 74ms (next.js: 3ms, application-code: 71ms)
+ GET /biblioteca 200 in 44ms (next.js: 3ms, application-code: 41ms)
+  Reload env: .env.local
+ GET / 307 in 445ms (next.js: 335ms, application-code: 109ms)
+ GET /verificador 200 in 50ms (next.js: 9ms, application-code: 41ms)
+ GET /biblioteca 200 in 605ms (next.js: 7ms, application-code: 598ms)
+ GET /biblioteca 200 in 35.0s (next.js: 84ms, application-code: 34.9s)
+ GET /apresentacao 200 in 600ms (next.js: 563ms, application-code: 37ms)
+ GET /apresentacao 200 in 21ms (next.js: 1989µs, application-code: 20ms)
+ GET /biblioteca 200 in 22.4s (next.js: 2ms, application-code: 22.4s)
+ GET /biblioteca 200 in 17.2s (next.js: 6ms, application-code: 17.2s)
+ GET /biblioteca 200 in 24.2s (next.js: 3ms, application-code: 24.2s)
+ GET /biblioteca 200 in 21.5s (next.js: 2ms, application-code: 21.5s)
+ GET /biblioteca 200 in 7.3s (next.js: 2ms, application-code: 7.3s)
+ GET /biblioteca 200 in 21.3s (next.js: 3ms, application-code: 21.3s)
+ GET /biblioteca 200 in 3.1s (next.js: 3ms, application-code: 3.1s)
+ GET /biblioteca/10 200 in 1176ms (next.js: 809ms, application-code: 366ms)
+ GET /visualizar/7 200 in 915ms (next.js: 877ms, application-code: 38ms)
+ GET /verificador 200 in 27ms (next.js: 7ms, application-code: 20ms)
+ GET /biblioteca 200 in 7.0s (next.js: 12ms, application-code: 6.9s)
+ GET /biblioteca 200 in 7.6s (next.js: 3ms, application-code: 7.6s)
+ GET /biblioteca 200 in 6.1s (next.js: 2ms, application-code: 6.1s)
+ GET /verificador 200 in 82ms (next.js: 3ms, application-code: 80ms)
+ GET /verificador 200 in 46ms (next.js: 2ms, application-code: 44ms)
+ GET /verificador 200 in 37ms (next.js: 2ms, application-code: 35ms)
+ GET /verificador 200 in 40ms (next.js: 2ms, application-code: 38ms)
+ GET /verificador 200 in 41ms (next.js: 1972µs, application-code: 39ms)
+ GET /verificador 200 in 30ms (next.js: 2ms, application-code: 27ms)
+ GET /verificador 200 in 38ms (next.js: 3ms, application-code: 34ms)
+ GET /verificador 200 in 26ms (next.js: 3ms, application-code: 23ms)
+ GET /verificador 200 in 19ms (next.js: 2ms, application-code: 17ms)
+ GET /verificador 200 in 19ms (next.js: 3ms, application-code: 16ms)
+ GET /verificador 200 in 20ms (next.js: 3ms, application-code: 17ms)
+ GET /verificador 200 in 26ms (next.js: 3ms, application-code: 23ms)
+ GET /verificador 200 in 37ms (next.js: 3ms, application-code: 34ms)
