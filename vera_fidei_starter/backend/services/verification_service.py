@@ -181,48 +181,137 @@ def _normalize_for_search(text: str) -> str:
     return text
 
 
-def _find_real_pdf_page(pdf_path: str, chunk_text: str) -> int | None:
+def _normalize_ocr(text: str) -> str:
     """
-    Varre TODAS as páginas do PDF e retorna aquela onde a maior parte do
-    chunk está concentrada.
+    Remove artefatos de OCR comuns em citações copiadas de PDFs:
+    - Números de linha colados ao início de palavras: "1Celebrem" → "Celebrem"
+    - Normaliza aspas curvas/angulares para aspas simples
+    - Normaliza espaços e quebras de linha
+    """
+    # Remove dígitos OCR colados antes de letra maiúscula ou acentuada
+    text = re.sub(r'\b(\d+)(?=[A-ZÁÉÍÓÚÀÂÊÔÃÕÇÄËÏÖÜ])', '', text)
+    # Normaliza aspas tipográficas para neutras
+    text = text.replace('\u201c', '"').replace('\u201d', '"')
+    text = text.replace('\u2018', "'").replace('\u2019', "'")
+    text = text.replace('\u00ab', '"').replace('\u00bb', '"')
+    # Normaliza espaços e quebras
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-    Estratégia de pontuação por sobreposição de palavras:
-    - Para cada página, conta quantas palavras únicas do chunk aparecem nela.
-    - Retorna a página com maior sobreposição.
-    - Isso é robusto contra words que aparecem no final/início de outra página,
-      OCR imperfeito e variações de espaço.
 
-    Fallback: se nenhuma página tiver sobreposição mínima, retorna None.
+def _extract_matching_excerpt(query: str, chunk_text: str) -> str:
+    """
+    Extrai do chunk_text apenas o trecho que corresponde à query,
+    evitando devolver o chunk inteiro (que pode ter centenas de palavras
+    antes e depois da citação relevante).
+
+    Estratégia:
+    1. Identifica os tokens significativos da query.
+    2. Percorre frases/linhas do chunk e encontra o centro de maior sobreposição.
+    3. Retorna uma janela centrada nesse ponto, respeitando limites de frase.
+    """
+    from difflib import SequenceMatcher
+
+    norm_q = _normalize_for_search(_normalize_ocr(query))
+    norm_c = _normalize_for_search(chunk_text)
+
+    # Tentativa de substring exata após normalização OCR
+    if norm_q in norm_c:
+        start = norm_c.index(norm_q)
+        end = start + len(norm_q)
+        # Mapeia de volta para o texto original (aproximado por proporção)
+        ratio = len(chunk_text) / max(len(norm_c), 1)
+        orig_start = max(0, int(start * ratio) - 20)
+        orig_end = min(len(chunk_text), int(end * ratio) + 20)
+        return chunk_text[orig_start:orig_end].strip()
+
+    # Janela deslizante por tokens
+    query_tokens = set(w for w in norm_q.split() if len(w) >= 4)
+    if not query_tokens:
+        return chunk_text[:400]
+
+    # Divide chunk em sentenças/linhas
+    sentences = re.split(r'(?<=[.!?])\s+|\n', chunk_text)
+    if len(sentences) <= 2:
+        return chunk_text[:500]
+
+    # Pontua cada sentença pela sobreposição com a query
+    scored = []
+    for i, sent in enumerate(sentences):
+        norm_sent = _normalize_for_search(sent)
+        sent_tokens = set(norm_sent.split())
+        score = len(query_tokens & sent_tokens)
+        scored.append((score, i))
+
+    scored.sort(key=lambda x: -x[0])
+    best_idx = scored[0][1]
+
+    # Expande a partir do centro até cobrir ~len(query) caracteres
+    target_len = len(query) * 1.5
+    parts = []
+    total = 0
+    for i in range(best_idx, min(len(sentences), best_idx + 10)):
+        parts.append(sentences[i])
+        total += len(sentences[i])
+        if total >= target_len:
+            break
+
+    result = ' '.join(parts).strip()
+    # Fallback: se muito curto, devolve os 500 primeiros chars do chunk
+    return result if len(result) >= 40 else chunk_text[:500]
+
+
+def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> int | None:
+    """
+    Varre todas as páginas do PDF e retorna a página onde o trecho COMEÇA.
+
+    Estratégia em dois passos:
+    1. Encontra a "página âncora" — aquela com maior sobreposição de tokens.
+    2. Olha até 3 páginas ANTES da âncora: se alguma tiver overlap ≥ 40% da âncora,
+       a citação começa lá — retorna essa página (a mais anterior válida).
+
+    Isso resolve citações que atravessam quebra de página: a primeira página tem
+    poucos tokens (início do trecho), a segunda tem mais (continuação). O sistema
+    localiza a segunda como âncora e recua para a primeira.
     """
     if not pdf_path or not os.path.isfile(pdf_path):
         return None
 
-    # Vocabulário do chunk — ignora palavras muito curtas (artigos, preposições)
-    # para não poluir o score com tokens que aparecem em todas as páginas.
-    chunk_words = [
-        w for w in _normalize_for_search(chunk_text).split()
-        if len(w) >= 4
-    ]
+    # Normaliza OCR e tokeniza
+    norm_text = _normalize_for_search(_normalize_ocr(chunk_text))
+    chunk_words = [w for w in norm_text.split() if len(w) >= 4]
     if len(chunk_words) < 5:
         return None
 
-    # Usa uma janela central do chunk (pula os primeiros 30 tokens que podem estar
-    # na página anterior devido ao overlap, e limita a 250 tokens do meio)
-    needle_set = set(chunk_words[30:280])
+    needle = set(chunk_words[:200])  # tokens representativos do trecho
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            best_page  = None
-            best_score = 0
+            scores: list[tuple[int, int]] = []  # (page_1based, score)
+
             for i, page in enumerate(pdf.pages, start=1):
                 page_text  = _normalize_for_search(page.extract_text() or "")
                 page_words = set(page_text.split())
-                score = len(needle_set & page_words)
-                if score > best_score:
-                    best_score = score
-                    best_page  = i
-            # Exige pelo menos 5 palavras em comum para considerar válido
-            return best_page if best_score >= 5 else None
+                score = len(needle & page_words)
+                scores.append((i, score))
+
+            # Página âncora: maior score
+            best_pg, best_score = max(scores, key=lambda x: x[1])
+            if best_score < min_score:
+                return None
+
+            # Limiar de look-back: páginas próximas com pelo menos 40% do score âncora
+            lookback_threshold = max(2, int(best_score * 0.40))
+
+            # Recua até 3 páginas antes da âncora para encontrar onde o trecho começa
+            first_pg = best_pg
+            for pg, score in scores:
+                if pg >= best_pg:
+                    break
+                if pg >= best_pg - 3 and score >= lookback_threshold:
+                    first_pg = pg  # mantém a mais anterior válida
+
+            return first_pg
     except Exception:
         return None
 
@@ -457,7 +546,11 @@ class VerificationService:
                 # Penalidade forte: autor atribuído não coincide com a obra encontrada
                 if payload.attributed_to and not author_match:
                     combined *= 0.4
-                exact_match = payload.quote.lower() in chunk.text.lower()
+                # exact_match: tenta match direto E match com normalização OCR
+                _q_raw = payload.quote.lower()
+                _q_ocr = _normalize_for_search(_normalize_ocr(payload.quote))
+                _c_norm = _normalize_for_search(chunk.text)
+                exact_match = (_q_raw in chunk.text.lower()) or (_q_ocr in _c_norm)
                 if combined > best_score:
                     best_score = combined
                     best = (chunk, book, exact_match, author_match, combined)
@@ -506,6 +599,29 @@ class VerificationService:
             # Detecção de intrusão conceitual: linguagem acadêmica moderna em citação patrística
             intrusion = _intrusion_score(payload.quote)
 
+            # Similaridade pós-normalização OCR — compara query contra a janela
+            # correspondente do chunk (não o chunk inteiro, que daria ratio muito baixo)
+            from difflib import SequenceMatcher as _SM
+            _q_ocr_norm = _normalize_for_search(_normalize_ocr(payload.quote))
+            _c_norm_full = _normalize_for_search(chunk.text)
+            # Se a query normalizada está contida no chunk → similaridade = 1.0
+            if _q_ocr_norm in _c_norm_full:
+                ocr_similarity = 1.0
+            else:
+                # Compara contra a janela de mesmo comprimento no chunk
+                _qlen = len(_q_ocr_norm)
+                _clen = len(_c_norm_full)
+                best_ratio = 0.0
+                step = max(1, _qlen // 4)
+                for start in range(0, max(1, _clen - _qlen + 1), step):
+                    window = _c_norm_full[start: start + _qlen]
+                    ratio = _SM(None, _q_ocr_norm, window).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                    if best_ratio >= 0.90:
+                        break
+                ocr_similarity = best_ratio
+
             result = self.classifier.classify(
                 combined, exact_match, author_match,
                 translation_fidelity=fidelity,
@@ -517,6 +633,7 @@ class VerificationService:
                 book.title if book else None,
                 book.author if book else None,
                 intrusion_score=intrusion,
+                ocr_similarity=ocr_similarity,
             )
 
             # Chunks adjacentes
@@ -557,14 +674,16 @@ class VerificationService:
                 found_page = None
 
                 if same_lang:
-                    user_query = (payload.quote or "").strip()
+                    # Normaliza artefatos OCR antes de buscar a página
+                    # min_score=3: citação pode começar no rodapé da página (poucos tokens lá)
+                    user_query = _normalize_ocr((payload.quote or "").strip())
                     if len(user_query) >= 12:
-                        found_page = _find_real_pdf_page(source_file.stored_path, user_query)
+                        found_page = _find_real_pdf_page(source_file.stored_path, user_query, min_score=3)
                         _log.debug("[page_search] strategy=user_query(%s) result=%s", detected_lang, found_page)
 
                 # Fallback sempre: chunk.text está no idioma do PDF
                 if not found_page:
-                    found_page = _find_real_pdf_page(source_file.stored_path, chunk.text)
+                    found_page = _find_real_pdf_page(source_file.stored_path, chunk.text, min_score=5)
                     _log.debug("[page_search] strategy=chunk_text result=%s", found_page)
 
                 if found_page:
@@ -594,7 +713,7 @@ class VerificationService:
                 ),
                 original_language=book.language if book else None,
                 source_version=book.edition_label if book else None,
-                matched_excerpt=chunk.text,
+                matched_excerpt=_extract_matching_excerpt(payload.quote, chunk.text),
                 context_before=prev_chunk.text if prev_chunk else None,
                 context_after=next_chunk.text if next_chunk else None,
                 explanation=explanation,

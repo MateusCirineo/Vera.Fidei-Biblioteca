@@ -59,23 +59,36 @@
       padding: 24px 16px;
     }
 
-    #canvas-wrap {
+    #pages-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .page-wrap {
       position: relative;
-      margin: 0 auto;
       width: fit-content;
     }
 
-    canvas {
+    .page-wrap canvas {
       display: block;
       border-radius: 4px;
       box-shadow: 0 4px 32px rgba(0,0,0,0.7);
     }
 
-    #overlay {
+    .page-overlay {
       pointer-events: none;
       position: absolute;
       top: 0;
       left: 0;
+    }
+
+    .page-label {
+      text-align: center;
+      font-size: 11px;
+      color: #4a4540;
+      margin-bottom: 4px;
     }
   </style>
 </head>
@@ -87,10 +100,7 @@
   </div>
 
   <div id="scroll-container">
-    <div id="canvas-wrap">
-      <canvas id="pdf-canvas"></canvas>
-      <div id="overlay"></div>
-    </div>
+    <div id="pages-container"></div>
   </div>
 
   <script type="module">
@@ -129,9 +139,6 @@
     const elStatus    = document.getElementById('status')
     const elPageInfo  = document.getElementById('page-info')
     const elQuoteInfo = document.getElementById('quote-info')
-    const elCanvas    = document.getElementById('pdf-canvas')
-    const elOverlay   = document.getElementById('overlay')
-    const elScroll    = document.getElementById('scroll-container')
 
     function setStatus(msg, cls = '') {
       elStatus.textContent = msg
@@ -261,118 +268,143 @@
       return { boxes, mode: boxes.length > 0 ? 'keyword' : 'none' }
     }
 
-    // ─── Renderização principal ──────────────────────────────────────────────
+    // ─── Renderiza uma página e aplica highlights ────────────────────────────
+    async function renderPage(pdf, pageNum, container, rawQuote, rawFallback, isFirstPage) {
+      const pdfPage  = await pdf.getPage(pageNum)
+      const scale    = 1.6
+      const viewport = pdfPage.getViewport({ scale })
+
+      // Label da página
+      const label = document.createElement('p')
+      label.className   = 'page-label'
+      label.textContent = `Página ${pageNum}`
+      container.appendChild(label)
+
+      // Wrapper posicionado
+      const wrap = document.createElement('div')
+      wrap.className = 'page-wrap'
+      container.appendChild(wrap)
+
+      // Canvas
+      const canvas = document.createElement('canvas')
+      canvas.width        = viewport.width
+      canvas.height       = viewport.height
+      canvas.style.width  = `${viewport.width}px`
+      canvas.style.height = `${viewport.height}px`
+      wrap.appendChild(canvas)
+
+      // Overlay
+      const overlay = document.createElement('div')
+      overlay.className   = 'page-overlay'
+      overlay.style.width = `${viewport.width}px`
+      overlay.style.height = `${viewport.height}px`
+      wrap.appendChild(overlay)
+
+      await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+
+      if (!rawQuote && !rawFallback) return { mode: 'none', found: false }
+
+      const textContent = await pdfPage.getTextContent()
+      const items = (textContent.items || []).filter(i => i.str)
+
+      let result       = rawQuote ? computeHighlightBoxes(viewport, items, rawQuote) : { boxes: [], mode: 'none' }
+      let usedFallback = false
+      if (result.boxes.length === 0 && rawFallback) {
+        result       = computeHighlightBoxes(viewport, items, rawFallback)
+        usedFallback = true
+      }
+
+      const { boxes, mode } = result
+      let firstBoxTop = null
+
+      boxes.forEach((box, i) => {
+        const bg = document.createElement('div')
+        Object.assign(bg.style, {
+          position:     'absolute',
+          left:         `${box.left}px`,
+          top:          `${box.top}px`,
+          width:        `${box.width}px`,
+          height:       `${box.height}px`,
+          background:   'rgba(255, 220, 0, 0.22)',
+          borderRadius: '2px',
+          pointerEvents:'none',
+        })
+        overlay.appendChild(bg)
+
+        const line = document.createElement('div')
+        Object.assign(line.style, {
+          position:     'absolute',
+          left:         `${box.left}px`,
+          top:          `${box.top + box.height + 1}px`,
+          width:        `${box.width}px`,
+          height:       '2.5px',
+          background:   '#f5c518',
+          borderRadius: '999px',
+          pointerEvents:'none',
+        })
+        overlay.appendChild(line)
+
+        if (i === 0) firstBoxTop = box.top
+      })
+
+      return { mode, found: boxes.length > 0, usedFallback, firstBoxTop, wrapEl: wrap, labelEl: label }
+    }
+
+    // ─── Renderização principal — mostra página atual + próxima ─────────────
     async function main() {
-      // Mostrar quote no header
       const displayQuote = quote || fallbackQuote
       if (displayQuote) {
         elQuoteInfo.textContent = `Procurando: "${displayQuote.slice(0, 120)}${displayQuote.length > 120 ? '…' : ''}"`
       }
 
-      // Validações
-      if (!fileUrl) {
-        setStatus('URL do PDF não informada.', 'error')
-        elPageInfo.textContent = 'Erro'
-        return
-      }
-      if (!isAllowedFileUrl(fileUrl)) {
-        setStatus('Endereço do PDF não autorizado.', 'error')
-        elPageInfo.textContent = 'Erro'
-        return
-      }
+      if (!fileUrl) { setStatus('URL do PDF não informada.', 'error'); elPageInfo.textContent = 'Erro'; return }
+      if (!isAllowedFileUrl(fileUrl)) { setStatus('Endereço do PDF não autorizado.', 'error'); elPageInfo.textContent = 'Erro'; return }
+
+      const elPages = document.getElementById('pages-container')
 
       try {
-        const loadingTask = getDocument(fileUrl)
-        const pdf = await loadingTask.promise
+        const pdf = await getDocument(fileUrl).promise
 
-        // Clamp de página
         page = Math.min(Math.max(1, page), pdf.numPages)
-        elPageInfo.innerHTML = `Página <strong>${page}</strong> de ${pdf.numPages}`
+        const nextPage = Math.min(page + 1, pdf.numPages)
+        const showTwo  = nextPage !== page  // false apenas se estiver na última página
 
-        const pdfPage  = await pdf.getPage(page)
-        const scale    = 1.6
-        const viewport = pdfPage.getViewport({ scale })
+        elPageInfo.innerHTML = showTwo
+          ? `Páginas <strong>${page}–${nextPage}</strong> de ${pdf.numPages}`
+          : `Página <strong>${page}</strong> de ${pdf.numPages}`
 
-        // Configurar canvas
-        const ctx = elCanvas.getContext('2d')
-        elCanvas.width         = viewport.width
-        elCanvas.height        = viewport.height
-        elCanvas.style.width   = `${viewport.width}px`
-        elCanvas.style.height  = `${viewport.height}px`
+        // Renderiza página inicial
+        const r1 = await renderPage(pdf, page, elPages, quote, fallbackQuote, true)
 
-        // Configurar overlay
-        elOverlay.style.width  = `${viewport.width}px`
-        elOverlay.style.height = `${viewport.height}px`
-        elOverlay.innerHTML    = ''
-
-        // Renderizar página
-        await pdfPage.render({ canvasContext: ctx, viewport }).promise
-
-        // Extrair texto e calcular highlights
-        const textContent = await pdfPage.getTextContent()
-        const items = (textContent.items || []).filter(i => i.str)
-
-        if (!quote && !fallbackQuote) {
-          setStatus('', '')
-          return
+        // Renderiza sempre a página seguinte (citações cruzam quebras de página)
+        let r2 = null
+        if (showTwo) {
+          r2 = await renderPage(pdf, nextPage, elPages, quote, fallbackQuote, false)
         }
 
-        // Tenta highlight em dois passos: query original → trecho do chunk
-        let result       = quote ? computeHighlightBoxes(viewport, items, quote) : { boxes: [], mode: 'none' }
-        let usedFallback = false
-
-        if (result.boxes.length === 0 && fallbackQuote) {
-          result       = computeHighlightBoxes(viewport, items, fallbackQuote)
-          usedFallback = true
+        // Scroll automático: vai até o primeiro highlight encontrado
+        const firstResult = r1.found ? r1 : r2
+        if (firstResult && firstResult.found && firstResult.firstBoxTop !== null) {
+          const wrapTop = firstResult.wrapEl.getBoundingClientRect().top
+                        + document.getElementById('scroll-container').scrollTop
+                        - document.getElementById('scroll-container').getBoundingClientRect().top
+          setTimeout(() => {
+            document.getElementById('scroll-container').scrollTo({
+              top:      Math.max(0, wrapTop + firstResult.firstBoxTop - 160),
+              behavior: 'smooth',
+            })
+          }, 200)
         }
 
-        const { boxes, mode } = result
+        // Status
+        const anyFound     = r1.found || (r2 && r2.found)
+        const usedFallback = r1.usedFallback || (r2 && r2.usedFallback)
+        const mode         = r1.found ? r1.mode : (r2 ? r2.mode : 'none')
 
-        if (boxes.length === 0) {
+        if (!anyFound) {
           setStatus('Citação não encontrada na camada de texto — PDF pode ser imagem.', 'notfound')
           return
         }
-
-        // Desenhar highlights
-        boxes.forEach((box, i) => {
-          // fundo amarelo suave
-          const bg = document.createElement('div')
-          Object.assign(bg.style, {
-            position:     'absolute',
-            left:         `${box.left}px`,
-            top:          `${box.top}px`,
-            width:        `${box.width}px`,
-            height:       `${box.height}px`,
-            background:   'rgba(255, 220, 0, 0.22)',
-            borderRadius: '2px',
-            pointerEvents:'none',
-          })
-          elOverlay.appendChild(bg)
-
-          // sublinhado dourado
-          const line = document.createElement('div')
-          Object.assign(line.style, {
-            position:     'absolute',
-            left:         `${box.left}px`,
-            top:          `${box.top + box.height + 1}px`,
-            width:        `${box.width}px`,
-            height:       '2.5px',
-            background:   '#f5c518',
-            borderRadius: '999px',
-            pointerEvents:'none',
-          })
-          elOverlay.appendChild(line)
-
-          // scroll automático até o primeiro highlight
-          if (i === 0) {
-            setTimeout(() => {
-              elScroll.scrollTo({
-                top:      Math.max(box.top - 160, 0),
-                behavior: 'smooth',
-              })
-            }, 150)
-          }
-        })
 
         const statusMsg =
           usedFallback && mode === 'keyword'
