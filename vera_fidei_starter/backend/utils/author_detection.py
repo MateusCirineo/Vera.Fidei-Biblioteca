@@ -708,6 +708,106 @@ CANONICAL_TITLES: dict[str, str] = {
 }
 
 
+# ─── Aliases de autores e títulos de obras ───────────────────────────────────
+# Permite que o usuário digite o nome do autor em formas alternativas (variantes
+# ortográficas, grafias populares) ou o título de uma obra conhecida — e o sistema
+# mapeia para o nome canônico presente em PATRISTIC_AUTHORS.
+
+AUTHOR_ALIASES: dict[str, str] = {
+    # Inácio de Antioquia — formas alternativas e títulos das cartas
+    "inacio de antioquia":          "Santo Inácio de Antioquia",
+    "inácio de antioquia":          "Santo Inácio de Antioquia",
+    "ignacio de antioquia":         "Santo Inácio de Antioquia",
+    "ignácio de antioquia":         "Santo Inácio de Antioquia",
+    "inácio":                       "Santo Inácio de Antioquia",
+    "ignacio":                      "Santo Inácio de Antioquia",
+    "ignácio":                      "Santo Inácio de Antioquia",
+    "inacio":                       "Santo Inácio de Antioquia",
+    "inácio aos efésios":           "Santo Inácio de Antioquia",
+    "inacio aos efesios":           "Santo Inácio de Antioquia",
+    "carta aos efésios":            "Santo Inácio de Antioquia",
+    "carta aos efesios":            "Santo Inácio de Antioquia",
+    "inácio aos romanos":           "Santo Inácio de Antioquia",
+    "inácio aos magnésios":         "Santo Inácio de Antioquia",
+    "inácio aos tralianos":         "Santo Inácio de Antioquia",
+    "inácio aos filadelfienses":    "Santo Inácio de Antioquia",
+    "inácio aos esmirnenses":       "Santo Inácio de Antioquia",
+    "carta a policarpo":            "Santo Inácio de Antioquia",
+    # Ireneu de Lião — variantes ortográficas
+    "ireneu de liao":               "Santo Ireneu de Lião",
+    "ireneu de lião":               "Santo Ireneu de Lião",
+    "irineu de liao":               "Santo Ireneu de Lião",
+    "irineu de lião":               "Santo Ireneu de Lião",
+    "ireneu":                       "Santo Ireneu de Lião",
+    "irineu":                       "Santo Ireneu de Lião",
+    "contra as heresias":           "Santo Ireneu de Lião",
+    "adversus haereses":            "Santo Ireneu de Lião",
+    # Policarpo de Esmirna
+    "policarpo de esmirna":         "São Policarpo de Esmirna",
+    "policarpo":                    "São Policarpo de Esmirna",
+    "carta aos filipenses":         "São Policarpo de Esmirna",
+    "martírio de policarpo":        "São Policarpo de Esmirna",
+    # Clemente Romano
+    "clemente romano":              "São Clemente de Roma",
+    "clemente de roma":             "São Clemente de Roma",
+    "primeira carta de clemente":   "São Clemente de Roma",
+    "carta aos coríntios":          "São Clemente de Roma",
+    # Hermas
+    "pastor de hermas":             "Hermas",
+    "o pastor de hermas":           "Hermas",
+    "o pastor":                     "Hermas",
+    # Barnabé
+    "carta de barnabé":             "São Barnabé",
+    "barnabé":                      "São Barnabé",
+    "barnabe":                      "São Barnabé",
+    # Papias
+    "papias de hierapolis":         "Papias de Hierápolis",
+    "papías de hierápolis":         "Papias de Hierápolis",
+    "papias":                       "Papias de Hierápolis",
+    # Justino
+    "justino mártir":               "São Justino Mártir",
+    "justino martir":               "São Justino Mártir",
+    "justino":                      "São Justino Mártir",
+    "são justino":                  "São Justino Mártir",
+    # Apologistas
+    "teofilo de antioquia":         "Teófilo de Antioquia",
+    "teófilo de antioquia":         "Teófilo de Antioquia",
+    "atenagoras de atenas":         "Atenágoras de Atenas",
+    "atenágoras de atenas":         "Atenágoras de Atenas",
+    "atenagoras":                   "Atenágoras de Atenas",
+    "atenágoras":                   "Atenágoras de Atenas",
+    "taciano":                      "Taciano, o Sírio",
+    "taciano o sirio":              "Taciano, o Sírio",
+    # Cipriano
+    "cipriano de cartago":          "São Cipriano de Cartago",
+    "sao cipriano":                 "São Cipriano de Cartago",
+    "cipriano":                     "São Cipriano de Cartago",
+    # Outros comuns
+    "agostinho":                    "Santo Agostinho de Hipona",
+    "santo agostinho":              "Santo Agostinho de Hipona",
+    "crisostomo":                   "São João Crisóstomo",
+    "joao crisostomo":              "São João Crisóstomo",
+}
+
+
+def _normalize_for_alias(text: str) -> str:
+    """Normaliza texto para lookup em AUTHOR_ALIASES: remove acentos, lowercase, strip."""
+    import unicodedata
+    text = unicodedata.normalize("NFD", text.lower())
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    return text.strip()
+
+
+def resolve_author_alias(attributed_to: str) -> str | None:
+    """
+    Resolve um nome de autor ou título de obra para o nome canônico em PATRISTIC_AUTHORS.
+    Exemplo: "Inácio aos Efésios" → "Santo Inácio de Antioquia"
+    Retorna None se não houver alias cadastrado.
+    """
+    key = _normalize_for_alias(attributed_to)
+    return AUTHOR_ALIASES.get(key)
+
+
 # ─── Limiar de confiança ──────────────────────────────────────────────────────
 
 CONFIDENCE_THRESHOLD = 3  # score mínimo para retornar nome de autor

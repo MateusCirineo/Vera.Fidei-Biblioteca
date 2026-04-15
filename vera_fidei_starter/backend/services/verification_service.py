@@ -22,7 +22,7 @@ from utils.language import (
     ORIGINAL_LANGS, TRANSLATION_LANGS,
     classify_book,
 )
-from utils.author_detection import detect_author, detect_canonical_title
+from utils.author_detection import detect_author, detect_canonical_title, resolve_author_alias, _normalize_for_alias
 
 
 def _detect_language(text: str, hint: str | None = None) -> str:
@@ -45,15 +45,48 @@ def _detect_language(text: str, hint: str | None = None) -> str:
         return "unknown"
 
 
-def _author_matches(attributed_to: str, book) -> bool:
-    """Verifica se o autor atribuído bate com o livro encontrado (author ou canonical_author)."""
+def _author_matches(attributed_to: str, book, chunk=None) -> bool:
+    """
+    Verifica se o autor atribuído bate com o livro/chunk encontrado.
+
+    Ordem de verificação:
+    1. chunk.chunk_author — mais específico (autor individual dentro de volume coletânea)
+    2. Alias lookup — "Inácio aos Efésios" → "Santo Inácio de Antioquia"
+    3. Comparação direta normalizada contra book.author e book.canonical_author
+    """
     if not attributed_to or not book:
         return False
-    needle = attributed_to.strip().lower()
-    return (
-        needle == book.author.lower()
-        or (book.canonical_author is not None and needle == book.canonical_author.lower())
-    )
+
+    needle = _normalize_for_alias(attributed_to)
+
+    # 1. Verifica chunk_author (autor individual dentro de volume coletânea)
+    if chunk and chunk.chunk_author:
+        chunk_author_norm = _normalize_for_alias(chunk.chunk_author)
+        if needle == chunk_author_norm or needle in chunk_author_norm:
+            return True
+
+    # 2. Resolve alias (ex: "Inácio aos Efésios" → "Santo Inácio de Antioquia")
+    resolved = resolve_author_alias(attributed_to)
+    if resolved:
+        r_norm = _normalize_for_alias(resolved)
+        targets = [
+            chunk.chunk_author if chunk else None,
+            book.author,
+            book.canonical_author,
+        ]
+        for field in targets:
+            if field and r_norm == _normalize_for_alias(field):
+                return True
+
+    # 3. Comparação direta normalizada contra campos do livro
+    for field in [book.author, book.canonical_author]:
+        if field and needle == _normalize_for_alias(field):
+            return True
+        # substring: "justino" bate em "São Justino Mártir"
+        if field and needle in _normalize_for_alias(field):
+            return True
+
+    return False
 
 
 # Marcadores de linguagem acadêmica moderna que NÃO aparecem em traduções patrísticas
@@ -540,7 +573,7 @@ class VerificationService:
                 if chunk is None:
                     continue
                 book = db.get(Book, chunk.book_id)
-                author_match = _author_matches(payload.attributed_to, book)
+                author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
                 semantic_score = semantic_map.get(hit.chunk_id, 0.0)
                 combined = self.scorer.combine(hit.score, semantic_score, author_match)
                 # Penalidade forte: autor atribuído não coincide com a obra encontrada
@@ -562,7 +595,7 @@ class VerificationService:
                     if chunk is None:
                         continue
                     book = db.get(Book, chunk.book_id)
-                    author_match = _author_matches(payload.attributed_to, book)
+                    author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
                     combined = self.scorer.combine(0.0, hit.score, author_match)
                     # Penalidade forte: autor atribuído não coincide com a obra encontrada
                     if payload.attributed_to and not author_match:

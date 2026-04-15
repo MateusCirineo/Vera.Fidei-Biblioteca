@@ -61,6 +61,8 @@ class Chunk(Base):
     text: Mapped[str] = mapped_column(Text)
     sequence_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    chunk_author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     volume: Mapped[int | None] = mapped_column(Integer, nullable=True)
     column_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     column_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -130,6 +132,9 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_year INTEGER",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS is_ecumenical BOOLEAN",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_status VARCHAR(50)",
+        "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS chunk_author VARCHAR(255)",
+        # Fix spelling variant: "Irineu" → "Ireneu" (key in PATRISTIC_AUTHORS)
+        "UPDATE books SET canonical_author = 'Santo Ireneu de Lião' WHERE canonical_author = 'Santo Irineu de Lião'",
     ]
     with engine.begin() as conn:
         for sql in migrations:

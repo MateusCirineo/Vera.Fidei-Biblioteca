@@ -72,7 +72,7 @@ class SourceFinderAgent(BaseAgent):
                     canonical = detected_author or book.canonical_author or book.author
 
                     # Verifica correspondência com autor atribuído
-                    author_match = _author_matches(attributed_to, book) if attributed_to else False
+                    author_match = _author_matches(attributed_to, book, chunk=chunk) if attributed_to else False
 
                     enriched.append({
                         "chunk_id": cand["chunk_id"],

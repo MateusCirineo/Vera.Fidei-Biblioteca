@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from pydantic import BaseModel
 
 from models.database import SessionLocal, Book, Chunk
@@ -20,8 +20,18 @@ class AuthorCatalogEntry(BaseModel):
     books: list[BookResponse]
 
 
-def _chunk_count_for(db, book_id: int) -> int:
-    return db.query(func.count(Chunk.id)).filter(Chunk.book_id == book_id).scalar() or 0
+def _chunk_count_for_author(db, book_id: int, author_name: str, is_direct: bool) -> int:
+    """Conta chunks do livro que pertencem ao autor.
+    Para livros diretos (canonical_author == author_name), conta todos os chunks.
+    Para livros coletânea, conta apenas os chunks com chunk_author == author_name.
+    """
+    if is_direct:
+        return db.query(func.count(Chunk.id)).filter(Chunk.book_id == book_id).scalar() or 0
+    return (
+        db.query(func.count(Chunk.id))
+        .filter(Chunk.book_id == book_id, Chunk.chunk_author == author_name)
+        .scalar() or 0
+    )
 
 
 def _book_to_response(db, b: Book) -> BookResponse:
@@ -34,7 +44,7 @@ def _book_to_response(db, b: Book) -> BookResponse:
         edition_label=b.edition_label,
         source_label=b.source_label,
         is_primary_source=b.is_primary_source,
-        chunk_count=_chunk_count_for(db, b.id),
+        chunk_count=db.query(func.count(Chunk.id)).filter(Chunk.book_id == b.id).scalar() or 0,
         library_section=b.library_section,
         patristic_tradition=b.patristic_tradition,
         document_type=b.document_type,
@@ -52,18 +62,39 @@ def get_authors_catalog() -> list[AuthorCatalogEntry]:
     """
     Retorna todos os Padres da Igreja conhecidos (PATRISTIC_AUTHORS),
     enriquecidos com os livros já catalogados no banco.
+
+    Inclui tanto livros com canonical_author direto quanto volumes coletânea
+    que tenham chunks marcados com chunk_author para este autor.
     Autores sem livros aparecem com book_count=0 e books=[].
     """
     with SessionLocal() as db:
         result: list[AuthorCatalogEntry] = []
 
         for author_name, data in PATRISTIC_AUTHORS.items():
-            books = (
+            # 1. Livros com canonical_author direto
+            direct_books = (
                 db.query(Book)
                 .filter(Book.canonical_author == author_name)
                 .all()
             )
-            total_chunks = sum(_chunk_count_for(db, b.id) for b in books)
+            direct_ids = {b.id for b in direct_books}
+
+            # 2. Volumes coletânea onde o autor aparece como chunk_author
+            collectanea_books = (
+                db.query(Book)
+                .join(Chunk, Chunk.book_id == Book.id)
+                .filter(Chunk.chunk_author == author_name)
+                .filter(Book.id.notin_(direct_ids))   # evita duplicata
+                .distinct()
+                .all()
+            )
+
+            books = direct_books + collectanea_books
+
+            total_chunks = sum(
+                _chunk_count_for_author(db, b.id, author_name, b.id in direct_ids)
+                for b in books
+            )
 
             result.append(AuthorCatalogEntry(
                 name=author_name,
