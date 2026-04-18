@@ -88,10 +88,74 @@ VOL2_PATTERNS: list[tuple[str, str]] = [
     (r"^hermias",                            "Hermias"),
 ]
 
+# PG Vol. 1 — Patrologia Graeca, Migne (texto em latim extraído por OCR)
+# Contém: Barnabé, Clemente Romano, Hermas, Inácio de Antioquia, Policarpo, Papias
+PG_VOL1_PATTERNS: list[tuple[str, str]] = [
+    # ── Clemente Romano ──────────────────────────────────────────────
+    # Latim (Migne)
+    (r"^s\.?\s*clementis\s+i\b",                "São Clemente de Roma"),
+    (r"^clementis\s+romani",                     "São Clemente de Roma"),
+    (r"^epistola\s+(i\s+)?clementis",            "São Clemente de Roma"),
+    # Grego transliterado pelo OCR (Κλήμης → Klemes/Klemens)
+    (r"^kleme(n|nt)s",                           "São Clemente de Roma"),
+    (r"^klhm",                                   "São Clemente de Roma"),
+
+    # ── Inácio de Antioquia ──────────────────────────────────────────
+    # Latim
+    (r"^s\.?\s*ignatii\s+antiocheni",            "Santo Inácio de Antioquia"),
+    (r"^ignatii\s+antiocheni",                   "Santo Inácio de Antioquia"),
+    (r"^sancti\s+ignatii",                       "Santo Inácio de Antioquia"),
+    (r"^epistolae\s+ignatii",                    "Santo Inácio de Antioquia"),
+    # Grego transliterado (Ἰγνάτιος → Ignatios/Ignatius)
+    (r"^ignatios",                               "Santo Inácio de Antioquia"),
+    (r"^igna(t|th)ios",                          "Santo Inácio de Antioquia"),
+
+    # ── Policarpo de Esmirna ─────────────────────────────────────────
+    # Latim
+    (r"^s\.?\s*polycarpi\s+smyrnensis",          "São Policarpo de Esmirna"),
+    (r"^polycarpi\s+smyrnensis",                 "São Policarpo de Esmirna"),
+    (r"^epistola\s+polycarpi",                   "São Policarpo de Esmirna"),
+    (r"^martyrium\s+polycarpi",                  "São Policarpo de Esmirna"),
+    # Grego transliterado (Πολύκαρπος → Polykarpos)
+    (r"^polykarpos",                             "São Policarpo de Esmirna"),
+    (r"^polykarpo(s|u)",                         "São Policarpo de Esmirna"),
+
+    # ── Hermas ───────────────────────────────────────────────────────
+    # Latim
+    (r"^hermae\s+pastor",                        "Hermas"),
+    (r"^pastor\s+hermae",                        "Hermas"),
+    # Grego transliterado (Ἑρμᾶς → Hermas / Poimen)
+    (r"^hermas$",                                "Hermas"),
+    (r"^poimen\s+(tou\s+)?herma",                "Hermas"),
+
+    # ── Barnabé ──────────────────────────────────────────────────────
+    # Latim
+    (r"^barnabae\s+apostoli",                    "São Barnabé"),
+    (r"^epistola\s+barnabae",                    "São Barnabé"),
+    (r"^s\.?\s*barnabae",                        "São Barnabé"),
+    # Grego transliterado (Βαρνάβας → Barnabas)
+    (r"^barnabas$",                              "São Barnabé"),
+    (r"^epistole\s+barnaba",                     "São Barnabé"),
+
+    # ── Papias ───────────────────────────────────────────────────────
+    # Latim
+    (r"^papiae\s+(fragmenta|hieropolitani)",     "Papias de Hierápolis"),
+    # Grego transliterado (Παπίας → Papias)
+    (r"^papias",                                 "Papias de Hierápolis"),
+
+    # ── Didaqué ──────────────────────────────────────────────────────
+    # Latim
+    (r"^doctrina\s+(duodecim|apostolorum)",      "Didaqué"),
+    # Grego transliterado (Διδαχή → Didache)
+    (r"^didache",                                "Didaqué"),
+    (r"^didakhe",                                "Didaqué"),
+]
+
 # Book ID → (PDF stored_path suffix pattern, patterns list)
 COLLECTANEA_BOOKS: dict[int, tuple[str, list]] = {
-    9: ("Vol._1", VOL1_PATTERNS),
-    7: ("Vol._2", VOL2_PATTERNS),
+    9:  ("Vol._1",  VOL1_PATTERNS),
+    7:  ("Vol._2",  VOL2_PATTERNS),
+    25: ("PG001",   PG_VOL1_PATTERNS),
 }
 
 
