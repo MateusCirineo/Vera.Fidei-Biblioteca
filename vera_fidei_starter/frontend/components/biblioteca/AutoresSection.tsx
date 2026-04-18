@@ -17,10 +17,16 @@ function groupByWork(books: Book[]): { title: string; books: Book[] }[] {
     .map(([title, bks]) => ({ title, books: bks }))
 }
 
-const TRADITION_LABEL: Record<string, string> = {
-  latina: 'Latina',
-  grega: 'Grega',
-  oriental: 'Oriental',
+const COLLECTION_LABEL: Record<string, string> = {
+  PT: 'Paulus', PL: 'Migne PL', PG: 'Migne PG', PO: 'Patrologia Orientalis',
+}
+
+function editionSummary(books: Book[]): string {
+  const labels = [...new Set(
+    books.map(b => b.edition_label || COLLECTION_LABEL[b.collection ?? ''] || b.collection || '')
+      .filter(Boolean)
+  )]
+  return labels.length > 0 ? labels.join(' · ') : 'Patrística'
 }
 
 interface AutoresSectionProps {
@@ -80,7 +86,7 @@ export default function AutoresSection({ catalog }: AutoresSectionProps) {
                       {entry.name}
                     </p>
                     <p className="text-xs text-texto-terciario mt-0.5">
-                      Patrística {TRADITION_LABEL[entry.tradition]} ·{' '}
+                      {editionSummary(entry.books)} ·{' '}
                       {entry.book_count}{' '}
                       {entry.book_count === 1 ? 'obra' : 'obras'} —{' '}
                       {entry.chunk_count}{' '}
@@ -225,7 +231,7 @@ export default function AutoresSection({ catalog }: AutoresSectionProps) {
                 <div>
                   <p className="text-sm text-texto-terciario">{entry.name}</p>
                   <p className="text-xs text-texto-terciario/60 mt-0.5">
-                    Patrística {TRADITION_LABEL[entry.tradition]} · {entry.collection}
+                    {COLLECTION_LABEL[entry.collection] ?? entry.collection}
                   </p>
                 </div>
                 <span className="text-xs text-texto-terciario/50 shrink-0 ml-3">
