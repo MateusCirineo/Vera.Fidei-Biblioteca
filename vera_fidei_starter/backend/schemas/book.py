@@ -76,6 +76,7 @@ class BookResponse(BaseModel):
     document_year: int | None
     is_ecumenical: bool | None
     document_status: str | None
+    volume_number: int | None = None
 
     # Arquivos vinculados (populados via GET /books/{id})
     files: list[BookFileResponse] | None = None

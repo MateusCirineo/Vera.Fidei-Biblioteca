@@ -47,6 +47,7 @@ def _book_to_response(db, b: Book) -> BookResponse:
         document_year=b.document_year,
         is_ecumenical=b.is_ecumenical,
         document_status=b.document_status,
+        volume_number=b.volume_number,
         files=[BookFileResponse.model_validate(f) for f in files] if files else None,
     )
 
@@ -70,6 +71,7 @@ def list_books() -> list[BookResponse]:
         if needs_commit:
             db.commit()
 
+        books.sort(key=lambda b: (b.volume_number is None, b.volume_number or 0, b.id))
         return [_book_to_response(db, b) for b in books]
 
 

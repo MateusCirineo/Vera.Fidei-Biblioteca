@@ -40,6 +40,7 @@ class Book(Base):
     document_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_ecumenical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     document_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    volume_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="book",
@@ -133,6 +134,7 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS is_ecumenical BOOLEAN",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_status VARCHAR(50)",
         "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS chunk_author VARCHAR(255)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS volume_number INTEGER",
         # Fix spelling variant: "Irineu" → "Ireneu" (key in PATRISTIC_AUTHORS)
         "UPDATE books SET canonical_author = 'Santo Ireneu de Lião' WHERE canonical_author = 'Santo Irineu de Lião'",
     ]

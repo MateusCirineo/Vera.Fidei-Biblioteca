@@ -54,6 +54,7 @@ def _book_to_response(db, b: Book) -> BookResponse:
         document_year=b.document_year,
         is_ecumenical=b.is_ecumenical,
         document_status=b.document_status,
+        volume_number=b.volume_number,
     )
 
 
