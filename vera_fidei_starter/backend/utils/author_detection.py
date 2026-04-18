@@ -782,11 +782,33 @@ AUTHOR_ALIASES: dict[str, str] = {
     "cipriano de cartago":          "São Cipriano de Cartago",
     "sao cipriano":                 "São Cipriano de Cartago",
     "cipriano":                     "São Cipriano de Cartago",
-    # Outros comuns
-    "agostinho":                    "Santo Agostinho de Hipona",
-    "santo agostinho":              "Santo Agostinho de Hipona",
-    "crisostomo":                   "São João Crisóstomo",
-    "joao crisostomo":              "São João Crisóstomo",
+    # Agostinho de Hipona
+    "agostinho":                        "Santo Agostinho de Hipona",
+    "santo agostinho":                  "Santo Agostinho de Hipona",
+    "agostinho de hipona":              "Santo Agostinho de Hipona",
+    "a trindade":                       "Santo Agostinho de Hipona",
+    "de trinitate":                     "Santo Agostinho de Hipona",
+    "o livre arbitrio":                 "Santo Agostinho de Hipona",
+    "de libero arbitrio":               "Santo Agostinho de Hipona",
+    "confissoes":                       "Santo Agostinho de Hipona",
+    "cidade de deus":                   "Santo Agostinho de Hipona",
+    # Ambrósio de Milão
+    "ambrosio de milao":                "São Ambrósio de Milão",
+    "sao ambrosio":                     "São Ambrósio de Milão",
+    "santo ambrosio":                   "São Ambrósio de Milão",
+    "ambrosio":                         "São Ambrósio de Milão",
+    "sobre os sacramentos":             "São Ambrósio de Milão",
+    "sobre os misterios":               "São Ambrósio de Milão",
+    "sobre a penitencia":               "São Ambrósio de Milão",
+    "explicacao dos simbolos":          "São Ambrósio de Milão",
+    # Leão Magno
+    "leao magno":                       "São Leão Magno",
+    "sao leao magno":                   "São Leão Magno",
+    "leao i":                           "São Leão Magno",
+    "sermoes de leao magno":            "São Leão Magno",
+    # João Crisóstomo
+    "crisostomo":                       "São João Crisóstomo",
+    "joao crisostomo":                  "São João Crisóstomo",
 }
 
 
