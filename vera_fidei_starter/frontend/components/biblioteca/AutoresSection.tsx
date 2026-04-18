@@ -160,18 +160,19 @@ export default function AutoresSection({ catalog }: AutoresSectionProps) {
                                           Primária
                                         </span>
                                       )}
-                                      {book.collection && (
+                                      {(book.edition_label || book.collection) && (
                                         <span className="font-mono bg-fundo px-1.5 py-0.5 rounded">
-                                          {book.collection}
+                                          {book.edition_label || (
+                                            book.collection === "PT" ? "Paulus" :
+                                            book.collection === "PL" ? "Migne PL" :
+                                            book.collection === "PG" ? "Migne PG" :
+                                            book.collection === "PO" ? "Patrologia Orientalis" :
+                                            book.collection
+                                          )}
                                         </span>
                                       )}
                                       {book.language && (
                                         <span>{book.language}</span>
-                                      )}
-                                      {book.edition_label && (
-                                        <span className="truncate">
-                                          {book.edition_label}
-                                        </span>
                                       )}
                                     </div>
                                     {book.chunk_count !== undefined &&
