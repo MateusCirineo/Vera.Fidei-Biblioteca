@@ -7,7 +7,7 @@ from sqlalchemy import func
 
 from models.database import SessionLocal, Book, Chunk, BookFile
 from schemas.book import BookCreate, BookResponse, BookFileResponse, IngestPDFResponse, AutoIngestResponse, BookStatusResponse
-from services.ingestion_service import get_processing_status
+from services.ingestion_service import get_processing_state
 from services.ingestion_service import IngestionService
 from utils.language import classify_book
 
@@ -48,6 +48,8 @@ def _book_to_response(db, b: Book) -> BookResponse:
         is_ecumenical=b.is_ecumenical,
         document_status=b.document_status,
         volume_number=b.volume_number,
+        ingest_status=b.ingest_status,
+        ingest_error=b.ingest_error,
         files=[BookFileResponse.model_validate(f) for f in files] if files else None,
     )
 
@@ -170,10 +172,12 @@ def get_book_status(book_id: int) -> BookStatusResponse:
         if book is None:
             raise HTTPException(status_code=404, detail="Livro não encontrado.")
         chunks = db.query(func.count(Chunk.id)).filter(Chunk.book_id == book_id).scalar() or 0
+    status, ingest_error = get_processing_state(book_id)
     return BookStatusResponse(
         book_id=book_id,
-        status=get_processing_status(book_id),
+        status=status,
         chunks_indexed=chunks,
+        ingest_error=ingest_error,
     )
 
 
@@ -245,4 +249,3 @@ async def ingest_pdf(
         editor=editor,
         translator=translator,
     )
-

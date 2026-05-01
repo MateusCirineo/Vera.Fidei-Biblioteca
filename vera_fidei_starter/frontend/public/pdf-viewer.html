@@ -123,13 +123,16 @@
       'http://localhost:8001',
       'http://localhost:8000',
       'http://192.168.0.3:8001',
+      'https://verafidei.oialfred.com',
+      'http://5.161.115.95',
+      'http://5.161.115.95:8080',
     ]
 
     function isAllowedFileUrl(url) {
       if (!url) return false
       try {
         const u = new URL(url)
-        return ALLOWED_ORIGINS.includes(u.origin) && u.pathname.startsWith('/pdfs/')
+        return ALLOWED_ORIGINS.includes(u.origin) && (u.pathname.startsWith('/pdfs/') || u.pathname.startsWith('/api/pdfs/'))
       } catch {
         return false
       }

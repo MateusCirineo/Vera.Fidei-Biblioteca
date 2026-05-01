@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import type { Book } from '@/lib/types'
+import { formatLanguage } from '@/lib/language'
 
 export default function BookDetail({ book }: { book: Book }) {
   return (
@@ -38,7 +39,7 @@ export default function BookDetail({ book }: { book: Book }) {
             <p className="text-xs text-texto-terciario uppercase tracking-wider mb-0.5">
               Idioma
             </p>
-            <p className="text-texto">{book.language}</p>
+            <p className="text-texto">{formatLanguage(book.language)}</p>
           </div>
         )}
         {book.edition_label && (
@@ -47,6 +48,22 @@ export default function BookDetail({ book }: { book: Book }) {
               Edição
             </p>
             <p className="text-texto">{book.edition_label}</p>
+          </div>
+        )}
+        {book.pope && (
+          <div>
+            <p className="text-xs text-texto-terciario uppercase tracking-wider mb-0.5">
+              Papa
+            </p>
+            <p className="text-texto">{book.pope}</p>
+          </div>
+        )}
+        {book.document_year && (
+          <div>
+            <p className="text-xs text-texto-terciario uppercase tracking-wider mb-0.5">
+              Ano
+            </p>
+            <p className="text-texto">{book.document_year}</p>
           </div>
         )}
         {book.source_label && (
@@ -109,7 +126,9 @@ export default function BookDetail({ book }: { book: Book }) {
       {(!book.files || book.files.length === 0) && (
         <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
           <p className="text-sm text-texto-terciario">
-            Nenhum arquivo PDF vinculado ainda.
+            {book.source_label === 'Vatican.va'
+              ? 'Documento disponível em Vatican.va — conteúdo indexado para busca e verificação.'
+              : 'Nenhum arquivo PDF vinculado ainda.'}
           </p>
         </div>
       )}

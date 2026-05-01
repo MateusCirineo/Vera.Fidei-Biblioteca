@@ -3,8 +3,9 @@ Detecta o autor individual de cada chunk nos volumes coletânea (multi-autor)
 e persiste o resultado em Chunk.chunk_author + atualiza os índices ES e ChromaDB.
 
 Volumes alvo:
-  Book 9 — Vol. 1 Padres Apostólicos
-  Book 7 — Vol. 2 Padres Apologistas
+  PT Vol. 1 - Padres Apostolicos
+  PT Vol. 2 - Padres Apologistas
+  PG Vol. 1 - Patrologia Graeca
 
 Estratégia:
   1. Abre o PDF com pdfplumber.
@@ -31,6 +32,7 @@ import unicodedata
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pdfplumber
+from ingestion.pdf_extractor import PDFExtractor
 from models.database import SessionLocal, Book, Chunk, init_db
 
 # ─── Tabela de padrões por volume ────────────────────────────────────────────
@@ -151,12 +153,45 @@ PG_VOL1_PATTERNS: list[tuple[str, str]] = [
     (r"^didakhe",                                "Didaqué"),
 ]
 
-# Book ID → (PDF stored_path suffix pattern, patterns list)
-COLLECTANEA_BOOKS: dict[int, tuple[str, list]] = {
-    9:  ("Vol._1",  VOL1_PATTERNS),
-    7:  ("Vol._2",  VOL2_PATTERNS),
-    25: ("PG001",   PG_VOL1_PATTERNS),
-}
+# Volumes coletânea resolvidos por metadados — sem IDs hardcoded.
+# Cada entrada: (filtros de busca no DB, lista de padrões)
+COLLECTANEA_BOOKS: list[tuple[dict, list]] = [
+    ({"collection": "PT", "volume_number": 1}, VOL1_PATTERNS),
+    ({"collection": "PT", "volume_number": 2}, VOL2_PATTERNS),
+    # PG Vol. 1 não está aqui: o PDF enviado é apenas de São Clemente de Roma (autor único).
+    # PG_VOL1_PATTERNS disponível para volumes futuros que contenham multi-autores.
+]
+
+
+def resolve_book(meta: dict, db) -> "Book | None":
+    """
+    Localiza o livro coletânea pelos metadados fornecidos.
+    Prefere livros com ingest bem-sucedido (chunks > 0).
+    Se houver múltiplos candidatos válidos, usa o mais recente.
+    Se só houver candidatos com 0 chunks, avisa e retorna None.
+    """
+    q = db.query(Book)
+    if "collection" in meta:
+        q = q.filter(Book.collection == meta["collection"])
+    if "volume_number" in meta:
+        q = q.filter(Book.volume_number == meta["volume_number"])
+    candidates = q.order_by(Book.id.desc()).all()
+
+    valid = []
+    for b in candidates:
+        chunk_count = db.query(Chunk).filter(Chunk.book_id == b.id).count()
+        status = getattr(b, "ingest_status", None)
+        if chunk_count > 0 and status in (None, "done"):
+            valid.append(b)
+
+    if valid:
+        if len(valid) > 1:
+            print(f"  AVISO: múltiplos livros válidos para {meta}: {[b.id for b in valid]}")
+        return valid[0]
+
+    if candidates:
+        print(f"  AVISO: candidatos encontrados mas nenhum com chunks indexados: {[b.id for b in candidates]} — pulando.")
+    return None
 
 
 def _norm(text: str) -> str:
@@ -180,21 +215,24 @@ def scan_pdf_sections(pdf_path: str, patterns: list[tuple[str, str]]) -> dict[in
     """
     page_map: dict[int, str] = {}
     current_author: str | None = None
+    extractor = PDFExtractor()
+    cache_dir = extractor._cache_dir(pdf_path)
 
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
             raw_text = page.extract_text() or ""
+            if not raw_text.strip():
+                raw_text = extractor._read_cached_page(cache_dir, i) or ""
 
             # Usa apenas a PRIMEIRA linha não vazia para detecção de header de seção.
             # Isso evita que menções ao autor no corpo do texto ou no rodapé
             # mudem o autor atribuído (e.g., "Pseudo-Barnabé" em nota de rodapé).
             lines = [ln.strip() for ln in raw_text.split('\n') if ln.strip()]
-            first_line = lines[0] if lines else ""
-            header_norm = _norm(first_line)
+            header_lines_norm = [_norm(ln) for ln in lines[:8]]
 
             # Tenta detectar novo header de seção nesta página
             for pattern, author in patterns:
-                if re.search(pattern, header_norm):
+                if any(re.search(pattern, header_norm) for header_norm in header_lines_norm):
                     current_author = author
                     break  # usa o primeiro match (patterns ordenados por especificidade)
 
@@ -302,8 +340,12 @@ def main(dry_run: bool = False) -> None:
 
     total = 0
     with SessionLocal() as db:
-        for book_id, (_, patterns) in COLLECTANEA_BOOKS.items():
-            total += tag_book(book_id, patterns, db, dry_run=dry_run)
+        for meta, patterns in COLLECTANEA_BOOKS:
+            book = resolve_book(meta, db)
+            if book is None:
+                print(f"  ERRO: livro não encontrado para {meta} — pulando.")
+                continue
+            total += tag_book(book.id, patterns, db, dry_run=dry_run)
 
     print(f"\nTotal de chunks marcados: {total}")
     print("Concluído.")

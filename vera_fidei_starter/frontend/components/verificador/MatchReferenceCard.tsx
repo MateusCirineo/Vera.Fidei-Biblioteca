@@ -2,6 +2,7 @@
 
 import type { MatchReference } from '@/lib/types'
 import { getPdfUrl } from '@/lib/api'
+import { formatLanguage } from '@/lib/language'
 
 export default function MatchReferenceCard({
   reference,
@@ -65,7 +66,7 @@ export default function MatchReferenceCard({
           </span>
           {reference.language && (
             <span className="text-xs text-texto-secundario">
-              {reference.language}
+              {formatLanguage(reference.language)}
             </span>
           )}
         </div>

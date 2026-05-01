@@ -26,3 +26,13 @@ Pillow==10.3.0
 
 # Detecção de idioma
 langdetect==1.0.9
+
+# LLM explicador (Camada 4 — explanatory-only, não influencia score nem veredito)
+# Configure llm_provider no .env: "groq" | "google" | "anthropic"
+anthropic>=0.25.0
+groq>=0.9.0
+google-genai>=1.0.0
+
+# Conectores externos
+beautifulsoup4>=4.12.0
+httpx>=0.27.0

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { EB_Garamond, Inter } from 'next/font/google'
 import './globals.css'
 import BottomNav from '@/components/nav/BottomNav'
+import DonationModal from '@/components/mecenas/DonationModal'
 
 const ebGaramond = EB_Garamond({
   variable: '--font-eb-garamond',
@@ -33,6 +34,7 @@ export default function RootLayout({
       <body className="flex flex-col min-h-dvh bg-fundo text-texto antialiased">
         <main className="flex-1 pb-20">{children}</main>
         <BottomNav />
+        <DonationModal />
       </body>
     </html>
   )

@@ -41,6 +41,8 @@ class Book(Base):
     is_ecumenical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     document_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     volume_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ingest_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    ingest_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="book",
@@ -135,6 +137,12 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_status VARCHAR(50)",
         "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS chunk_author VARCHAR(255)",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS volume_number INTEGER",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS ingest_status VARCHAR(30)",
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS ingest_error TEXT",
+        "ALTER TABLE book_files ADD COLUMN IF NOT EXISTS volume_number INTEGER",
+        "ALTER TABLE book_files ADD COLUMN IF NOT EXISTS editor VARCHAR(255)",
+        "ALTER TABLE book_files ADD COLUMN IF NOT EXISTS translator VARCHAR(255)",
+        "ALTER TABLE book_files ADD COLUMN IF NOT EXISTS created_at TIMESTAMP",
         # Fix spelling variant: "Irineu" → "Ireneu" (key in PATRISTIC_AUTHORS)
         "UPDATE books SET canonical_author = 'Santo Ireneu de Lião' WHERE canonical_author = 'Santo Irineu de Lião'",
     ]

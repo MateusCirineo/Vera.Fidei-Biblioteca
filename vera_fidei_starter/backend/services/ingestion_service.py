@@ -18,7 +18,7 @@ from ingestion.pdf_extractor import PDFExtractor
 from ingestion.chunker import Chunker
 from utils.patristic_parser import parse_patristic_book
 from utils.author_detection import detect_author, detect_canonical_title
-from utils.language import detect_latin_heuristic
+from utils.language import detect_latin_heuristic, normalize_lang
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "pdfs")
 
@@ -78,14 +78,38 @@ _processing_status: dict[int, str] = {}
 _status_lock = threading.Lock()
 
 
-def _set_status(book_id: int, status: str) -> None:
+def _set_status(book_id: int, status: str, error: str | None = None) -> None:
     with _status_lock:
         _processing_status[book_id] = status
 
+    try:
+        with SessionLocal() as db:
+            book = db.get(Book, book_id)
+            if book is not None:
+                book.ingest_status = status
+                book.ingest_error = error
+                db.commit()
+    except Exception as exc:
+        print(f"[ingest] could not persist status for book_id={book_id}: {exc}")
+
 
 def get_processing_status(book_id: int) -> str:
+    return get_processing_state(book_id)[0]
+
+
+def get_processing_state(book_id: int) -> tuple[str, str | None]:
     with _status_lock:
-        return _processing_status.get(book_id, "done")
+        cached = _processing_status.get(book_id)
+
+    try:
+        with SessionLocal() as db:
+            book = db.get(Book, book_id)
+            if book is not None:
+                return cached or book.ingest_status or "done", book.ingest_error
+    except Exception:
+        pass
+
+    return cached or "done", None
 
 
 def _sanitize_filename(name: str) -> str:
@@ -102,6 +126,60 @@ def _detect_lang(text: str) -> str:
         return detect(text)
     except LangDetectException:
         return "la"
+
+
+def _count_greek_chars(text: str) -> int:
+    return sum(
+        1
+        for ch in text
+        if "\u0370" <= ch <= "\u03ff" or "\u1f00" <= ch <= "\u1fff"
+    )
+
+
+def _detect_extracted_language(
+    pages: list[dict],
+    current_language: str | None,
+    collection: str | None,
+) -> str | None:
+    """
+    Detecta combinações de idiomas depois da extração completa.
+    Isso pega casos como PG001, cujo OCR contém latim e grego na mesma obra.
+    """
+    current = current_language or ""
+    normalized = normalize_lang(current)
+    parts = set(normalized.split("+")) if normalized else set()
+    collection_code = (collection or "").upper().strip()
+
+    # Não reclassifica traduções modernas por causa de citações soltas em rodapé.
+    if parts & {"pt", "es", "fr", "it", "en", "de"} and collection_code not in {"PG", "PL", "PO"}:
+        return current_language
+
+    sample_parts: list[str] = []
+    total_chars = 0
+    greek_chars = 0
+    for page in pages:
+        text = page.get("text", "") if isinstance(page, dict) else str(page)
+        if not text:
+            continue
+        greek_chars += _count_greek_chars(text)
+        if total_chars < 200_000:
+            remaining = 200_000 - total_chars
+            sample_parts.append(text[:remaining])
+            total_chars += min(len(text), remaining)
+
+    sample = "\n".join(sample_parts)
+    has_latin = "la" in parts or detect_latin_heuristic(sample)
+    has_greek = "grc" in parts or "el" in parts or greek_chars >= 20
+
+    labels: list[str] = []
+    if has_latin:
+        labels.append("latim")
+    if has_greek:
+        labels.append("grego")
+
+    if labels:
+        return "/".join(labels)
+    return current_language
 
 
 def _extract_sample_pages(pdf_path: str, n: int = 8) -> list[dict]:
@@ -228,9 +306,15 @@ class IngestionService:
             db.flush()
 
             book = db.get(Book, book_id)
-            try:
-                for chunk in chunk_records:
-                    es_doc = {
+            semantic_language = normalize_lang(book.language if book else "la")
+            es_items: list[tuple[int, dict]] = []
+            chroma_items: list[tuple[int, str, dict]] = []
+            for chunk in chunk_records:
+                es_items.append((
+                    chunk.id,
+                    {
+                        "book_id": book_id,
+                        "book_file_id": book_file.id,
                         "text": chunk.text,
                         "author": book.author,
                         "work_title": book.title,
@@ -243,14 +327,22 @@ class IngestionService:
                         "chapter_or_section": chunk.chapter_or_section,
                         "char_offset_start": chunk.char_offset_start,
                         "char_offset_end": chunk.char_offset_end,
-                    }
-                    self.text_search.index_chunk(chunk.id, es_doc)
-
-                    chroma_meta = {
+                    },
+                ))
+                chroma_items.append((
+                    chunk.id,
+                    chunk.text,
+                    {
+                        "book_id": book_id,
+                        "book_file_id": book_file.id,
                         "author": book.author,
                         "work_title": book.title,
-                    }
-                    self.semantic_search.index_chunk(chunk.id, chunk.text, chroma_meta)
+                    },
+                ))
+
+            try:
+                self.text_search.index_chunks(es_items)
+                self.semantic_search.index_chunks(chroma_items, language=semantic_language)
 
             except Exception as exc:
                 db.rollback()
@@ -335,6 +427,8 @@ class IngestionService:
                 document_type=doctype,
                 canonical_author=parsed.canonical_author,
                 canonical_title=parsed.canonical_title if parsed.canonical_author else None,
+                ingest_status="processing",
+                ingest_error=None,
             )
             db.add(book)
             db.commit()
@@ -350,6 +444,7 @@ class IngestionService:
                 "canonical_title": book.canonical_title,
                 "library_section": book.library_section,
                 "patristic_tradition": book.patristic_tradition,
+                "ingest_error": book.ingest_error,
             }
 
         # Salvar PDF em disco permanentemente
@@ -438,10 +533,41 @@ class IngestionService:
         """Thread de background: extrai todas as páginas, cria chunks, indexa."""
         try:
             pages = self.extractor.extract(stored_path)
+
+            with SessionLocal() as db:
+                book = db.get(Book, book_id)
+                if book is not None:
+                    detected_language = _detect_extracted_language(
+                        pages,
+                        book.language,
+                        book.collection,
+                    )
+                    if detected_language and detected_language != book.language:
+                        book.language = detected_language
+                        db.commit()
+
             raw_chunks = self.chunker.chunk(pages, {})
 
             if not raw_chunks:
-                _set_status(book_id, "error")
+                # Diagnóstico: conta páginas do PDF para distinguir falha de OCR de PDF vazio
+                try:
+                    with pdfplumber.open(stored_path) as _pdf:
+                        _total_pages = len(_pdf.pages)
+                except Exception:
+                    _total_pages = 0
+                _pages_extracted = len(pages) if pages else 0
+                error_message = (
+                    f"PDF has {_total_pages} pages, extractor returned "
+                    f"{_pages_extracted} pages, but chunker generated 0 chunks."
+                )
+                if _total_pages >= 10:
+                    error_message += " Possible OCR/Tesseract failure."
+                print(
+                    f"[ingest] book_id={book_id}: PDF tem {_total_pages} páginas, "
+                    f"extrator retornou {_pages_extracted} páginas, "
+                    f"chunker gerou 0 chunks — marcando como erro."
+                )
+                _set_status(book_id, "error", error_message)
                 return
 
             with SessionLocal() as db:
@@ -476,9 +602,15 @@ class IngestionService:
                 db.flush()
 
                 book = db.get(Book, book_id)
-                try:
-                    for chunk in chunk_records:
-                        es_doc = {
+                semantic_language = normalize_lang(book.language if book else "la")
+                es_items: list[tuple[int, dict]] = []
+                chroma_items: list[tuple[int, str, dict]] = []
+                for chunk in chunk_records:
+                    es_items.append((
+                        chunk.id,
+                        {
+                            "book_id": book_id,
+                            "book_file_id": book_file_id,
                             "text": chunk.text,
                             "author": book.author,
                             "work_title": book.title,
@@ -491,23 +623,28 @@ class IngestionService:
                             "chapter_or_section": chunk.chapter_or_section,
                             "char_offset_start": chunk.char_offset_start,
                             "char_offset_end": chunk.char_offset_end,
-                        }
-                        self.text_search.index_chunk(chunk.id, es_doc)
-
-                        chroma_meta = {
+                        },
+                    ))
+                    chroma_items.append((
+                        chunk.id,
+                        chunk.text,
+                        {
+                            "book_id": book_id,
+                            "book_file_id": book_file_id,
                             "author": book.author,
                             "work_title": book.title,
-                        }
-                        self.semantic_search.index_chunk(chunk.id, chunk.text, chroma_meta)
-
-                except Exception:
-                    db.rollback()
-                    _set_status(book_id, "error")
-                    return
-
+                        },
+                    ))
                 db.commit()
+
+            try:
+                self.text_search.index_chunks(es_items)
+                self.semantic_search.index_chunks(chroma_items, language=semantic_language)
+            except Exception as exc:
+                _set_status(book_id, "error", f"Search indexing failed: {exc}")
+                return
 
             _set_status(book_id, "done")
 
-        except Exception:
-            _set_status(book_id, "error")
+        except Exception as exc:
+            _set_status(book_id, "error", f"Background ingest failed: {exc}")

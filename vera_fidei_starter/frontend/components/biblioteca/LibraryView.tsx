@@ -6,6 +6,8 @@ import type {
   LibraryStructure,
   PatristicTradition,
   DocumentType,
+  PopeDocumentEntry,
+  DocumentosLibrary,
   AuthorEntry,
   AuthorCatalogEntry,
 } from '@/lib/types'
@@ -23,24 +25,22 @@ function organizeLibrary(books: Book[]): LibraryStructure {
     portuguesa: [],
   }
 
-  const documentos: LibraryStructure['documentos'] = {
-    concilio: [],
-    bula: [],
-    enciclica: [],
-    constituicao_apostolica: [],
-    carta_apostolica: [],
-    outro: [],
-  }
-
+  const popeMap: Record<string, Book[]> = {}
+  const nonPapalMap: Partial<Record<DocumentType, Book[]>> = {}
   const autorMap: Record<string, Record<string, Book[]>> = {}
 
   for (const book of books) {
     if (book.library_section === 'documentos') {
       const dt = (book.document_type ?? 'outro') as DocumentType
-      if (dt in documentos) {
-        documentos[dt].push(book)
+      // Concílios, Catecismo e Direito Canônico são documentos da Igreja, não de um papa específico
+      const NON_PAPAL_TYPES: DocumentType[] = ['concilio', 'catecismo', 'direito_canonico']
+      if (!NON_PAPAL_TYPES.includes(dt) && book.pope) {
+        const popeName = book.pope
+        if (!popeMap[popeName]) popeMap[popeName] = []
+        popeMap[popeName].push(book)
       } else {
-        documentos.outro.push(book)
+        if (!nonPapalMap[dt]) nonPapalMap[dt] = []
+        nonPapalMap[dt]!.push(book)
       }
     } else {
       // Patrística (seção padrão)
@@ -55,6 +55,29 @@ function organizeLibrary(books: Book[]): LibraryStructure {
       autorMap[author][title].push(book)
     }
   }
+
+  const byPope: PopeDocumentEntry[] = Object.entries(popeMap).map(([pope, popeBooks]) => {
+    const types: Partial<Record<DocumentType, Book[]>> = {}
+    for (const book of popeBooks) {
+      const dt = (book.document_type ?? 'outro') as DocumentType
+      if (!types[dt]) types[dt] = []
+      types[dt]!.push(book)
+    }
+    const years = popeBooks.map(b => b.document_year).filter(Boolean) as number[]
+    return {
+      pope,
+      latestYear: years.length ? Math.max(...years) : null,
+      totalCount: popeBooks.length,
+      types,
+    }
+  })
+  byPope.sort((a, b) => {
+    if (a.pope === 'Outros') return 1
+    if (b.pope === 'Outros') return -1
+    return (b.latestYear ?? 0) - (a.latestYear ?? 0)
+  })
+
+  const documentos: DocumentosLibrary = { byPope, nonPapal: nonPapalMap }
 
   const obras_por_autor: AuthorEntry[] = Object.entries(autorMap)
     .sort(([a], [b]) => a.localeCompare(b, 'pt'))

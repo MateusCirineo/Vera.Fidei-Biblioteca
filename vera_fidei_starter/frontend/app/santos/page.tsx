@@ -1,3 +1,5 @@
+import BrandHeader from '@/components/BrandHeader'
+
 const fathers = [
   { name: 'São Cipriano de Cartago', century: 'Séc. III', collection: 'PL 4' },
   { name: 'Santo Agostinho de Hipona', century: 'Séc. IV–V', collection: 'PL 32–46' },
@@ -12,14 +14,10 @@ const fathers = [
 export default function SantosPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 pt-8 pb-4">
-      <div className="mb-6">
-        <h1 className="font-garamond text-3xl font-semibold text-texto">
-          Santos
-        </h1>
-        <p className="mt-1 text-sm text-texto-secundario">
-          Hagiologia católica, Padres da Igreja e Doutores.
-        </p>
-      </div>
+      <BrandHeader
+        title="Santos"
+        description="Hagiologia católica, Padres da Igreja e Doutores."
+      />
 
       {/* Coming soon banner */}
       <div className="mb-6 flex items-center gap-3 rounded-lg border border-dourado/20 bg-dourado/5 px-4 py-3">

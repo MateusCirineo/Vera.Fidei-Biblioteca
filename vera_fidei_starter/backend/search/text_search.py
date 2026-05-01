@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from elasticsearch import Elasticsearch
+from elasticsearch.helpers import bulk
 from core.config import settings
 
 ES_INDEX = "vera_fidei_chunks"
@@ -23,6 +24,8 @@ class TextSearchClient:
                 "mappings": {
                     "properties": {
                         "chunk_id":          {"type": "integer"},
+                        "book_id":           {"type": "integer"},
+                        "book_file_id":      {"type": "integer"},
                         "text":              {"type": "text", "analyzer": "standard"},
                         "author":            {"type": "keyword"},
                         "work_title":        {"type": "keyword"},
@@ -48,9 +51,11 @@ class TextSearchClient:
         _ORIGINAL_LANGS = {"la", "grc", "el", "he"}
         _TRANSLATION_LANGS = {"pt", "es", "fr", "it", "en", "de"}
 
-        if query_language in _TRANSLATION_LANGS:
+        query_langs = set((query_language or "unknown").split("+"))
+
+        if query_langs & _TRANSLATION_LANGS:
             fields = ["translation_text^2", "text"]
-        elif query_language in _ORIGINAL_LANGS:
+        elif query_langs & _ORIGINAL_LANGS:
             fields = ["text^2", "translation_text"]
         else:
             fields = ["text^1.2", "translation_text^1.2"]
@@ -81,6 +86,20 @@ class TextSearchClient:
 
     def index_chunk(self, chunk_id: int, doc: dict) -> None:
         self.es.index(index=ES_INDEX, id=str(chunk_id), document={**doc, "chunk_id": chunk_id})
+
+    def index_chunks(self, items: list[tuple[int, dict]]) -> None:
+        if not items:
+            return
+        actions = [
+            {
+                "_op_type": "index",
+                "_index": ES_INDEX,
+                "_id": str(chunk_id),
+                "_source": {**doc, "chunk_id": chunk_id},
+            }
+            for chunk_id, doc in items
+        ]
+        bulk(self.es, actions)
 
     def delete_chunk(self, chunk_id: int) -> None:
         try:

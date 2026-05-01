@@ -77,6 +77,8 @@ class BookResponse(BaseModel):
     is_ecumenical: bool | None
     document_status: str | None
     volume_number: int | None = None
+    ingest_status: str | None = None
+    ingest_error: str | None = None
 
     # Arquivos vinculados (populados via GET /books/{id})
     files: list[BookFileResponse] | None = None
@@ -106,9 +108,11 @@ class AutoIngestResponse(BaseModel):
     patristic_tradition: str | None
     chunks_indexed: int
     status: str  # "processing" | "done" | "error"
+    ingest_error: str | None = None
 
 
 class BookStatusResponse(BaseModel):
     book_id: int
     status: str   # "processing" | "done" | "error"
     chunks_indexed: int
+    ingest_error: str | None = None

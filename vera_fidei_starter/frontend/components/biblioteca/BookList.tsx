@@ -12,8 +12,12 @@ export default function BookList({ books }: { books: Book[] }) {
     onlyPrimary: false,
   })
 
-  const collections = [...new Set(books.map((b) => b.collection).filter(Boolean))]
-  const languages = [...new Set(books.map((b) => b.language).filter((l): l is string => !!l))]
+  const collections = [
+    ...new Set(books.map((b) => b.collection).filter((value): value is string => !!value)),
+  ]
+  const languages = [
+    ...new Set(books.map((b) => b.language).filter((value): value is string => !!value)),
+  ]
 
   const filtered = books.filter((b) => {
     if (filters.collection && b.collection !== filters.collection) return false

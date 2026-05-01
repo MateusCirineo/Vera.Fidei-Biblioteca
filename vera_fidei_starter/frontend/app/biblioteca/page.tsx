@@ -1,6 +1,9 @@
 import { listBooks, listAuthorsCatalog } from '@/lib/api'
 import type { Book, AuthorCatalogEntry } from '@/lib/types'
 import LibraryView from '@/components/biblioteca/LibraryView'
+import BrandHeader from '@/components/BrandHeader'
+
+export const dynamic = 'force-dynamic'
 
 export default async function BibliotecaPage() {
   let books: Book[] = []
@@ -15,14 +18,10 @@ export default async function BibliotecaPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 pt-8 pb-24">
-      <div className="mb-6">
-        <h1 className="font-garamond text-3xl font-semibold text-texto">
-          Biblioteca
-        </h1>
-        <p className="mt-1 text-sm text-texto-secundario">
-          Acervo de fontes patrísticas, concílios e documentos da Igreja.
-        </p>
-      </div>
+      <BrandHeader
+        title="Biblioteca"
+        description="Acervo de fontes patrísticas, concílios e documentos da Igreja."
+      />
 
       {fetchError ? (
         <div className="rounded-lg border border-red-800/50 bg-red-900/20 p-4">

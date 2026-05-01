@@ -1,4 +1,5 @@
 import type { VerifyCitationResponse } from '@/lib/types'
+import { formatLanguage } from '@/lib/language'
 import StatusBadge from './StatusBadge'
 import MatchReferenceCard from './MatchReferenceCard'
 
@@ -72,7 +73,7 @@ export default function VerificationResult({
           {/* Bloco original latim */}
           <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-texto-terciario">
-              Texto original ({result.original_language ?? 'Latim'})
+              Texto original ({formatLanguage(result.original_language) || 'latim'})
             </p>
             {result.context_before && (
               <p className="text-xs text-texto-terciario leading-relaxed line-clamp-2">
@@ -93,7 +94,7 @@ export default function VerificationResult({
           {result.matched_translation && (
             <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-texto-terciario">
-                Tradução de referência (Português)
+                Tradução de referência ({formatLanguage(result.translation_language) || 'português'})
                 {(result.translator ?? result.translation_edition) && (
                   <span className="normal-case font-normal ml-1">
                     — {result.translator ?? result.translation_edition}

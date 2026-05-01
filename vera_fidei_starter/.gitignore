@@ -1,0 +1,38 @@
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Arquivos compilados Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variáveis de ambiente (NUNCA commitar)
+backend/.env
+backend/.env.production
+backend/.env.local
+*.env
+
+# Logs
+*.log
+backend/logs/
+backend/uvicorn.*.log
+backend/backend_uvicorn.*.log
+backend/scraper_output.log
+
+# Banco SQLite local
+backend/db.sqlite3
+
+# Caches e temporários
+backend/.ocr_cache/
+backend/.tmp_*/
+backend/chroma_smoke_test/
+backend/chroma_fresh_smoke/
+
+# PDFs (sincronizar manualmente via rsync no servidor)
+backend/pdfs/
+
+# Claude
+../.claude/scheduled_tasks.lock

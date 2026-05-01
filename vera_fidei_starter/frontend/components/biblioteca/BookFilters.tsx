@@ -1,5 +1,7 @@
 'use client'
 
+import { formatLanguage } from '@/lib/language'
+
 export interface Filters {
   collection: string
   language: string
@@ -42,7 +44,7 @@ export default function BookFilters({
         <option value="">Todos os idiomas</option>
         {languages.map((l) => (
           <option key={l} value={l}>
-            {l}
+            {formatLanguage(l)}
           </option>
         ))}
       </select>

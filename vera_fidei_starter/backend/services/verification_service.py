@@ -32,7 +32,7 @@ def _detect_language(text: str, hint: str | None = None) -> str:
     "unknown" ≠ "la": evita enviesar o boosting de busca.
     """
     if hint:
-        return hint.strip().lower()
+        return _normalize_lang(hint)
     # Scripts não-latinos detectados por blocos Unicode antes de qualquer heurística
     script = detect_script_heuristic(text)
     if script:
@@ -387,7 +387,7 @@ class VerificationService:
 
                 chunks = db.query(Chunk).all()
                 es_count = self.text_search.es.count(index="vera_fidei_chunks").get("count", 0)
-                chroma_count = self.semantic_search.collection.count()
+                chroma_count = self.semantic_search.delta_collection.count()
 
                 # Garantir que ES e ChromaDB estão indexados
                 if es_count == 0 or chroma_count == 0:
@@ -429,20 +429,6 @@ class VerificationService:
                         db.delete(t)
                     db.commit()
 
-                # Corrigir chunks sem book_file_id
-                for chunk in db.query(Chunk).filter(Chunk.book_file_id.is_(None)).all():
-                    book = db.get(Book, chunk.book_id)
-                    if book:
-                        book_file = BookFile(
-                            book_id=book.id,
-                            original_filename="migne_pl_vol4.pdf",
-                            stored_path="pdfs/migne_pl_vol4.pdf",
-                            volume_number=chunk.volume,
-                        )
-                        db.add(book_file)
-                        db.flush()
-                        chunk.book_file_id = book_file.id
-                db.commit()
                 return
 
             # Seed inicial: livro + chunk + tradução PT
@@ -699,9 +685,11 @@ class VerificationService:
             real_pdf_page = chunk.pdf_page  # fallback sempre disponível
             if source_file and source_file.stored_path:
                 book_lang = _normalize_lang(book.language) if book else "unknown"
+                detected_lang_parts = set(detected_lang.split("+"))
+                book_lang_parts = set(book_lang.split("+"))
                 # Considera "mesmo idioma" quando ambos são idiomas originais (la+grc, etc.)
-                same_lang = (detected_lang == book_lang) or (
-                    detected_lang in ORIGINAL_LANGS and book_lang in ORIGINAL_LANGS
+                same_lang = bool(detected_lang_parts & book_lang_parts) or (
+                    bool(detected_lang_parts & ORIGINAL_LANGS) and bool(book_lang_parts & ORIGINAL_LANGS)
                 )
 
                 found_page = None

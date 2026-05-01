@@ -61,6 +61,10 @@ export type DocumentType =
   | 'enciclica'
   | 'constituicao_apostolica'
   | 'carta_apostolica'
+  | 'motu_proprio'
+  | 'exortacao_apostolica'
+  | 'catecismo'
+  | 'direito_canonico'
   | 'outro'
 
 export interface Book {
@@ -110,8 +114,20 @@ export interface AuthorEntry {
   works: AuthorWork[]
 }
 
+export interface PopeDocumentEntry {
+  pope: string
+  latestYear: number | null
+  totalCount: number
+  types: Partial<Record<DocumentType, Book[]>>
+}
+
+export interface DocumentosLibrary {
+  byPope: PopeDocumentEntry[]
+  nonPapal: Partial<Record<DocumentType, Book[]>>
+}
+
 export interface LibraryStructure {
   patristica: Record<PatristicTradition, Book[]>
   obras_por_autor: AuthorEntry[]
-  documentos: Record<DocumentType, Book[]>
+  documentos: DocumentosLibrary
 }

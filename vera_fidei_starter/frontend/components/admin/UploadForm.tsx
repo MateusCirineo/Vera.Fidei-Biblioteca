@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react'
 import { ingestAuto, getBookStatus, type AutoIngestResult } from '@/lib/api'
+import { formatLanguage } from '@/lib/language'
 
 type State =
   | { status: 'idle' }
@@ -256,7 +257,7 @@ function MetaGrid({ result }: { result: AutoIngestResult }) {
         highlight={!!result.canonical_author}
       />
       <Row label="Coleção" value={result.collection ?? '—'} />
-      <Row label="Idioma" value={result.language.toUpperCase()} />
+      <Row label="Idioma" value={formatLanguage(result.language)} />
       {result.patristic_tradition && (
         <Row
           label="Tradição"

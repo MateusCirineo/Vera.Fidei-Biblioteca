@@ -1,16 +1,94 @@
+import Image from 'next/image'
 import Link from 'next/link'
+
+const socialLinks = [
+  {
+    label: 'TikTok',
+    value: '@mattcirineo, o católico',
+    href: 'https://www.tiktok.com/@mattcirineo.catolico',
+  },
+  {
+    label: 'Instagram',
+    value: '@vera.fidei',
+    href: 'https://www.instagram.com/vera.fidei',
+  },
+  {
+    label: 'YouTube',
+    value: '@mattcirineo',
+    href: 'https://www.youtube.com/@mattcirineo',
+  },
+]
+
+function PresentationCover() {
+  return (
+    <div className="overflow-hidden rounded-lg border border-dourado/25 bg-fundo-card text-left shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
+      <div className="border-b border-dourado/20 bg-vinho-escuro/45 px-5 py-6 text-center">
+        <Image
+          src="/branding/Logo-VF.png"
+          alt="Vera.Fidei Catolico"
+          width={260}
+          height={146}
+          className="mx-auto h-auto w-48"
+          priority
+        />
+
+        <p className="mt-3 font-garamond text-lg font-medium text-dourado">
+          MattCirineo
+        </p>
+        <h1 className="mt-1 font-garamond text-5xl font-semibold text-texto">
+          Vera.Fidei
+        </h1>
+        <p className="mx-auto mt-2 max-w-md font-garamond text-xl italic text-dourado-claro">
+          Biblioteca Católica Digital com Fontes Primárias e Verificação de Citações
+        </p>
+      </div>
+
+      <div className="space-y-5 px-5 py-5">
+        <blockquote className="border-l-2 border-dourado pl-4 font-garamond text-xl italic text-texto">
+          Eucharistia via mea ad Caelum est
+        </blockquote>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          {socialLinks.map((link) => (
+            <a
+              key={link.label}
+              href={link.href}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md border border-fundo-borda bg-fundo px-3 py-2 transition-colors hover:border-dourado/40 hover:bg-vinho-escuro/20 focus:border-dourado/50 focus:outline-none"
+            >
+              <p className="text-xs text-texto-terciario">{link.label}</p>
+              <p className="text-sm font-medium text-texto-secundario">
+                {link.value}
+              </p>
+            </a>
+          ))}
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          {['Fontes primárias', 'Tradição católica', 'Verificação de citações'].map(
+            (item) => (
+              <p
+                key={item}
+                className="rounded-md border border-dourado/15 bg-dourado/5 px-3 py-2 text-center text-xs font-medium text-dourado"
+              >
+                {item}
+              </p>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function ApresentacaoPage() {
   return (
-    <div className="mx-auto max-w-2xl px-4 pt-8 pb-4 space-y-10">
+    <div className="mx-auto max-w-2xl px-4 pt-6 pb-4 space-y-10">
       {/* Hero */}
-      <section className="text-center space-y-4 py-4">
-        <h1 className="font-garamond text-5xl font-semibold tracking-tight text-texto">
-          Vera.Fidei
-        </h1>
-        <p className="font-garamond text-xl text-dourado italic">
-          Biblioteca Católica Digital com Fontes Primárias e Verificação de Citações
-        </p>
+      <section className="text-center space-y-5 pb-4">
+        <PresentationCover />
+
         <p className="text-sm text-texto-secundario leading-relaxed max-w-sm mx-auto">
           Uma biblioteca católica digital pensada para quem busca estudar, compreender e defender a fé com base em fontes autênticas.
         </p>

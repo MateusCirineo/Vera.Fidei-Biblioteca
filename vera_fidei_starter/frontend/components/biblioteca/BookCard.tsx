@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { Book } from '@/lib/types'
+import { formatLanguage } from '@/lib/language'
 
 export default function BookCard({ book }: { book: Book }) {
   return (
@@ -29,7 +30,8 @@ export default function BookCard({ book }: { book: Book }) {
             {book.collection}
           </span>
         )}
-        {book.language && <span>{book.language}</span>}
+        {book.language && <span>{formatLanguage(book.language)}</span>}
+        {book.document_year && <span>{book.document_year}</span>}
         {book.chunk_count !== undefined && (
           <span>{book.chunk_count} trechos</span>
         )}

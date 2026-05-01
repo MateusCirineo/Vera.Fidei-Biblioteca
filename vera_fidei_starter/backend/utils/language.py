@@ -6,6 +6,16 @@ import re as _re
 
 # Normalização de nomes de língua para ISO 639-1/639-3
 LANGUAGE_NORMALIZE: dict[str, str] = {
+    "la": "la", "lat": "la",
+    "grc": "grc", "el": "grc",
+    "pt": "pt", "por": "pt",
+    "es": "es", "spa": "es",
+    "en": "en", "eng": "en",
+    "fr": "fr", "fra": "fr", "fre": "fr",
+    "it": "it", "ita": "it",
+    "de": "de", "ger": "de", "deu": "de",
+    "he": "he", "heb": "he",
+    "syc": "syc",
     "latim": "la", "latin": "la",
     "grego": "grc", "greek": "grc", "grego antigo": "grc", "ancient greek": "grc",
     "hebraico": "he", "hebrew": "he",
@@ -72,7 +82,26 @@ def detect_latin_heuristic(text: str) -> bool:
 
 def normalize_lang(raw: str) -> str:
     """Converte nome de língua em texto livre para ISO 639-1/639-3."""
-    return LANGUAGE_NORMALIZE.get(raw.strip().lower(), raw.strip().lower())
+    normalized = raw.strip().lower()
+    if not normalized:
+        return normalized
+
+    parts = [
+        part.strip()
+        for segment in _re.sub(r"\s+e\s+", "/", normalized).split("/")
+        for part in _re.split(r"[+,;|]", segment)
+        if part.strip()
+    ]
+
+    if len(parts) > 1:
+        labels: list[str] = []
+        for part in parts:
+            label = LANGUAGE_NORMALIZE.get(part, part)
+            if label not in labels:
+                labels.append(label)
+        return "+".join(labels)
+
+    return LANGUAGE_NORMALIZE.get(normalized, normalized)
 
 
 # ─── Script detection by Unicode block ───────────────────────────────────────
@@ -138,21 +167,22 @@ def classify_book(
     """
     coll = collection.upper().strip()
     lang_iso = normalize_lang(language)
+    lang_parts = set(lang_iso.split("+"))
 
     # Documentos da Igreja
     if coll in COLLECTION_DOCUMENT_SECTIONS:
         return "documentos", None, COLLECTION_TO_DOCTYPE.get(coll, "outro")
 
     # Tradução / vernáculo → Patrística em Português
-    if not is_primary_source or lang_iso in TRANSLATION_LANGS:
+    if not is_primary_source or lang_parts & TRANSLATION_LANGS:
         return "patristica", "portuguesa", None
 
     # Patrística Grega
-    if coll == "PG" or lang_iso in ("grc", "el"):
+    if coll == "PG" or lang_parts & {"grc", "el"}:
         return "patristica", "grega", None
 
     # Patrística Oriental
-    if coll == "PO" or lang_iso in ORIENTAL_LANGS:
+    if coll == "PO" or lang_parts & ORIENTAL_LANGS:
         return "patristica", "oriental", None
 
     # Patrística Latina (PL ou padrão)

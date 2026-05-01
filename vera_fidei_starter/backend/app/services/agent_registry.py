@@ -12,6 +12,8 @@ from app.agents.translation_agent import TranslationAgent
 from app.agents.context_agent import ContextAgent
 from app.agents.consistency_agent import ConsistencyAgent
 from app.agents.safety_agent import SafetyAgent
+from app.agents.pdf_ingestion_agent import PdfIngestionAgent
+from app.agents.ingestion_validation_agent import IngestionValidationAgent
 
 
 def get_agent_registry() -> dict[str, BaseAgent]:
@@ -27,4 +29,6 @@ def get_agent_registry() -> dict[str, BaseAgent]:
         "context_agent": ContextAgent(),
         "consistency_agent": ConsistencyAgent(),
         "safety_agent": SafetyAgent(),
+        "pdf_ingestion_agent": PdfIngestionAgent(),
+        "ingestion_validation_agent": IngestionValidationAgent(),
     }

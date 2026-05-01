@@ -131,6 +131,7 @@ class SourceFinderAgent(BaseAgent):
 
         result = {
             "status": "found",
+            "chunk_id": best["chunk_id"],
             "confidence": best["combined_score"],
             "candidate_author": best["candidate_author"],
             "canonical_author": best["canonical_author"],
