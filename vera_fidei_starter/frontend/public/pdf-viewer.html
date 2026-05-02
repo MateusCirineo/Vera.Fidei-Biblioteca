@@ -108,8 +108,7 @@
     import { getDocument, GlobalWorkerOptions, Util }
       from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/build/pdf.min.mjs'
 
-    GlobalWorkerOptions.workerSrc =
-      'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.296/build/pdf.worker.min.mjs'
+    GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
     // ─── Params ──────────────────────────────────────────────────────────────
     const params        = new URLSearchParams(location.search)
@@ -183,12 +182,12 @@
 
       // Estratégia 2: janelas deslizantes de tamanhos decrescentes
       const words = nq.split(' ').filter(Boolean)
-      for (const size of [10, 7, 5, 4]) {
+      for (const size of [12, 10, 8, 6, 5]) {
         if (size > words.length) continue
         for (let i = 0; i <= words.length - size; i++) {
-          const window = words.slice(i, i + size).join(' ')
-          const widx = fullNormalized.indexOf(window)
-          if (widx !== -1) return { start: widx, end: widx + window.length }
+          const win = words.slice(i, i + size).join(' ')
+          const widx = fullNormalized.indexOf(win)
+          if (widx !== -1) return { start: widx, end: widx + win.length }
         }
       }
 
@@ -196,17 +195,11 @@
     }
 
     // ─── Cálculo de caixas de highlight ─────────────────────────────────────
-    // Após Util.transform(viewport.transform, item.transform):
-    //   tx[4] = x do texto (canvas px)
-    //   tx[5] = y da baseline (canvas px, eixo Y para baixo)
-    //   |tx[3]| = altura da fonte em canvas px
-
     function getItemBox(viewport, item) {
       const tx         = Util.transform(viewport.transform, item.transform)
       const fontHeight = Math.abs(tx[3])
       const left       = tx[4]
       const top        = tx[5] - fontHeight
-      // largura: escala proporcional ao fator tx[0]/item.transform[0]
       const scaleX     = item.transform[0] !== 0
         ? Math.abs(tx[0] / item.transform[0])
         : viewport.scale
@@ -215,60 +208,15 @@
       return { left, top, width, height }
     }
 
-    // Fallback por densidade de palavras-chave: quando nem as janelas deslizantes
-    // encontram a frase (PDF escaneado com OCR imperfeito), destaca os itens da
-    // página que contêm o maior cluster de palavras-chave da citação.
-    function computeHighlightByKeywords(viewport, parts, rawQuote) {
-      const keywords = normalizeText(rawQuote).split(' ').filter(w => w.length >= 4)
-      if (keywords.length === 0) return []
-
-      // Marcar quais itens contêm cada keyword
-      const matchedParts = parts
-        .filter(p => p.normalized.length > 0)
-        .map(p => ({
-          ...p,
-          hits: keywords.reduce((n, kw) => n + (p.normalized.includes(kw) ? 1 : 0), 0),
-        }))
-        .filter(p => p.hits > 0)
-
-      if (matchedParts.length === 0) return []
-
-      // Janela deslizante de até 20 itens para achar o cluster mais denso
-      const W = 20
-      let bestStart = 0, bestScore = 0
-      for (let i = 0; i < matchedParts.length; i++) {
-        const score = matchedParts
-          .slice(i, Math.min(i + W, matchedParts.length))
-          .reduce((s, p) => s + p.hits, 0)
-        if (score > bestScore) { bestScore = score; bestStart = i }
-      }
-
-      // Exige ao menos 3 keywords únicas no cluster para evitar falso-positivo
-      const cluster = matchedParts.slice(bestStart, Math.min(bestStart + W, matchedParts.length))
-      const uniqueHits = new Set(
-        cluster.flatMap(p => keywords.filter(kw => p.normalized.includes(kw)))
-      )
-      if (uniqueHits.size < 3) return []
-
-      return cluster.map(p => getItemBox(viewport, p.item))
-    }
-
-    // Retorna { boxes, mode } onde mode = 'phrase' | 'keyword' | 'none'
+    // Retorna { boxes, mode } onde mode = 'phrase' | 'none'
     function computeHighlightBoxes(viewport, items, rawQuote) {
       const { parts, fullNormalized } = buildJoinedText(items)
-
-      // Tenta busca por frase/janela primeiro
       const range = findQuoteRange(fullNormalized, rawQuote)
-      if (range) {
-        const boxes = parts
-          .filter(p => p.normalized && !(p.end < range.start || p.start > range.end))
-          .map(p => getItemBox(viewport, p.item))
-        return { boxes, mode: 'phrase' }
-      }
-
-      // Último recurso: densidade de palavras-chave (OCR imperfeito)
-      const boxes = computeHighlightByKeywords(viewport, parts, rawQuote)
-      return { boxes, mode: boxes.length > 0 ? 'keyword' : 'none' }
+      if (!range) return { boxes: [], mode: 'none' }
+      const boxes = parts
+        .filter(p => p.normalized && !(p.end < range.start || p.start > range.end))
+        .map(p => getItemBox(viewport, p.item))
+      return { boxes, mode: 'phrase' }
     }
 
     // ─── Renderiza uma página e aplica highlights ────────────────────────────
@@ -402,21 +350,15 @@
         // Status
         const anyFound     = r1.found || (r2 && r2.found)
         const usedFallback = r1.usedFallback || (r2 && r2.usedFallback)
-        const mode         = r1.found ? r1.mode : (r2 ? r2.mode : 'none')
 
         if (!anyFound) {
           setStatus('Citação não encontrada na camada de texto — PDF pode ser imagem.', 'notfound')
           return
         }
 
-        const statusMsg =
-          usedFallback && mode === 'keyword'
-            ? 'Trecho da fonte localizado por palavras-chave (texto OCR).'
-            : usedFallback
-            ? 'Trecho da fonte localizado. A citação digitada não aparece literalmente neste idioma.'
-            : mode === 'keyword'
-            ? 'Citação localizada por palavras-chave (correspondência aproximada).'
-            : 'Citação localizada.'
+        const statusMsg = usedFallback
+          ? 'Trecho da fonte localizado. A citação digitada não aparece literalmente neste idioma.'
+          : 'Citação localizada.'
         setStatus(statusMsg, 'found')
 
       } catch (err) {

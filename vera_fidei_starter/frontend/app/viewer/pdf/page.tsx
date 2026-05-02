@@ -22,7 +22,13 @@ type HighlightBox = {
 // ─── Utilitários de texto ────────────────────────────────────────────────────
 
 function normalizeText(text: string): string {
-  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+  return text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
 }
 
 function buildJoinedText(items: PdfTextItem[]) {
@@ -42,10 +48,13 @@ function findQuoteRange(fullNormalized: string, quote: string) {
   const idx = fullNormalized.indexOf(nq)
   if (idx !== -1) return { start: idx, end: idx + nq.length }
   const words = nq.split(' ').filter(Boolean)
-  if (words.length >= 4) {
-    const reduced = words.slice(0, Math.min(words.length, 10)).join(' ')
-    const ridx = fullNormalized.indexOf(reduced)
-    if (ridx !== -1) return { start: ridx, end: ridx + reduced.length }
+  for (const size of [12, 10, 8, 6, 5]) {
+    if (size > words.length) continue
+    for (let i = 0; i <= words.length - size; i++) {
+      const win = words.slice(i, i + size).join(' ')
+      const widx = fullNormalized.indexOf(win)
+      if (widx !== -1) return { start: widx, end: widx + win.length }
+    }
   }
   return null
 }
@@ -64,34 +73,36 @@ function getItemBox(
   }
 }
 
-// ─── Componente de uma página ────────────────────────────────────────────────
+// ─── Página individual (mobile e desktop compartilham) ────────────────────────
 
 function PdfPageCanvas({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  pdfjsLib, pdfDoc, pageNum, scale, quote, onVisible,
+  pdfjsLib, pdfDoc, pageNum, scale, quote, fallbackQuote, onVisible, placeholderHeight,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pdfjsLib: any; pdfDoc: any; pageNum: number; scale: number;
-  quote: string; onVisible?: (n: number) => void
+  quote: string; fallbackQuote: string;
+  onVisible?: (n: number) => void;
+  placeholderHeight: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [rendered, setRendered] = useState(false)
 
-  // IntersectionObserver: render somente quando a página está próxima do viewport
+  // Aciona render quando a página se aproxima do viewport
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
     const obs = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) setRendered(true) },
-      { rootMargin: '400px' },
+      { rootMargin: '600px' },
     )
     obs.observe(el)
     return () => obs.disconnect()
   }, [])
 
-  // Visibilidade da página para atualizar o número no header
+  // Atualiza o número da página visível no header
   useEffect(() => {
     const el = wrapRef.current
     if (!el || !onVisible) return
@@ -103,6 +114,7 @@ function PdfPageCanvas({
     return () => obs.disconnect()
   }, [pageNum, onVisible])
 
+  // Renderiza o canvas quando a página está próxima
   useEffect(() => {
     if (!rendered || !pdfDoc) return
     let cancelled = false
@@ -114,43 +126,48 @@ function PdfPageCanvas({
       const canvas = canvasRef.current
       const overlay = overlayRef.current
       if (!canvas || !overlay) return
-      canvas.width = viewport.width
-      canvas.height = viewport.height
+
+      // Pixel ratio para nitidez em telas retina/2x
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = viewport.width * dpr
+      canvas.height = viewport.height * dpr
       canvas.style.width = `${viewport.width}px`
       canvas.style.height = `${viewport.height}px`
       overlay.style.width = `${viewport.width}px`
       overlay.style.height = `${viewport.height}px`
       overlay.innerHTML = ''
 
-      await page.render({ canvas, viewport }).promise
+      const ctx = canvas.getContext('2d')!
+      ctx.scale(dpr, dpr)
+      await page.render({ canvasContext: ctx, viewport }).promise
       if (cancelled) return
 
-      if (quote) {
+      const activeQuote = quote || fallbackQuote
+      if (activeQuote) {
         const textContent = await page.getTextContent()
         const items = (textContent.items as PdfTextItem[]).filter((i) => i.str)
         const { parts, fullNormalized } = buildJoinedText(items)
-        const range = findQuoteRange(fullNormalized, quote)
+        let range = quote ? findQuoteRange(fullNormalized, quote) : null
+        if (!range && fallbackQuote) range = findQuoteRange(fullNormalized, fallbackQuote)
         if (range) {
           parts
-            .filter((p) => p.normalized && !(p.end < range.start || p.start > range.end))
-            .forEach((p, i) => {
+            .filter((p) => p.normalized && !(p.end < range!.start || p.start > range!.end))
+            .forEach((p) => {
               const box = getItemBox(pdfjsLib, viewport, p.item)
               const bg = document.createElement('div')
               Object.assign(bg.style, {
                 position: 'absolute', left: `${box.left}px`, top: `${box.top}px`,
                 width: `${box.width}px`, height: `${box.height}px`,
-                background: 'rgba(255,220,0,0.22)', borderRadius: '2px', pointerEvents: 'none',
+                background: 'rgba(255,220,0,0.28)', borderRadius: '2px', pointerEvents: 'none',
               })
               overlay.appendChild(bg)
-              if (i === 0) {
-                const line = document.createElement('div')
-                Object.assign(line.style, {
-                  position: 'absolute', left: `${box.left}px`, top: `${box.top + box.height + 1}px`,
-                  width: `${box.width}px`, height: '2.5px', background: '#f5c518',
-                  borderRadius: '999px', pointerEvents: 'none',
-                })
-                overlay.appendChild(line)
-              }
+              const line = document.createElement('div')
+              Object.assign(line.style, {
+                position: 'absolute', left: `${box.left}px`, top: `${box.top + box.height + 1}px`,
+                width: `${box.width}px`, height: '2.5px', background: '#f5c518',
+                borderRadius: '999px', pointerEvents: 'none',
+              })
+              overlay.appendChild(line)
             })
         }
       }
@@ -158,28 +175,31 @@ function PdfPageCanvas({
 
     renderPage().catch(() => {})
     return () => { cancelled = true }
-  }, [rendered, pdfDoc, pageNum, scale, quote, pdfjsLib])
+  }, [rendered, pdfDoc, pdfjsLib, pageNum, scale, quote, fallbackQuote])
 
   return (
-    <div ref={wrapRef} className="relative mx-auto w-fit px-2 py-3">
-      <canvas ref={canvasRef} className="block rounded shadow-xl" />
-      <div ref={overlayRef} className="pointer-events-none absolute left-2 top-3" />
-      {!rendered && (
-        <div className="flex items-center justify-center rounded bg-zinc-900" style={{ width: 600, height: 800 }}>
-          <span className="text-sm text-zinc-600">Página {pageNum}</span>
-        </div>
+    <div ref={wrapRef} className="relative w-full">
+      {rendered ? (
+        <>
+          <canvas ref={canvasRef} className="block w-full" style={{ imageRendering: 'auto' }} />
+          <div ref={overlayRef} className="pointer-events-none absolute left-0 top-0" />
+        </>
+      ) : (
+        // Placeholder com altura estimada para manter scroll correto
+        <div className="w-full bg-zinc-900" style={{ height: placeholderHeight }} />
       )}
     </div>
   )
 }
 
-// ─── Viewer principal ────────────────────────────────────────────────────────
+// ─── Viewer principal (mobile e desktop) ─────────────────────────────────────
 
 function PdfViewerInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const fileUrl = searchParams.get('file') || ''
   const quote = searchParams.get('quote') || ''
+  const fallbackQuote = searchParams.get('fallbackQuote') || ''
   const initialPage = useMemo(() => Math.max(1, Number(searchParams.get('page') || '1')), [searchParams])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -189,21 +209,40 @@ function PdfViewerInner() {
   const [numPages, setNumPages] = useState(0)
   const [currentPage, setCurrentPage] = useState(initialPage)
   const [scale, setScale] = useState(1.5)
+  const [placeholderH, setPlaceholderH] = useState(800)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isMobile, setIsMobile] = useState<boolean | null>(null)
 
-  const scrollRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
 
+  // Detecta mobile uma vez no cliente
   useEffect(() => {
-    if (!fileUrl) { setError('URL do PDF não informada.'); setLoading(false); return }
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // Carrega o PDF e calcula a escala baseada na tela
+  useEffect(() => {
+    if (!fileUrl || isMobile === null) return
     let cancelled = false
     async function load() {
       const lib = await import('pdfjs-dist')
-      // Local worker — no CDN dependency, works on mobile without internet relay
       lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
       const doc = await lib.getDocument(fileUrl).promise
       if (cancelled) return
+
+      // Calcula escala automática pela largura da tela (mobile) ou fixa (desktop)
+      if (isMobile) {
+        const firstPage = await doc.getPage(1)
+        const baseVp = firstPage.getViewport({ scale: 1 })
+        const autoScale = window.innerWidth / baseVp.width
+        setScale(autoScale)
+        setPlaceholderH(Math.round(baseVp.height * autoScale))
+      }
+
       setPdfjsLib(lib)
       setPdfDoc(doc)
       setNumPages(doc.numPages)
@@ -211,9 +250,9 @@ function PdfViewerInner() {
     }
     load().catch((e) => { if (!cancelled) { setError(e.message); setLoading(false) } })
     return () => { cancelled = true }
-  }, [fileUrl])
+  }, [fileUrl, isMobile])
 
-  // Scroll to initial page once pages are known
+  // Scroll para a página inicial após o PDF carregar
   useEffect(() => {
     if (!pdfDoc || initialPage <= 1) return
     setTimeout(() => {
@@ -229,10 +268,19 @@ function PdfViewerInner() {
 
   const handleVisible = useCallback((n: number) => setCurrentPage(n), [])
 
+  if (isMobile === null) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col h-[100dvh] bg-zinc-950 text-white">
-      {/* Header fixo */}
-      <div className="shrink-0 sticky top-0 z-20 flex items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-3 py-2">
+    <div className="flex flex-col bg-zinc-950 text-white" style={{ height: '100dvh' }}>
+
+      {/* ── Header ── */}
+      <div className="shrink-0 sticky top-0 z-20 flex items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-3 py-2 backdrop-blur-sm">
         <button
           onClick={() => router.back()}
           className="flex items-center gap-1 rounded px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 active:scale-95 transition-all"
@@ -243,68 +291,70 @@ function PdfViewerInner() {
           Voltar
         </button>
 
-        <div className="flex items-center gap-1 ml-auto">
-          {/* Controles de zoom */}
-          <button
-            onClick={() => setScale((s) => Math.max(0.8, s - 0.2))}
-            className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 text-lg font-light"
-            title="Diminuir zoom"
-          >−</button>
-          <span className="text-xs text-zinc-500 w-10 text-center">{Math.round(scale * 100)}%</span>
-          <button
-            onClick={() => setScale((s) => Math.min(3.0, s + 0.2))}
-            className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 text-lg font-light"
-            title="Aumentar zoom"
-          >+</button>
-        </div>
+        <span className="text-xs text-zinc-500 ml-1">Visualizador de PDF</span>
 
-        {/* Navegação de páginas */}
+        {/* Zoom (só desktop) */}
+        {!isMobile && (
+          <div className="flex items-center gap-1 ml-auto">
+            <button onClick={() => setScale((s) => Math.max(0.8, s - 0.2))} className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 text-lg font-light">−</button>
+            <span className="text-xs text-zinc-500 w-10 text-center">{Math.round(scale * 100)}%</span>
+            <button onClick={() => setScale((s) => Math.min(3.0, s + 0.2))} className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 text-lg font-light">+</button>
+          </div>
+        )}
+
+        {/* Contador de página */}
         {numPages > 0 && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => goToPage(currentPage - 1)}
-              disabled={currentPage <= 1}
-              className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 disabled:opacity-30"
-            >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <span className="text-xs text-zinc-400 whitespace-nowrap">
-              {currentPage} / {numPages}
-            </span>
-            <button
-              onClick={() => goToPage(currentPage + 1)}
-              disabled={currentPage >= numPages}
-              className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 disabled:opacity-30"
-            >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06L9.28 14.78a.75.75 0 0 1-1.06-1.06L12.44 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-              </svg>
-            </button>
+          <div className="flex items-center gap-1 ml-auto">
+            {!isMobile && (
+              <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1} className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 disabled:opacity-30">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" /></svg>
+              </button>
+            )}
+            <span className="text-xs text-zinc-400 whitespace-nowrap tabular-nums">{currentPage} / {numPages}</span>
+            {!isMobile && (
+              <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= numPages} className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 disabled:opacity-30">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06L9.28 14.78a.75.75 0 0 1-1.06-1.06L12.44 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Estado de loading/erro */}
+      {/* ── Banner de citação ── */}
+      {(quote || fallbackQuote) && (
+        <div className="shrink-0 flex items-start gap-2 bg-amber-950/40 border-b border-amber-900/40 px-3 py-2">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-400 shrink-0 mt-0.5">
+            <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
+          </svg>
+          <p className="text-xs text-amber-300/80 leading-relaxed">
+            Trecho destacado em amarelo: <span className="italic">&ldquo;{(quote || fallbackQuote).slice(0, 80)}{(quote || fallbackQuote).length > 80 ? '…' : ''}&rdquo;</span>
+          </p>
+        </div>
+      )}
+
+      {/* ── Estados de loading/erro ── */}
       {loading && (
         <div className="flex items-center gap-2 px-4 py-3 text-sm text-zinc-400">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          Carregando PDF...
+          Carregando PDF…
         </div>
       )}
       {error && <div className="px-4 py-3 text-sm text-red-400">{error}</div>}
 
-      {/* Scroll container com suporte touch */}
+      {/* ── Scroll contínuo de páginas ── */}
       <div
-        ref={scrollRef}
         className="flex-1 overflow-auto"
-        style={{ touchAction: 'pan-x pan-y pinch-zoom', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+        style={{
+          touchAction: 'pan-x pan-y pinch-zoom',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain',
+        } as React.CSSProperties}
       >
         {pdfDoc && Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
           <div
             key={pageNum}
             ref={(el) => { pageRefs.current[pageNum - 1] = el }}
+            className={isMobile ? '' : 'px-2 py-3'}
           >
             <PdfPageCanvas
               pdfjsLib={pdfjsLib}
@@ -312,7 +362,9 @@ function PdfViewerInner() {
               pageNum={pageNum}
               scale={scale}
               quote={quote}
+              fallbackQuote={fallbackQuote}
               onVisible={handleVisible}
+              placeholderHeight={placeholderH}
             />
           </div>
         ))}

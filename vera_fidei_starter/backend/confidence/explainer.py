@@ -17,7 +17,16 @@ def _hardcoded_explanation(
             f"{author or 'autor não identificado'} na obra {work or 'não informada'}."
         )
     if result.code == "ATRIBUICAO_DUVIDOSA":
-        return "O texto foi localizado, mas a autoria enviada não coincide com a melhor correspondência encontrada."
+        found_ref = ""
+        if author and work:
+            found_ref = f" na obra '{work}' ({author})"
+        elif author:
+            found_ref = f" em obra de {author}"
+        return (
+            f"O texto foi localizado{found_ref}, mas o autor atribuído não é o mesmo da fonte encontrada. "
+            f"É possível que essa frase esteja sendo citada nesse documento, e não seja o texto original do autor indicado. "
+            f"Verifique se o autor atribuído é realmente a fonte primária dessa expressão."
+        )
     if result.code == "CORRESPONDENCIA_FORTE":
         if ocr_similarity >= 0.80:
             return (

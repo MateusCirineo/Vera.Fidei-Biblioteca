@@ -34,11 +34,16 @@ class DeterministicClassifier:
             return ClassificationResult("NAO_ENCONTRADA", "❌ Não encontrada", "Nenhuma")
 
         # ── Correspondência exata ─────────────────────────────────────────────
-        # Limiares reajustados após bônus de author_match reduzido (0.5 → 0.2):
-        # max combined com perfeitos text+semantic+author = 0.65+0.35+0.2 = 1.2
-        if exact_match and author_match and combined_score >= 0.9:
+        # Limiares calibrados para text_score normalizado [0,1] (ES BM25 é capado em 1.0):
+        # max combined (text=1, semantic=1, author=True)  = 0.65+0.35+0.2 = 1.2
+        # max combined sem semantic (texto exato no DB)    = 0.65+0.00+0.2 = 0.85
+        # → threshold de 0.80 garante CONFIRMADA mesmo sem retorno ChromaDB
+        if exact_match and author_match and combined_score >= 0.80:
             return ClassificationResult("CONFIRMADA_EXATA", "✅ Confirmada (exata)", "Alta")
-        if exact_match and not author_match and combined_score >= 0.75:
+        # Após penalidade 0.6 (exact+wrong author): max sem semântico = 0.65*0.6 = 0.39
+        # → threshold 0.35 cobre o caso onde chunk não está no ChromaDB (semantic=0)
+        #   mas o texto foi encontrado literalmente — evidência forte de atribuição errada.
+        if exact_match and not author_match and combined_score >= 0.35:
             return ClassificationResult("ATRIBUICAO_DUVIDOSA", "🔴 Atribuição duvidosa", "Baixa")
 
         # ── Fidelidade de tradução ────────────────────────────────────────────

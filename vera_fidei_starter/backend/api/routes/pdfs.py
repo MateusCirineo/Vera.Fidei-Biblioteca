@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -8,13 +9,24 @@ from fastapi.responses import Response
 from models.database import SessionLocal, BookFile
 
 router = APIRouter()
-_PDFS_DIR = "/app/pdfs"
+
+# Em Docker: /app/pdfs (via volume). Em dev local: pasta pdfs/ relativa ao backend.
+_PDFS_DIR = os.environ.get("PDF_DIR") or os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "pdfs")
+)
 
 
 def _resolve_filename(stored_path: str) -> str | None:
-    basename = stored_path.replace("\\", "/").split("/")[-1]
+    normalized = stored_path.replace("\\", "/")
+    basename = normalized.split("/")[-1]
     if not basename:
         return None
+
+    # Path relativo direto (registros corrigidos pelo fix_stored_paths.py)
+    if not os.path.isabs(normalized):
+        direct = os.path.join(_PDFS_DIR, normalized)
+        if os.path.isfile(direct):
+            return normalized
 
     # Direct match in root (happy path for numbered files)
     if os.path.isfile(os.path.join(_PDFS_DIR, basename)):
@@ -29,6 +41,7 @@ def _resolve_filename(stored_path: str) -> str | None:
         pass
 
     # Recursive search through subdirectories (documentos_pontificios etc.)
+    # Fallback para stored_path absolutos legados (Windows ou Linux)
     try:
         for root, _dirs, files in os.walk(_PDFS_DIR):
             for f in files:
@@ -54,7 +67,9 @@ def serve_pdf(file_id: int) -> Response:
 
     safe_name = book_file.original_filename.replace('"', "'")
     response = Response()
-    response.headers["X-Accel-Redirect"] = f"/protected_pdfs/{filename}"
+    # URL-encode para suportar acentos e espaços em nomes de pasta/arquivo
+    encoded_filename = quote(filename, safe="/")
+    response.headers["X-Accel-Redirect"] = f"/protected_pdfs/{encoded_filename}"
     response.headers["Content-Type"] = "application/pdf"
     response.headers["Content-Disposition"] = f'inline; filename="{safe_name}"'
     return response

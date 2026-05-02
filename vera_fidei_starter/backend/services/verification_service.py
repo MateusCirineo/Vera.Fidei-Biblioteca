@@ -204,6 +204,59 @@ def _lexical_anchor(query: str, chunk_text: str, translation_text: str | None) -
     return len(q_tokens & all_source) / len(q_tokens)
 
 
+# ─── PDF directory + path resolution ─────────────────────────────────────────
+
+_PDFS_DIR = os.environ.get("PDF_DIR") or os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "pdfs")
+)
+
+
+def _resolve_pdf_path(stored_path: str) -> str | None:
+    """
+    Resolve stored_path to an absolute path that actually exists on disk.
+    Mirrors api/routes/pdfs.py _resolve_filename but returns the full path
+    (needed for pdfplumber.open instead of the X-Accel-Redirect relative form).
+    """
+    if not stored_path:
+        return None
+    normalized = stored_path.replace("\\", "/")
+    basename = normalized.split("/")[-1]
+    if not basename:
+        return None
+
+    # Relative path stored correctly (post-fix)
+    if not os.path.isabs(normalized):
+        direct = os.path.join(_PDFS_DIR, normalized)
+        if os.path.isfile(direct):
+            return direct
+
+    # Basename in root
+    root_candidate = os.path.join(_PDFS_DIR, basename)
+    if os.path.isfile(root_candidate):
+        return root_candidate
+
+    # Suffix match in root (re-uploaded files with ID prefix)
+    try:
+        for fname in sorted(os.listdir(_PDFS_DIR)):
+            if fname.endswith(basename):
+                full = os.path.join(_PDFS_DIR, fname)
+                if os.path.isfile(full):
+                    return full
+    except OSError:
+        pass
+
+    # Recursive walk (subdirectories like documentos_pontificios/)
+    try:
+        for root, _dirs, files in os.walk(_PDFS_DIR):
+            for f in files:
+                if f == basename:
+                    return os.path.join(root, f)
+    except OSError:
+        pass
+
+    return None
+
+
 # ─── Busca de página real no PDF ─────────────────────────────────────────────
 
 def _normalize_for_search(text: str) -> str:
@@ -308,6 +361,13 @@ def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> i
     localiza a segunda como âncora e recua para a primeira.
     """
     if not pdf_path or not os.path.isfile(pdf_path):
+        return None
+
+    # Pula PDFs muito grandes (>50MB) para evitar timeout na varredura completa
+    try:
+        if os.path.getsize(pdf_path) > 50_000_000:
+            return None
+    except OSError:
         return None
 
     # Normaliza OCR e tokeniza
@@ -562,14 +622,15 @@ class VerificationService:
                 author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
                 semantic_score = semantic_map.get(hit.chunk_id, 0.0)
                 combined = self.scorer.combine(hit.score, semantic_score, author_match)
-                # Penalidade forte: autor atribuído não coincide com a obra encontrada
-                if payload.attributed_to and not author_match:
-                    combined *= 0.4
                 # exact_match: tenta match direto E match com normalização OCR
                 _q_raw = payload.quote.lower()
                 _q_ocr = _normalize_for_search(_normalize_ocr(payload.quote))
                 _c_norm = _normalize_for_search(chunk.text)
                 exact_match = (_q_raw in chunk.text.lower()) or (_q_ocr in _c_norm)
+                # Penalidade por autor divergente: menor quando a frase foi encontrada
+                # literalmente (pode ser obra que cita o autor original).
+                if payload.attributed_to and not author_match:
+                    combined *= 0.6 if exact_match else 0.4
                 if combined > best_score:
                     best_score = combined
                     best = (chunk, book, exact_match, author_match, combined)
@@ -583,7 +644,7 @@ class VerificationService:
                     book = db.get(Book, chunk.book_id)
                     author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
                     combined = self.scorer.combine(0.0, hit.score, author_match)
-                    # Penalidade forte: autor atribuído não coincide com a obra encontrada
+                    # Penalidade por autor divergente (apenas semântico, sem texto exato)
                     if payload.attributed_to and not author_match:
                         combined *= 0.4
                     exact_match = False
@@ -684,37 +745,42 @@ class VerificationService:
             # para evitar varredura inútil (PT vs latim/grego).
             real_pdf_page = chunk.pdf_page  # fallback sempre disponível
             if source_file and source_file.stored_path:
-                book_lang = _normalize_lang(book.language) if book else "unknown"
-                detected_lang_parts = set(detected_lang.split("+"))
-                book_lang_parts = set(book_lang.split("+"))
-                # Considera "mesmo idioma" quando ambos são idiomas originais (la+grc, etc.)
-                same_lang = bool(detected_lang_parts & book_lang_parts) or (
-                    bool(detected_lang_parts & ORIGINAL_LANGS) and bool(book_lang_parts & ORIGINAL_LANGS)
-                )
+                # Resolve o caminho real do PDF no disco (stored_path pode ser legado)
+                resolved_pdf = _resolve_pdf_path(source_file.stored_path)
+                _log.debug("[page_search] stored_path=%r resolved=%r", source_file.stored_path, resolved_pdf)
 
-                found_page = None
+                if resolved_pdf:
+                    book_lang = _normalize_lang(book.language) if book else "unknown"
+                    detected_lang_parts = set(detected_lang.split("+"))
+                    book_lang_parts = set(book_lang.split("+"))
+                    # Considera "mesmo idioma" quando ambos são idiomas originais (la+grc, etc.)
+                    same_lang = bool(detected_lang_parts & book_lang_parts) or (
+                        bool(detected_lang_parts & ORIGINAL_LANGS) and bool(book_lang_parts & ORIGINAL_LANGS)
+                    )
 
-                if same_lang:
-                    # Normaliza artefatos OCR antes de buscar a página
-                    # min_score=3: citação pode começar no rodapé da página (poucos tokens lá)
-                    user_query = _normalize_ocr((payload.quote or "").strip())
-                    if len(user_query) >= 12:
-                        found_page = _find_real_pdf_page(source_file.stored_path, user_query, min_score=3)
-                        _log.debug("[page_search] strategy=user_query(%s) result=%s", detected_lang, found_page)
+                    found_page = None
 
-                # Fallback sempre: chunk.text está no idioma do PDF
-                if not found_page:
-                    found_page = _find_real_pdf_page(source_file.stored_path, chunk.text, min_score=5)
-                    _log.debug("[page_search] strategy=chunk_text result=%s", found_page)
+                    if same_lang:
+                        # Normaliza artefatos OCR antes de buscar a página
+                        # min_score=3: citação pode começar no rodapé da página (poucos tokens lá)
+                        user_query = _normalize_ocr((payload.quote or "").strip())
+                        if len(user_query) >= 12:
+                            found_page = _find_real_pdf_page(resolved_pdf, user_query, min_score=3)
+                            _log.debug("[page_search] strategy=user_query(%s) result=%s", detected_lang, found_page)
 
-                if found_page:
-                    real_pdf_page = found_page
+                    # Fallback sempre: chunk.text está no idioma do PDF
+                    if not found_page:
+                        found_page = _find_real_pdf_page(resolved_pdf, chunk.text, min_score=5)
+                        _log.debug("[page_search] strategy=chunk_text result=%s", found_page)
+
+                    if found_page:
+                        real_pdf_page = found_page
 
             return VerifyCitationResponse(
                 status_code=result.code,
                 label=result.label,
                 confidence=result.confidence,
-                author=book.author if book else None,
+                author=(chunk.chunk_author or book.author) if book else None,
                 work=book.title if book else None,
                 reference=MatchReference(
                     collection=book.collection if book else "",

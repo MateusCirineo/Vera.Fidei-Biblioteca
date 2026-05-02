@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import type { MatchReference } from '@/lib/types'
 import { getPdfUrl } from '@/lib/api'
 import { formatLanguage } from '@/lib/language'
@@ -13,6 +14,7 @@ export default function MatchReferenceCard({
   quote?: string
   fallbackQuote?: string
 }) {
+  const router = useRouter()
   const isPrimary = reference.is_primary_source
 
   const locationParts: string[] = []
@@ -41,7 +43,7 @@ export default function MatchReferenceCard({
       ...(safeQuote         ? { quote:         safeQuote         } : {}),
       ...(safeFallbackQuote ? { fallbackQuote: safeFallbackQuote } : {}),
     })
-    window.open(`/pdf-viewer.html?${params.toString()}`, '_blank', 'noopener,noreferrer')
+    router.push(`/viewer/pdf?${params.toString()}`)
   }
 
   return (

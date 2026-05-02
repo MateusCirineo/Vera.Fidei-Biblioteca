@@ -110,6 +110,7 @@ export async function updateBookFileMeta(
 }
 
 export function getPdfUrl(file_id: number, pdf_page?: number | null): string {
+  const keyParam = API_KEY ? `?api_key=${encodeURIComponent(API_KEY)}` : ''
   const anchor = pdf_page ? `#page=${pdf_page}` : ''
-  return `${BASE}/pdfs/${file_id}${anchor}`
+  return `${BASE}/pdfs/${file_id}${keyParam}${anchor}`
 }

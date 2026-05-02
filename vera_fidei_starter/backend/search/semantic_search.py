@@ -38,22 +38,78 @@ class SemanticSearchHit:
     score: float
 
 
+def _chroma_query_worker(conn, chroma_path: str, collection_name: str, embedding: list, n_results: int) -> None:
+    """Runs inside a spawned subprocess. If hnswlib segfaults, only this process dies."""
+    try:
+        import chromadb as _chroma
+        client = _chroma.PersistentClient(path=chroma_path)
+        try:
+            col = client.get_collection(collection_name)
+        except Exception:
+            conn.send(None)
+            return
+        cnt = col.count()
+        if cnt == 0:
+            conn.send({"metadatas": [[]], "distances": [[]]})
+            return
+        raw = col.query(
+            query_embeddings=embedding,
+            n_results=min(n_results, cnt),
+            include=["metadatas", "distances"],
+        )
+        conn.send(raw)
+    except Exception:
+        conn.send(None)
+    finally:
+        conn.close()
+
+
+def _isolated_chroma_query(chroma_path: str, collection_name: str, embedding: list, n_results: int, timeout: float = 12.0) -> dict | None:
+    """
+    Runs a ChromaDB HNSW query in a separate spawned process.
+    If the process segfaults (known hnswlib bug on some kernels), only it dies — uvicorn survives.
+    """
+    import multiprocessing as _mp
+    import logging as _log
+    ctx = _mp.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    p = ctx.Process(target=_chroma_query_worker, args=(child_conn, chroma_path, collection_name, embedding, n_results))
+    p.start()
+    child_conn.close()
+    result = None
+    try:
+        if parent_conn.poll(timeout):
+            result = parent_conn.recv()
+        else:
+            _log.getLogger(__name__).warning("ChromaDB subprocess timed out after %ss for %s", timeout, collection_name)
+    except Exception:
+        pass
+    finally:
+        parent_conn.close()
+        if p.is_alive():
+            p.terminate()
+        p.join(timeout=2)
+        if p.exitcode not in (0, None, -15):
+            _log.getLogger(__name__).warning("ChromaDB subprocess exited with code %s (likely segfault in hnswlib)", p.exitcode)
+    return result
+
+
 class SemanticSearchClient:
     PRIMARY_COLLECTION_NAME = "vera_fidei"
     DELTA_COLLECTION_NAME = "vera_fidei_delta"
 
     def __init__(self) -> None:
-        client = chromadb.PersistentClient(path=settings.chroma_path)
+        self._chroma_path = settings.chroma_path
+        client = chromadb.PersistentClient(path=self._chroma_path)
         self.collection = client.get_or_create_collection(self.PRIMARY_COLLECTION_NAME)
         self.delta_collection = client.get_or_create_collection(self.DELTA_COLLECTION_NAME)
 
-    def _search_collections(self) -> tuple:
+    def _search_collection_names(self) -> list[str]:
         if os.environ.get("VERA_QUERY_LEGACY_CHROMA", "").strip().lower() in {"1", "true", "yes"}:
-            return (self.delta_collection, self.collection)
-        return (self.delta_collection,)
+            return [self.DELTA_COLLECTION_NAME, self.PRIMARY_COLLECTION_NAME]
+        return [self.DELTA_COLLECTION_NAME]
 
     def search(self, query: str, limit: int = 5, timeout: float = 15.0) -> list[SemanticSearchHit]:
-        import concurrent.futures
         import logging as _logging
         if not query.strip():
             return []
@@ -62,28 +118,11 @@ class SemanticSearchClient:
         embedding = model.encode([query]).tolist()
 
         hits_by_chunk: dict[int, float] = {}
-        for collection in self._search_collections():
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            try:
-                future = executor.submit(
-                    collection.query,
-                    query_embeddings=embedding,
-                    n_results=limit,
-                    include=["metadatas", "distances"],
-                )
-                try:
-                    raw = future.result(timeout=timeout)
-                except concurrent.futures.TimeoutError:
-                    _logging.getLogger(__name__).warning(
-                        "ChromaDB query timed out after %ss (HNSW index may be rebuilding)",
-                        timeout,
-                    )
-                    executor.shutdown(wait=False)
-                    continue
-            except Exception:
-                executor.shutdown(wait=False)
+        for name in self._search_collection_names():
+            raw = _isolated_chroma_query(self._chroma_path, name, embedding, limit, timeout=timeout - 2)
+            if raw is None:
+                _logging.getLogger(__name__).warning("ChromaDB query failed/segfaulted for collection %s — skipping", name)
                 continue
-            executor.shutdown(wait=False)
 
             metadatas = (raw.get("metadatas") or [[]])[0]
             distances = (raw.get("distances") or [[]])[0]

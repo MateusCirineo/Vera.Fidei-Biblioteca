@@ -20,6 +20,7 @@ app = FastAPI(
     version="0.1.0",
     description="Backend do MVP do verificador de citações teológicas.",
     dependencies=[Depends(require_api_key)],
+    redirect_slashes=False,
 )
 
 _cors_origins = os.getenv(
