@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { verifyCitation } from '@/lib/api'
+import { getUser } from '@/lib/auth'
 import type { VerifyCitationResponse } from '@/lib/types'
 import VerificationResult from './VerificationResult'
 
@@ -32,9 +33,11 @@ export default function VerificationForm() {
   const [submittedQuote, setSubmittedQuote] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const [userPlan, setUserPlan] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     setHydrated(true)
+    getUser().then(u => setUserPlan(u?.plan)).catch(() => {})
   }, [])
 
   async function runVerification(form: HTMLFormElement) {
@@ -74,7 +77,7 @@ export default function VerificationForm() {
     void runVerification(e.currentTarget)
   }
 
-  function useExample(example: typeof examples[number]) {
+  function applyExample(example: typeof examples[number]) {
     if (quoteRef.current) quoteRef.current.value = example.quote
     if (attributedRef.current) attributedRef.current.value = example.author
     if (languageRef.current) languageRef.current.value = example.language
@@ -115,7 +118,7 @@ export default function VerificationForm() {
                 <button
                   key={example.label}
                   type="button"
-                  onClick={() => useExample(example)}
+                  onClick={() => applyExample(example)}
                   className="rounded-md border border-fundo-borda px-2.5 py-1 text-xs text-texto-terciario transition-colors hover:border-dourado/35 hover:text-dourado"
                 >
                   Exemplo: {example.label}
@@ -232,7 +235,7 @@ export default function VerificationForm() {
         </div>
       )}
 
-      {result && <VerificationResult result={result} originalQuery={submittedQuote} />}
+      {result && <VerificationResult result={result} originalQuery={submittedQuote} userPlan={userPlan} />}
     </div>
   )
 }

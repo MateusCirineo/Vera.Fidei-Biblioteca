@@ -5,10 +5,88 @@ import datetime
 from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
+import json
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    plan: Mapped[str] = mapped_column(String(30), default="fiel")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    verifications: Mapped[list["VerificationHistory"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class VerificationHistory(Base):
+    __tablename__ = "verification_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    citation_text: Mapped[str] = mapped_column(Text)
+    attributed_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    work: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reference_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    matched_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    user: Mapped["User | None"] = relationship(back_populates="verifications")
+
+
+class Institution(Base):
+    __tablename__ = "institutions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255))
+    admin_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    admin: Mapped["User"] = relationship(foreign_keys=[admin_user_id])
+    members: Mapped[list["InstitutionMember"]] = relationship(back_populates="institution", cascade="all, delete-orphan")
+
+
+class InstitutionMember(Base):
+    __tablename__ = "institution_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    institution_id: Mapped[int] = mapped_column(ForeignKey("institutions.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    role: Mapped[str] = mapped_column(String(20), default="membro")
+    joined_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    institution: Mapped["Institution"] = relationship(back_populates="members")
+    user: Mapped["User"] = relationship()
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    key_hash: Mapped[str] = mapped_column(String(64))
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    last_used_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship()
 
 
 class Book(Base):
@@ -150,6 +228,21 @@ def _migrate_add_library_columns() -> None:
         "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_author ON chunks(chunk_author)",
         "CREATE INDEX IF NOT EXISTS idx_books_canonical_author ON books(canonical_author)",
         "CREATE INDEX IF NOT EXISTS idx_books_library_section ON books(library_section)",
+        # Tabela de usuários
+        "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, password_hash VARCHAR(255) NOT NULL, plan VARCHAR(30) DEFAULT 'fiel', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
+        # Tabela de histórico de verificações
+        "CREATE TABLE IF NOT EXISTS verification_history (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, citation_text TEXT NOT NULL, attributed_to VARCHAR(255), status_code VARCHAR(50), label VARCHAR(100), confidence VARCHAR(20), author VARCHAR(255), work VARCHAR(255), reference_json TEXT, matched_excerpt TEXT, explanation TEXT, response_json TEXT, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_vhist_user_id ON verification_history(user_id)",
+        # Para ambientes onde a tabela já existe sem response_json
+        "ALTER TABLE verification_history ADD COLUMN IF NOT EXISTS response_json TEXT",
+        # Fase 4 — Gestão Institucional
+        "CREATE TABLE IF NOT EXISTS institutions (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, admin_user_id INTEGER REFERENCES users(id), created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS institution_members (id SERIAL PRIMARY KEY, institution_id INTEGER REFERENCES institutions(id) ON DELETE CASCADE, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, role VARCHAR(20) DEFAULT 'membro', joined_at TIMESTAMP DEFAULT NOW())",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_inst_members_unique ON institution_members(institution_id, user_id)",
+        "CREATE TABLE IF NOT EXISTS api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_hash VARCHAR(64) NOT NULL, label VARCHAR(100), is_active BOOLEAN DEFAULT TRUE, usage_count INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_used_at TIMESTAMP)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
     ]
     with engine.begin() as conn:
         for sql in migrations:
