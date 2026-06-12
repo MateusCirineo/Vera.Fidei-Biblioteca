@@ -1,0 +1,83 @@
+LICENÇA DE USO NÃO COMERCIAL — VERA.FIDEI BIBLIOTECA
+======================================================
+
+Copyright (c) 2024–2026 Mateus Cirineo. Todos os direitos reservados.
+
+Este software, incluindo todo o código-fonte, design, estrutura, lógica,
+interfaces, pipelines, documentação e quaisquer outros arquivos contidos
+neste repositório, é de propriedade exclusiva de Mateus Cirineo e está
+protegido pelas leis de direitos autorais do Brasil (Lei nº 9.610/1998)
+e por tratados internacionais de propriedade intelectual.
+
+---
+
+PERMISSÕES
+----------
+É permitido, exclusivamente para fins pessoais, educacionais ou de
+pesquisa, sem fins comerciais:
+
+  - Visualizar e estudar o código-fonte
+  - Executar localmente para uso próprio
+  - Fazer fork ou cópia para fins de estudo, desde que mantida esta
+    licença e a atribuição ao autor original
+
+---
+
+RESTRIÇÕES — O QUE É EXPRESSAMENTE PROIBIDO
+--------------------------------------------
+
+1. USO COMERCIAL: É proibido usar este software, no todo ou em parte,
+   para fins comerciais, incluindo mas não se limitando a: venda,
+   licenciamento, prestação de serviços pagos, integração em produtos
+   comerciais, SaaS, aplicativos pagos ou qualquer outra forma de
+   exploração econômica.
+
+2. REDISTRIBUIÇÃO: É proibido redistribuir, publicar ou disponibilizar
+   este software ao público em qualquer plataforma sem autorização
+   expressa e por escrito de Mateus Cirineo.
+
+3. OBRAS DERIVADAS COMERCIAIS: É proibido criar produtos ou serviços
+   derivados deste software com fins lucrativos.
+
+4. REMOÇÃO DE AUTORIA: É proibido remover, alterar ou ocultar avisos
+   de copyright, marcas ou referências ao autor original.
+
+5. FALSIDADE DE AUTORIA: É expressamente proibido apresentar este
+   software ou qualquer parte dele como obra própria de terceiros.
+
+---
+
+ISENÇÃO DE GARANTIA
+-------------------
+Este software é fornecido "como está", sem qualquer garantia expressa
+ou implícita. O autor não se responsabiliza por danos diretos, indiretos
+ou consequentes decorrentes do uso deste software.
+
+---
+
+CONTATO E AUTORIZAÇÕES
+-----------------------
+Para solicitar licença comercial, parcerias ou autorizações especiais,
+entre em contato com o autor:
+
+  Mateus Cirineo
+  GitHub: https://github.com/MateusCirineo
+
+---
+
+NON-COMMERCIAL LICENSE — ENGLISH SUMMARY
+-----------------------------------------
+
+Copyright (c) 2024–2026 Mateus Cirineo. All rights reserved.
+
+This software and all associated files are the exclusive intellectual
+property of Mateus Cirineo. You may view and use this code for personal,
+educational, or research purposes only.
+
+You MAY NOT:
+  - Sell, license, or monetize this software or any derivative work
+  - Redistribute or publish this software without written permission
+  - Remove or alter copyright notices
+  - Claim authorship of this work
+
+Any commercial use requires explicit written authorization from the author.

@@ -1,5 +1,8 @@
 # Vera.Fidei Biblioteca
 
+> **Copyright (c) 2024–2026 Mateus Cirineo — Todos os direitos reservados.**
+> Uso comercial, redistribuição e venda são expressamente proibidos. Veja [LICENSE](LICENSE).
+
 Plataforma católica de verificação e consulta de fontes patrísticas e teológicas. Reúne obras dos Padres da Igreja (Patrologia Latina e Graeca de Migne), textos conciliares e teológicos, com sistema de busca semântica e verificação de citações com IA.
 
 ## Estrutura do Projeto
