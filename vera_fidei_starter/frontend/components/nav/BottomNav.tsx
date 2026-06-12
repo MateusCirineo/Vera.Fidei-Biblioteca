@@ -123,28 +123,49 @@ const tabs = [
       </svg>
     ),
   },
+  {
+    href: '/perfil',
+    label: 'Perfil',
+    icon: (active: boolean) => (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={active ? 2 : 1.5}
+        className="w-5 h-5 sm:w-6 sm:h-6"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.5 7.5 0 0 1 15 0"
+        />
+      </svg>
+    ),
+  },
 ]
 
 export default function BottomNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-fundo-borda bg-fundo-card">
-      <div className="flex items-stretch">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-fundo-borda bg-fundo-card/95 backdrop-blur">
+      <div className="flex items-stretch overflow-x-auto">
         {tabs.map((tab) => {
-          const active = pathname.startsWith(tab.href)
+          const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           return (
             <Link
               key={tab.href}
               href={tab.href}
-              className={`flex flex-1 flex-col items-center justify-center gap-1 py-3 text-xs transition-colors ${
+              className={`flex min-w-[4.25rem] flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[10px] transition-colors sm:min-w-0 sm:py-3 sm:text-xs ${
                 active
                   ? 'text-dourado'
                   : 'text-texto-terciario hover:text-texto-secundario'
               }`}
             >
               {tab.icon(active)}
-              <span className={active ? 'font-medium' : ''}>{tab.label}</span>
+              <span className={`max-w-full truncate px-0.5 ${active ? 'font-medium' : ''}`}>
+                {tab.label}
+              </span>
             </Link>
           )
         })}

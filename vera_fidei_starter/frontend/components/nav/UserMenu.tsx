@@ -52,6 +52,13 @@ export default function UserMenu() {
             <p className="text-xs text-dourado capitalize mt-0.5">Plano {user.plan}</p>
           </div>
           <Link
+            href="/perfil"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 text-xs text-texto-secundario hover:text-dourado hover:bg-fundo transition-colors"
+          >
+            Meu Perfil
+          </Link>
+          <Link
             href="/historico"
             onClick={() => setOpen(false)}
             className="block px-3 py-2 text-xs text-texto-secundario hover:text-dourado hover:bg-fundo transition-colors"
