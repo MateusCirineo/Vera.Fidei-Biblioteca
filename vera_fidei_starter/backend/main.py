@@ -12,6 +12,7 @@ from api.routes.citations import router as citations_router
 from api.routes.books import router as books_router
 from api.routes.pdfs import router as pdfs_router
 from api.routes.authors import router as authors_router
+from api.routes.auth import router as auth_router
 from models.database import init_db
 from core.auth import require_api_key
 
@@ -19,7 +20,6 @@ app = FastAPI(
     title="Vera.fidei API",
     version="0.1.0",
     description="Backend do MVP do verificador de citações teológicas.",
-    dependencies=[Depends(require_api_key)],
     redirect_slashes=False,
 )
 
@@ -35,10 +35,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(citations_router, prefix="/citations", tags=["Citations"])
-app.include_router(books_router, prefix="/books", tags=["Books"])
-app.include_router(pdfs_router, prefix="/pdfs", tags=["PDFs"])
-app.include_router(authors_router, prefix="/authors", tags=["Authors"])
+app.include_router(citations_router, prefix="/citations", tags=["Citations"],
+                   dependencies=[Depends(require_api_key)])
+app.include_router(books_router, prefix="/books", tags=["Books"],
+                   dependencies=[Depends(require_api_key)])
+app.include_router(pdfs_router, prefix="/pdfs", tags=["PDFs"],
+                   dependencies=[Depends(require_api_key)])
+app.include_router(authors_router, prefix="/authors", tags=["Authors"],
+                   dependencies=[Depends(require_api_key)])
+app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 
 
 @app.on_event("startup")
@@ -55,6 +60,6 @@ def startup() -> None:
             log.warning("[startup] model load error (non-fatal): %s", e)
 
 
-@app.get("/")
+@app.get("/", dependencies=[Depends(require_api_key)])
 def root() -> dict[str, str]:
     return {"app": "Vera.fidei", "status": "ok"}

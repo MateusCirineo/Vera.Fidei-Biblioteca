@@ -45,3 +45,4 @@ class VerifyCitationResponse(BaseModel):
     translation_fidelity: str | None = None
     translator: str | None = None
     translation_edition: str | None = None
+    history_id: int | None = None

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     google_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     api_key: str = ""
+    jwt_secret: str = "CHANGE_ME_IN_PRODUCTION"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7  # 7 dias
 
     model_config = SettingsConfigDict(
         env_file=".env",

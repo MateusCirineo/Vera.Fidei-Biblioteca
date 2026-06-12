@@ -5,10 +5,48 @@ import datetime
 from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
+import json
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    plan: Mapped[str] = mapped_column(String(30), default="fiel")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    verifications: Mapped[list["VerificationHistory"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class VerificationHistory(Base):
+    __tablename__ = "verification_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    citation_text: Mapped[str] = mapped_column(Text)
+    attributed_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    author: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    work: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reference_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    matched_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    user: Mapped["User | None"] = relationship(back_populates="verifications")
 
 
 class Book(Base):
@@ -150,6 +188,14 @@ def _migrate_add_library_columns() -> None:
         "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_author ON chunks(chunk_author)",
         "CREATE INDEX IF NOT EXISTS idx_books_canonical_author ON books(canonical_author)",
         "CREATE INDEX IF NOT EXISTS idx_books_library_section ON books(library_section)",
+        # Tabela de usuários
+        "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, password_hash VARCHAR(255) NOT NULL, plan VARCHAR(30) DEFAULT 'fiel', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
+        # Tabela de histórico de verificações
+        "CREATE TABLE IF NOT EXISTS verification_history (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, citation_text TEXT NOT NULL, attributed_to VARCHAR(255), status_code VARCHAR(50), label VARCHAR(100), confidence VARCHAR(20), author VARCHAR(255), work VARCHAR(255), reference_json TEXT, matched_excerpt TEXT, explanation TEXT, response_json TEXT, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_vhist_user_id ON verification_history(user_id)",
+        # Para ambientes onde a tabela já existe sem response_json
+        "ALTER TABLE verification_history ADD COLUMN IF NOT EXISTS response_json TEXT",
     ]
     with engine.begin() as conn:
         for sql in migrations:

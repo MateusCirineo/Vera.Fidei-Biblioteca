@@ -6,6 +6,7 @@ import DonationModal from '@/components/mecenas/DonationModal'
 import SiteFooter from '@/components/SiteFooter'
 import PwaRegister from '@/components/PwaRegister'
 import AppSplash from '@/components/AppSplash'
+import UserMenu from '@/components/nav/UserMenu'
 
 const ebGaramond = EB_Garamond({
   variable: '--font-eb-garamond',
@@ -87,6 +88,9 @@ export default function RootLayout({
       <body className="flex flex-col min-h-dvh bg-fundo text-texto antialiased">
         <PwaRegister />
         <AppSplash />
+        <header className="fixed top-0 right-0 z-40 p-3 flex justify-end">
+          <UserMenu />
+        </header>
         <main className="flex-1 pb-20">{children}</main>
         <SiteFooter />
         <BottomNav />
