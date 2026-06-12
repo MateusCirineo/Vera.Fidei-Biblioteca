@@ -21,6 +21,8 @@ const PLAN_LABELS: Record<string, string> = {
   magisterio: 'Magistério',
 }
 
+const API_EXAMPLE_URL = `${(process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api').replace(/\/$/, '')}/v1/verificar`
+
 export default function PerfilPage() {
   const router = useRouter()
   const [user, setUser] = useState<UserInfo | null>(null)
@@ -131,7 +133,7 @@ export default function PerfilPage() {
               Use sua chave no header <code className="text-dourado">X-VF-Api-Key</code> para acessar o endpoint público.
             </p>
             <div className="bg-fundo rounded-lg p-3 mb-3 overflow-x-auto">
-              <code className="text-xs text-texto-secundario whitespace-pre">{`curl -X POST https://api.verafidei.com/v1/verificar \\
+              <code className="text-xs text-texto-secundario whitespace-pre">{`curl -X POST ${API_EXAMPLE_URL} \\
   -H "X-VF-Api-Key: SUA_CHAVE" \\
   -H "Content-Type: application/json" \\
   -d '{"citacao": "...", "autor": "Santo Agostinho"}'`}</code>

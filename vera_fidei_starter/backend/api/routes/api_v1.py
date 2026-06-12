@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
@@ -12,6 +13,7 @@ from services.verification_service import VerificationService
 
 router = APIRouter()
 _service = VerificationService()
+logger = logging.getLogger(__name__)
 
 
 class VerifyPublicRequest(BaseModel):
@@ -50,7 +52,7 @@ def verificar_publica(
             db.add(entry)
             db.commit()
     except Exception:
-        pass
+        logger.exception("Falha ao salvar histórico da API pública para user_id=%s", current_user.id)
 
     return result.model_dump()
 

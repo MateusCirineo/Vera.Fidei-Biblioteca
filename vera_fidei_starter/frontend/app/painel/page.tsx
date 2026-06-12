@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getUser, getInstituicao, criarInstituicao, convidarMembro, getRelatorio, UserInfo } from '@/lib/auth'
+import { getUser, getInstituicao, criarInstituicao, convidarMembro, getRelatorio } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 
 interface Membro {
@@ -32,7 +32,6 @@ const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio
 
 export default function PainelPage() {
   const router = useRouter()
-  const [user, setUser] = useState<UserInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [accessDenied, setAccessDenied] = useState(false)
 
@@ -63,7 +62,6 @@ export default function PainelPage() {
         setLoading(false)
         return
       }
-      setUser(u)
       setLoading(false)
       loadInstitution()
     })
