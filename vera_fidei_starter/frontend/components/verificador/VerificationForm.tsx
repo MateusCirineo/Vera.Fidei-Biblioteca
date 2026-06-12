@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { verifyCitation } from '@/lib/api'
+import { getUser } from '@/lib/auth'
 import type { VerifyCitationResponse } from '@/lib/types'
 import VerificationResult from './VerificationResult'
 
@@ -32,9 +33,11 @@ export default function VerificationForm() {
   const [submittedQuote, setSubmittedQuote] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const [userPlan, setUserPlan] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     setHydrated(true)
+    getUser().then(u => setUserPlan(u?.plan)).catch(() => {})
   }, [])
 
   async function runVerification(form: HTMLFormElement) {
@@ -232,7 +235,7 @@ export default function VerificationForm() {
         </div>
       )}
 
-      {result && <VerificationResult result={result} originalQuery={submittedQuote} />}
+      {result && <VerificationResult result={result} originalQuery={submittedQuote} userPlan={userPlan} />}
     </div>
   )
 }

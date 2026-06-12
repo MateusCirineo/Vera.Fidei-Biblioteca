@@ -1,14 +1,24 @@
+import Link from 'next/link'
 import type { VerifyCitationResponse } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
 import StatusBadge from './StatusBadge'
 import MatchReferenceCard from './MatchReferenceCard'
 
+const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
+
+function hasPlan(userPlan: string | undefined, min: string): boolean {
+  if (!userPlan) return false
+  return PLAN_ORDER.indexOf(userPlan) >= PLAN_ORDER.indexOf(min)
+}
+
 export default function VerificationResult({
   result,
   originalQuery,
+  userPlan,
 }: {
   result: VerifyCitationResponse
   originalQuery?: string
+  userPlan?: string
 }) {
   const sourceLabel =
     result.reference?.source_label ||
@@ -85,6 +95,22 @@ export default function VerificationResult({
             </div>
           )}
         </>
+      )}
+
+      {/* Aviso de upgrade quando contexto/tradução estão bloqueados */}
+      {result.status_code !== 'NAO_ENCONTRADA' && result.matched_excerpt && !hasPlan(userPlan, 'apologeta') && (
+        <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 flex items-start gap-3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5 text-dourado flex-shrink-0 mt-0.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-texto mb-0.5">Contexto patrístico e relatório de tradução</p>
+            <p className="text-xs text-texto-terciario leading-relaxed">
+              O trecho anterior e posterior à citação na fonte primária, a tradução de referência e a análise de fidelidade estão disponíveis no plano{' '}
+              <Link href="/planos" className="text-dourado hover:underline">Apologeta</Link>.
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Texto original + tradução — apenas para resultados confirmados */}

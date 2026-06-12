@@ -18,6 +18,17 @@ from services.verification_service import VerificationService
 router = APIRouter()
 service = VerificationService()
 
+_PLAN_ORDER = ["fiel", "catequista", "apologeta", "patristico", "magisterio"]
+_APOLOGETA_FIELDS = {
+    "context_before": None,
+    "context_after": None,
+    "matched_translation": None,
+    "translation_language": None,
+    "translation_fidelity": None,
+    "translator": None,
+    "translation_edition": None,
+}
+
 
 @router.post("/verify-citation", response_model=VerifyCitationResponse)
 def verify_citation(
@@ -25,6 +36,11 @@ def verify_citation(
     current_user: User | None = Depends(get_optional_user),
 ) -> VerifyCitationResponse:
     result = service.verify(payload)
+
+    # Contexto patrístico e relatório de tradução são exclusivos do plano Apologeta+
+    user_plan = current_user.plan if current_user else "fiel"
+    if _PLAN_ORDER.index(user_plan) < _PLAN_ORDER.index("apologeta"):
+        result = result.model_copy(update=_APOLOGETA_FIELDS)
 
     if current_user is not None:
         try:
@@ -115,7 +131,7 @@ def get_laudo(
         entry = db.get(VerificationHistory, entry_id)
         if not entry or entry.user_id != current_user.id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entrada não encontrada.")
-        pdf_bytes = generate_laudo_pdf(entry)
+        pdf_bytes = generate_laudo_pdf(entry, user_plan=current_user.plan)
 
     filename = f"laudo_verafidei_{entry_id}.pdf"
     return StreamingResponse(

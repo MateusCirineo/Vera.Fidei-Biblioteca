@@ -12,7 +12,11 @@ from reportlab.lib import colors
 from models.database import VerificationHistory
 
 
-def generate_laudo_pdf(entry: VerificationHistory) -> bytes:
+_PLAN_ORDER = ["fiel", "catequista", "apologeta", "patristico", "magisterio"]
+
+
+def generate_laudo_pdf(entry: VerificationHistory, user_plan: str = "catequista") -> bytes:
+    has_apologeta = _PLAN_ORDER.index(user_plan) >= _PLAN_ORDER.index("apologeta")
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -119,6 +123,36 @@ def generate_laudo_pdf(entry: VerificationHistory) -> bytes:
             Paragraph("TRECHO LOCALIZADO NA FONTE", label_style),
             Paragraph(f'"{_safe(entry.matched_excerpt)}"', citation_style),
         ]
+
+    # Contexto patrístico e tradução — exclusivo Apologeta+
+    if has_apologeta and entry.response_json:
+        try:
+            import json as _json
+            resp = _json.loads(entry.response_json)
+            ctx_before = resp.get("context_before")
+            ctx_after = resp.get("context_after")
+            translation = resp.get("matched_translation")
+            fidelity = resp.get("translation_fidelity")
+            translator = resp.get("translator") or resp.get("translation_edition")
+
+            if ctx_before or ctx_after:
+                story += [Paragraph("CONTEXTO PATRÍSTICO", label_style)]
+                if ctx_before:
+                    story += [Paragraph(f"[...] {_safe(ctx_before)}", citation_style)]
+                story += [Paragraph(f'"{_safe(entry.matched_excerpt)}"', verdict_style)]
+                if ctx_after:
+                    story += [Paragraph(f"{_safe(ctx_after)} [...]", citation_style)]
+
+            if translation:
+                story += [
+                    Paragraph("TRADUÇÃO DE REFERÊNCIA", label_style),
+                    Paragraph(f'"{_safe(translation)}"', citation_style),
+                ]
+                if fidelity:
+                    fidelity_label = "Tradução fiel" if fidelity == "fiel" else "Tradução imprecisa"
+                    story += [Paragraph(f"Fidelidade: {fidelity_label}" + (f" — {_safe(translator)}" if translator else ""), value_style)]
+        except Exception:
+            pass
 
     story += [
         Spacer(1, 0.3 * cm),
