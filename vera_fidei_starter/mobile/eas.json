@@ -1,0 +1,48 @@
+{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_API_URL": "http://192.168.0.3:8000",
+        "EXPO_PUBLIC_API_KEY": "UmGKwx6a-aGLzA-_PsakG-u7lSbB1qhlmgD7eUWUWRc"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_API_URL": "https://verafidei.oialfred.com/api",
+        "EXPO_PUBLIC_API_KEY": "UmGKwx6a-aGLzA-_PsakG-u7lSbB1qhlmgD7eUWUWRc"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_API_URL": "https://verafidei.oialfred.com/api",
+        "EXPO_PUBLIC_API_KEY": "UmGKwx6a-aGLzA-_PsakG-u7lSbB1qhlmgD7eUWUWRc"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-play-key.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleId": "seu@email.com",
+        "ascAppId": "SEU_APP_STORE_CONNECT_ID",
+        "appleTeamId": "SEU_TEAM_ID"
+      }
+    }
+  }
+}

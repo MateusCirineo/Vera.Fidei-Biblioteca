@@ -145,6 +145,11 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE book_files ADD COLUMN IF NOT EXISTS created_at TIMESTAMP",
         # Fix spelling variant: "Irineu" → "Ireneu" (key in PATRISTIC_AUTHORS)
         "UPDATE books SET canonical_author = 'Santo Ireneu de Lião' WHERE canonical_author = 'Santo Irineu de Lião'",
+        # Indexes for performance — critical for COUNT queries run per-book/per-author
+        "CREATE INDEX IF NOT EXISTS idx_chunks_book_id ON chunks(book_id)",
+        "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_author ON chunks(chunk_author)",
+        "CREATE INDEX IF NOT EXISTS idx_books_canonical_author ON books(canonical_author)",
+        "CREATE INDEX IF NOT EXISTS idx_books_library_section ON books(library_section)",
     ]
     with engine.begin() as conn:
         for sql in migrations:

@@ -1,0 +1,14 @@
+node_modules/
+.expo/
+android/
+ios/
+dist/
+web-build/
+*.apk
+*.aab
+*.jks
+.env
+.env.local
+npm-debug.*
+yarn-debug.*
+yarn-error.*

@@ -11,6 +11,7 @@ from models.database import Book, BookFile, SessionLocal, init_db
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_PDF_ROOT = BACKEND_DIR / "pdfs" / "documentos_pontificios"
+PDF_ROOT_BASE = BACKEND_DIR / "pdfs"
 SOURCE_LABEL = "Vatican.va"
 COLLECTION = "MAG"
 LIBRARY_SECTION = "documentos"
@@ -119,10 +120,14 @@ def find_existing_book(db, target: PdfImportTarget) -> Book | None:
 
 
 def has_file(db, book: Book, target: PdfImportTarget) -> bool:
-    stored_path = str(target.pdf_path)
+    relative_path = str(target.pdf_path.relative_to(PDF_ROOT_BASE)).replace("\\", "/")
+    absolute_path = str(target.pdf_path)
     return (
         db.query(BookFile)
-        .filter(BookFile.book_id == book.id, BookFile.stored_path == stored_path)
+        .filter(
+            BookFile.book_id == book.id,
+            BookFile.stored_path.in_([relative_path, absolute_path]),
+        )
         .first()
         is not None
     )
@@ -223,7 +228,7 @@ def import_targets(targets: list[PdfImportTarget], dry_run: bool, report_every: 
                         BookFile(
                             book_id=book.id,
                             original_filename=target.original_filename,
-                            stored_path=str(target.pdf_path),
+                            stored_path=str(target.pdf_path.relative_to(PDF_ROOT_BASE)).replace("\\", "/"),
                             volume_number=None,
                             editor="Vatican.va",
                             translator=None,

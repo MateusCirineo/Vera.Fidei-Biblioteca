@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-import datetime
 import threading
 
 import pdfplumber
@@ -14,10 +13,11 @@ from sqlalchemy import func
 from models.database import SessionLocal, Book, Chunk, BookFile, Translation
 from search.text_search import TextSearchClient
 from search.semantic_search import SemanticSearchClient
+from storage.pdf_storage import get_pdf_storage
 from ingestion.pdf_extractor import PDFExtractor
 from ingestion.chunker import Chunker
 from utils.patristic_parser import parse_patristic_book
-from utils.author_detection import detect_author, detect_canonical_title
+from utils.author_detection import detect_author, detect_canonical_title, detect_church_document
 from utils.language import detect_latin_heuristic, normalize_lang
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "pdfs")
@@ -39,9 +39,19 @@ _TRANSLATOR_RE = [
 
 _PUBLISHER_RE = [
     (re.compile(r"\bPaulus\b", re.IGNORECASE), "Paulus"),
-    (re.compile(r"\bLoyola\b", re.IGNORECASE), "Loyola"),
+    (re.compile(r"\b(?:Editora|Edi[çc][õo]es)\s+Loyola\b|\bLoyola\s+Editora\b", re.IGNORECASE), "Loyola"),
     (re.compile(r"\bVozes\b", re.IGNORECASE), "Vozes"),
     (re.compile(r"\bPaulinas\b", re.IGNORECASE), "Paulinas"),
+    (re.compile(r"\bEcclesiae\b", re.IGNORECASE), "Ecclesiae"),
+    (re.compile(r"\bEditora\s+Fam[ií]lia\s+Cat[oó]lica\b|\bFam[ií]lia\s+Cat[oó]lica\b", re.IGNORECASE), "Editora Família Católica"),
+    (re.compile(r"\bApostolado\s+Sociedade\s+Cat[oó]lica\b", re.IGNORECASE), "Apostolado Sociedade Católica"),
+    (re.compile(r"\bRealeza\b", re.IGNORECASE), "Realeza"),
+    (re.compile(r"\bQuadrante\b", re.IGNORECASE), "Quadrante"),
+    (re.compile(r"\bCultor\s+de\s+Livros\b", re.IGNORECASE), "Cultor de Livros"),
+    (re.compile(r"\bPerman[eê]ncia\b", re.IGNORECASE), "Permanência"),
+    (re.compile(r"\bCristo\s+Rei\b", re.IGNORECASE), "Cristo Rei"),
+    (re.compile(r"\bCl[eé]ofas\b", re.IGNORECASE), "Cléofas"),
+    (re.compile(r"\bMolokai\b", re.IGNORECASE), "Molokai"),
     (re.compile(r"\bSantu[aá]rio\b", re.IGNORECASE), "Santuário"),
 ]
 
@@ -226,26 +236,23 @@ class IngestionService:
             ).scalar()
             next_seq = (max_seq + 1) if max_seq is not None else 0
 
-        timestamp = int(datetime.datetime.utcnow().timestamp())
-        safe_name = _sanitize_filename(original_filename)
-        stored_filename = f"{book_id}_{timestamp}_{safe_name}"
-        stored_path = os.path.join(PDF_DIR, stored_filename)
-
-        with open(stored_path, "wb") as f:
-            f.write(pdf_bytes)
+        pdf_storage = get_pdf_storage()
+        stored_pdf = pdf_storage.save_pdf(book_id, original_filename, pdf_bytes)
+        stored_path = stored_pdf.stored_path
+        local_pdf_path = stored_pdf.local_path
 
         try:
-            pages = self.extractor.extract(stored_path)
+            pages = self.extractor.extract(local_pdf_path)
             document_meta: dict = {}
             if volume_number is not None:
                 document_meta["volume_number"] = volume_number
             raw_chunks = self.chunker.chunk(pages, document_meta)
         except Exception as exc:
-            os.remove(stored_path)
+            pdf_storage.delete_pdf(stored_path)
             raise HTTPException(status_code=500, detail=f"Falha na extração do PDF: {exc}")
 
         if not raw_chunks:
-            os.remove(stored_path)
+            pdf_storage.delete_pdf(stored_path)
             raise HTTPException(status_code=422, detail="Nenhum texto extraído do PDF.")
 
         for i, chunk_data in enumerate(raw_chunks):
@@ -346,7 +353,7 @@ class IngestionService:
 
             except Exception as exc:
                 db.rollback()
-                os.remove(stored_path)
+                pdf_storage.delete_pdf(stored_path)
                 raise HTTPException(
                     status_code=500,
                     detail=f"Falha ao indexar no motor de busca: {exc}",
@@ -411,6 +418,25 @@ class IngestionService:
         tradition = parsed.patristic_tradition
         section = parsed.library_section or "patristica"
         doctype = None
+        edition_label = ""
+
+        # Auto-detecção de documentos oficiais da Igreja (CIC, CCEO, Catecismo, encíclicas…)
+        church_meta = detect_church_document(raw_title, content_sample)
+        if church_meta:
+            detected_author = church_meta["author"]
+            canonical_title = church_meta["canonical_title"] or canonical_title
+            collection = church_meta["collection"]
+            section = church_meta["library_section"]
+            doctype = church_meta["document_type"]
+            tradition = None
+            edition_label = church_meta["edition_label"]
+
+        final_canonical_author = church_meta["canonical_author"] if church_meta else parsed.canonical_author
+        final_canonical_title = (
+            church_meta["canonical_title"]
+            if church_meta
+            else (parsed.canonical_title if parsed.canonical_author else None)
+        )
 
         # Criar Book no banco
         with SessionLocal() as db:
@@ -419,14 +445,14 @@ class IngestionService:
                 title=canonical_title,
                 author=detected_author or "Desconhecido",
                 language=language,
-                edition_label="",
+                edition_label=edition_label,
                 source_label="",
                 is_primary_source=True,
                 library_section=section,
                 patristic_tradition=tradition,
                 document_type=doctype,
-                canonical_author=parsed.canonical_author,
-                canonical_title=parsed.canonical_title if parsed.canonical_author else None,
+                canonical_author=final_canonical_author,
+                canonical_title=final_canonical_title,
                 ingest_status="processing",
                 ingest_error=None,
             )
@@ -447,13 +473,10 @@ class IngestionService:
                 "ingest_error": book.ingest_error,
             }
 
-        # Salvar PDF em disco permanentemente
-        timestamp = int(datetime.datetime.utcnow().timestamp())
-        safe_name = _sanitize_filename(original_filename)
-        stored_filename = f"{book_id}_{timestamp}_{safe_name}"
-        stored_path = os.path.join(PDF_DIR, stored_filename)
-        with open(stored_path, "wb") as f:
-            f.write(pdf_bytes)
+        # Salvar PDF no backend configurado (local por padrao, S3/R2 quando ativado)
+        pdf_storage = get_pdf_storage()
+        stored_pdf = pdf_storage.save_pdf(book_id, original_filename, pdf_bytes)
+        stored_path = stored_pdf.stored_path
 
         # Criar BookFile na fase síncrona para ter file_id real na resposta
         with SessionLocal() as db:
@@ -507,13 +530,11 @@ class IngestionService:
                 self.text_search.delete_chunk(chunk.id)
                 self.semantic_search.delete_chunk(chunk.id)
 
-            # 2. Remover PDFs do disco
+            # 2. Remover PDFs do storage configurado
             files = db.query(BookFile).filter(BookFile.book_id == book_id).all()
+            pdf_storage = get_pdf_storage()
             for f in files:
-                try:
-                    os.remove(f.stored_path)
-                except OSError:
-                    pass
+                pdf_storage.delete_pdf(f.stored_path)
 
             # 3. Deletar registros (Translation → Chunk → BookFile → Book)
             chunk_ids = [c.id for c in chunks]
@@ -532,7 +553,12 @@ class IngestionService:
     ) -> None:
         """Thread de background: extrai todas as páginas, cria chunks, indexa."""
         try:
-            pages = self.extractor.extract(stored_path)
+            local_pdf_path = get_pdf_storage().resolve_for_processing(stored_path)
+            if not local_pdf_path:
+                _set_status(book_id, "error", f"PDF file not found: {stored_path}")
+                return
+
+            pages = self.extractor.extract(local_pdf_path)
 
             with SessionLocal() as db:
                 book = db.get(Book, book_id)
@@ -551,7 +577,7 @@ class IngestionService:
             if not raw_chunks:
                 # Diagnóstico: conta páginas do PDF para distinguir falha de OCR de PDF vazio
                 try:
-                    with pdfplumber.open(stored_path) as _pdf:
+                    with pdfplumber.open(local_pdf_path) as _pdf:
                         _total_pages = len(_pdf.pages)
                 except Exception:
                     _total_pages = 0

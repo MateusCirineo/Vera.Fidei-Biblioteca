@@ -25,13 +25,13 @@ export async function verifyCitation(
 }
 
 export async function listBooks(): Promise<Book[]> {
-  const res = await fetch(`${BASE}/books`, { cache: 'no-store', headers: authHeaders() })
+  const res = await fetch(`${BASE}/books`, { next: { revalidate: 300 }, headers: authHeaders() })
   if (!res.ok) throw new Error('Erro ao carregar obras')
   return res.json()
 }
 
 export async function listAuthorsCatalog(): Promise<AuthorCatalogEntry[]> {
-  const res = await fetch(`${BASE}/authors/catalog`, { next: { revalidate: 30 }, headers: authHeaders() })
+  const res = await fetch(`${BASE}/authors/catalog`, { next: { revalidate: 300 }, headers: authHeaders() })
   if (!res.ok) throw new Error('Erro ao carregar catálogo de autores')
   return res.json()
 }

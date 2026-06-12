@@ -1,5 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import PwaInstallButton from '@/components/PwaInstallButton'
 
 const socialLinks = [
   {
@@ -24,11 +25,11 @@ function PresentationCover() {
     <div className="overflow-hidden rounded-lg border border-dourado/25 bg-fundo-card text-left shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
       <div className="border-b border-dourado/20 bg-vinho-escuro/45 px-5 py-6 text-center">
         <Image
-          src="/branding/Logo-VF.png"
+          src="/branding/Logo-VF-seal.png"
           alt="Vera.Fidei Catolico"
-          width={260}
-          height={146}
-          className="mx-auto h-auto w-48"
+          width={192}
+          height={192}
+          className="mx-auto h-auto w-28 sm:w-32"
           priority
         />
 
@@ -77,6 +78,16 @@ function PresentationCover() {
             )
           )}
         </div>
+
+        <div className="flex justify-center pt-1">
+          <Image
+            src="/branding/Logo-VF-wine.png"
+            alt="Selo Vera.Fidei vinho"
+            width={96}
+            height={96}
+            className="h-12 w-12 rounded-full border border-dourado/20 opacity-85 shadow-[0_8px_28px_rgba(0,0,0,0.35)]"
+          />
+        </div>
       </div>
     </div>
   )
@@ -114,6 +125,7 @@ export default function ApresentacaoPage() {
             />
           </svg>
         </Link>
+        <PwaInstallButton />
       </section>
 
       <div className="border-t border-fundo-borda" />

@@ -12,8 +12,11 @@ import pytesseract
 DIGITAL_THRESHOLD = 50
 OCR_LANG_FALLBACKS = (
     "lat+grc+por+eng",
+    "fra+eng",
     "lat+eng",
     "lat+por+eng",
+    "por+eng",
+    "fra",
     "eng",
 )
 OCR_DPI_FALLBACKS = (150, 125, 100)
@@ -21,18 +24,35 @@ OCR_PAGE_TIMEOUT_SECONDS = 120
 OCR_GOOD_TEXT_CHARS = 80
 OCR_MAX_WORKERS = 2
 
-# Paths resolved relative to the repository root, without relying on PATH.
+# Paths resolved relative to the repository root, with Linux container fallbacks.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _BACKEND_DIR = os.path.abspath(os.path.join(_THIS_DIR, ".."))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_THIS_DIR, "..", "..", ".."))
 
-POPPLER_PATH = os.path.join(_PROJECT_ROOT, "poppler-25.12.0", "Library", "bin")
-PDFTOTEXT_PATH = os.path.join(POPPLER_PATH, "pdftotext.exe")
-TESSDATA_DIR = os.path.join(_BACKEND_DIR, "tessdata")
+_BUNDLED_POPPLER = os.path.join(_PROJECT_ROOT, "poppler-25.12.0", "Library", "bin")
+POPPLER_PATH = os.environ.get("POPPLER_PATH")
+if not POPPLER_PATH and os.path.isdir(_BUNDLED_POPPLER):
+    POPPLER_PATH = _BUNDLED_POPPLER
+
+PDFTOTEXT_PATH = (
+    os.environ.get("PDFTOTEXT_PATH")
+    or shutil.which("pdftotext")
+    or (os.path.join(POPPLER_PATH, "pdftotext.exe") if POPPLER_PATH else "")
+)
+
+TESSDATA_DIR = (
+    os.environ.get("TESSDATA_DIR")
+    or ("/app/tessdata" if os.path.isdir("/app/tessdata") else "")
+    or os.path.join(_BACKEND_DIR, "tessdata")
+)
 OCR_CACHE_DIR = os.path.join(_BACKEND_DIR, ".ocr_cache")
 
-# Installed Tesseract executable.
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+_WINDOWS_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = (
+    os.environ.get("TESSERACT_CMD")
+    or shutil.which("tesseract")
+    or _WINDOWS_TESSERACT
+)
 
 
 class PDFExtractor:
@@ -61,7 +81,7 @@ class PDFExtractor:
         return self._has_poppler_sample_text(pdf_path)
 
     def _has_poppler_sample_text(self, pdf_path: str) -> bool:
-        if not os.path.exists(PDFTOTEXT_PATH):
+        if not PDFTOTEXT_PATH or not os.path.exists(PDFTOTEXT_PATH):
             return False
 
         try:
@@ -92,7 +112,7 @@ class PDFExtractor:
         return pages
 
     def _extract_digital_poppler(self, pdf_path: str) -> list[dict]:
-        if not os.path.exists(PDFTOTEXT_PATH):
+        if not PDFTOTEXT_PATH or not os.path.exists(PDFTOTEXT_PATH):
             return []
 
         try:
@@ -253,7 +273,7 @@ class PDFExtractor:
             return None
 
     def _ocr_image_path(self, image_path: str, page_num: int) -> str:
-        tessdata_config = f'--tessdata-dir "{TESSDATA_DIR}"'
+        tessdata_config = f'--tessdata-dir "{TESSDATA_DIR}"' if os.path.isdir(TESSDATA_DIR) else ""
         best_text = ""
         last_error: Exception | None = None
 

@@ -19,7 +19,10 @@ function groupByWork(books: Book[]): { title: string; books: Book[] }[] {
 }
 
 const COLLECTION_LABEL: Record<string, string> = {
-  PT: 'Paulus', PL: 'Migne PL', PG: 'Migne PG', PO: 'Patrologia Orientalis',
+  PT: 'Paulus',
+  PL: 'Migne PL',
+  PG: 'Migne PG',
+  PO: 'Patrologia Orientalis',
 }
 
 function editionSummary(books: Book[]): string {
@@ -34,143 +37,42 @@ interface AutoresSectionProps {
   catalog: AuthorCatalogEntry[]
 }
 
-function AuthorAccordion({
-  entry,
-  openAuthor,
-  openWork,
-  onToggleAuthor,
-  onToggleWork,
-}: {
-  entry: AuthorCatalogEntry
-  openAuthor: string | null
-  openWork: string | null
-  onToggleAuthor: (name: string) => void
-  onToggleWork: (key: string) => void
-}) {
-  const isAuthorOpen = openAuthor === entry.name
-  const works = groupByWork(entry.books)
-  const deathYear = getAuthorDeathYear(entry.name)
-
+function EditionLink({ book }: { book: Book }) {
   return (
-    <div className="rounded-lg border border-fundo-borda overflow-hidden">
-      <button
-        onClick={() => onToggleAuthor(entry.name)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-fundo-card hover:bg-fundo-card/80 transition-colors text-left"
-      >
-        <div>
-          <p className="font-garamond text-base font-medium text-texto">
-            {entry.name}
-            {deathYear && (
-              <span className="ml-2 text-sm font-normal text-texto-terciario">
-                † {deathYear}
-              </span>
-            )}
-          </p>
-          <p className="text-xs text-texto-terciario mt-0.5">
-            {editionSummary(entry.books)} · {entry.book_count}{' '}
-            {entry.book_count === 1 ? 'obra' : 'obras'} — {entry.chunk_count}{' '}
-            {entry.chunk_count === 1 ? 'trecho' : 'trechos'} indexados
-          </p>
+    <Link
+      href={`/biblioteca/${book.id}`}
+      className="flex items-center justify-between rounded-lg border border-fundo-borda bg-fundo-card px-3 py-2.5 transition-colors hover:border-dourado/30 hover:bg-vinho-escuro/10"
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-texto-terciario">
+          {book.is_primary_source && (
+            <span className="rounded-full bg-dourado/15 px-2 py-0.5 font-medium text-dourado">
+              Primária
+            </span>
+          )}
+          {(book.edition_label || book.collection) && (
+            <span className="rounded bg-fundo px-1.5 py-0.5 font-mono">
+              {book.edition_label || COLLECTION_LABEL[book.collection ?? ''] || book.collection}
+            </span>
+          )}
+          {book.language && <span>{formatLanguage(book.language)}</span>}
         </div>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          className={`w-4 h-4 shrink-0 ml-3 text-texto-terciario transition-transform ${
-            isAuthorOpen ? 'rotate-180' : ''
-          }`}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-        </svg>
-      </button>
-
-      {isAuthorOpen && (
-        <div className="border-t border-fundo-borda divide-y divide-fundo-borda">
-          {works.map(({ title, books }) => {
-            const workKey = `${entry.name}::${title}`
-            const isWorkOpen = openWork === workKey
-
-            return (
-              <div key={title}>
-                <button
-                  onClick={() => onToggleWork(workKey)}
-                  className="w-full flex items-center justify-between px-5 py-2.5 bg-fundo hover:bg-fundo-card/40 transition-colors text-left"
-                >
-                  <span className="font-garamond text-sm font-medium text-texto-secundario">
-                    {title}
-                  </span>
-                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                    <span className="text-xs text-texto-terciario bg-fundo-card rounded-full px-2 py-0.5">
-                      {books.length} {books.length === 1 ? 'edição' : 'edições'}
-                    </span>
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={1.5}
-                      className={`w-3.5 h-3.5 text-texto-terciario transition-transform ${
-                        isWorkOpen ? 'rotate-180' : ''
-                      }`}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                    </svg>
-                  </div>
-                </button>
-
-                {isWorkOpen && (
-                  <div className="px-5 pb-3 space-y-2">
-                    {books.map((book) => (
-                      <Link
-                        key={book.id}
-                        href={`/biblioteca/${book.id}`}
-                        className="flex items-center justify-between rounded-lg border border-fundo-borda bg-fundo-card px-3 py-2.5 hover:border-dourado/30 transition-colors"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-texto-terciario">
-                            {book.is_primary_source && (
-                              <span className="rounded-full bg-dourado/15 px-2 py-0.5 text-dourado font-medium">
-                                Primária
-                              </span>
-                            )}
-                            {(book.edition_label || book.collection) && (
-                              <span className="font-mono bg-fundo px-1.5 py-0.5 rounded">
-                                {book.edition_label || COLLECTION_LABEL[book.collection ?? ''] || book.collection}
-                              </span>
-                            )}
-                            {book.language && <span>{formatLanguage(book.language)}</span>}
-                          </div>
-                          {book.chunk_count !== undefined && book.chunk_count > 0 && (
-                            <p className="text-xs text-texto-terciario mt-0.5">
-                              {book.chunk_count} trechos indexados
-                            </p>
-                          )}
-                        </div>
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={1.5}
-                          className="w-4 h-4 shrink-0 ml-2 text-texto-terciario"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                        </svg>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
+        {book.chunk_count !== undefined && book.chunk_count > 0 && (
+          <p className="mt-0.5 text-xs text-texto-terciario">
+            {book.chunk_count} trechos indexados
+          </p>
+        )}
+      </div>
+      <span aria-hidden="true" className="ml-2 shrink-0 text-texto-terciario">
+        ›
+      </span>
+    </Link>
   )
 }
 
 export default function AutoresSection({ catalog }: AutoresSectionProps) {
-  const [openAuthor, setOpenAuthor] = useState<string | null>(null)
-  const [openWork, setOpenWork] = useState<string | null>(null)
+  const [selectedAuthor, setSelectedAuthor] = useState<AuthorCatalogEntry | null>(null)
+  const [selectedWorkTitle, setSelectedWorkTitle] = useState<string | null>(null)
 
   if (catalog.length === 0) {
     return (
@@ -180,23 +82,117 @@ export default function AutoresSection({ catalog }: AutoresSectionProps) {
     )
   }
 
-  const withBooks = catalog.filter((e) => e.book_count > 0)
-  const withoutBooks = catalog.filter((e) => e.book_count === 0)
+  const withBooks = catalog.filter((entry) => entry.book_count > 0)
+  const withoutBooks = catalog.filter((entry) => entry.book_count === 0)
+  const centuries = groupByCentury(withBooks, entry => getAuthorDeathYear(entry.name))
+  const selectedWorks = selectedAuthor ? groupByWork(selectedAuthor.books) : []
+  const selectedWork = selectedWorkTitle
+    ? selectedWorks.find(work => work.title === selectedWorkTitle) ?? null
+    : null
 
-  const centuries = groupByCentury(withBooks, e => getAuthorDeathYear(e.name))
+  if (selectedAuthor && selectedWork) {
+    return (
+      <section className="space-y-4">
+        <button
+          type="button"
+          onClick={() => setSelectedWorkTitle(null)}
+          className="inline-flex items-center gap-1 text-xs text-texto-terciario transition-colors hover:text-dourado"
+        >
+          <span aria-hidden="true">‹</span>
+          {selectedAuthor.name}
+        </button>
 
-  function handleToggleAuthor(name: string) {
-    setOpenAuthor(prev => (prev === name ? null : name))
-    setOpenWork(null)
+        <div className="border-b border-fundo-borda pb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+            Obra
+          </p>
+          <h2 className="mt-1 font-garamond text-2xl font-medium text-texto">
+            {selectedWork.title}
+          </h2>
+          <p className="mt-1 text-sm text-texto-secundario">
+            {selectedAuthor.name} · {selectedWork.books.length}{' '}
+            {selectedWork.books.length === 1 ? 'edição' : 'edições'}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {selectedWork.books.map(book => (
+            <EditionLink key={book.id} book={book} />
+          ))}
+        </div>
+      </section>
+    )
   }
 
-  function handleToggleWork(key: string) {
-    setOpenWork(prev => (prev === key ? null : key))
+  if (selectedAuthor) {
+    const deathYear = getAuthorDeathYear(selectedAuthor.name)
+
+    return (
+      <section className="space-y-4">
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedAuthor(null)
+            setSelectedWorkTitle(null)
+          }}
+          className="inline-flex items-center gap-1 text-xs text-texto-terciario transition-colors hover:text-dourado"
+        >
+          <span aria-hidden="true">‹</span>
+          Obras dos Padres
+        </button>
+
+        <div className="rounded-lg border border-dourado/25 bg-dourado/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+                Autor patrístico
+              </p>
+              <h2 className="mt-1 font-garamond text-3xl font-semibold leading-tight text-texto">
+                {selectedAuthor.name}
+                {deathYear && (
+                  <span className="ml-2 font-sans text-base font-normal text-texto-terciario">
+                    † {deathYear}
+                  </span>
+                )}
+              </h2>
+              <p className="mt-2 text-sm text-texto-secundario">
+                {editionSummary(selectedAuthor.books)} · {selectedAuthor.chunk_count} trechos indexados
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-dourado/15 px-2.5 py-1 text-xs font-medium text-dourado">
+              {selectedWorks.length}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {selectedWorks.map(({ title, books }) => (
+            <button
+              key={title}
+              type="button"
+              onClick={() => setSelectedWorkTitle(title)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-fundo-borda bg-fundo-card px-4 py-3 text-left transition-colors hover:border-dourado/30 hover:bg-vinho-escuro/10"
+            >
+              <span className="min-w-0">
+                <span className="block font-garamond text-base font-medium leading-snug text-texto">
+                  {title}
+                </span>
+                <span className="mt-0.5 block text-xs text-texto-terciario">
+                  {editionSummary(books)}
+                </span>
+              </span>
+              <span className="ml-3 shrink-0 rounded-full bg-fundo px-2 py-0.5 text-xs text-dourado">
+                {books.length}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Contadores rápidos */}
+    <section className="space-y-6">
       <div className="flex gap-3 text-xs text-texto-terciario">
         <span>
           <span className="font-medium text-dourado">{catalog.length}</span> Padres conhecidos
@@ -207,35 +203,55 @@ export default function AutoresSection({ catalog }: AutoresSectionProps) {
         </span>
       </div>
 
-      {/* Padres com obras — agrupados por século */}
       {withBooks.length > 0 && (
         <div className="space-y-6">
           {centuries.map(({ label, items }) => (
             <div key={label}>
-              <p className="text-xs font-medium text-texto-terciario uppercase tracking-wider px-1 pb-2 border-b border-fundo-borda mb-2">
+              <p className="mb-2 border-b border-fundo-borda px-1 pb-2 text-xs font-medium uppercase tracking-wider text-texto-terciario">
                 {label}
               </p>
               <div className="space-y-2">
-                {items.map((entry) => (
-                  <AuthorAccordion
-                    key={entry.name}
-                    entry={entry}
-                    openAuthor={openAuthor}
-                    openWork={openWork}
-                    onToggleAuthor={handleToggleAuthor}
-                    onToggleWork={handleToggleWork}
-                  />
-                ))}
+                {items.map((entry) => {
+                  const deathYear = getAuthorDeathYear(entry.name)
+                  return (
+                    <button
+                      key={entry.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAuthor(entry)
+                        setSelectedWorkTitle(null)
+                      }}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-fundo-borda bg-fundo-card px-4 py-3 text-left transition-colors hover:border-dourado/30 hover:bg-vinho-escuro/10"
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-garamond text-base font-medium text-texto">
+                          {entry.name}
+                          {deathYear && (
+                            <span className="ml-2 font-sans text-sm font-normal text-texto-terciario">
+                              † {deathYear}
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-texto-terciario">
+                          {editionSummary(entry.books)} · {entry.book_count}{' '}
+                          {entry.book_count === 1 ? 'obra' : 'obras'}
+                        </span>
+                      </span>
+                      <span className="ml-3 shrink-0 rounded-full bg-fundo px-2 py-0.5 text-xs text-dourado">
+                        {entry.chunk_count}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Padres sem obras catalogadas ainda */}
       {withoutBooks.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-texto-terciario uppercase tracking-wider mb-2">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-texto-terciario">
             Sem obras catalogadas ({withoutBooks.length})
           </p>
           <div className="space-y-1">
@@ -246,16 +262,16 @@ export default function AutoresSection({ catalog }: AutoresSectionProps) {
               >
                 <div>
                   <p className="text-sm text-texto-terciario">{entry.name}</p>
-                  <p className="text-xs text-texto-terciario/60 mt-0.5">
+                  <p className="mt-0.5 text-xs text-texto-terciario/60">
                     {COLLECTION_LABEL[entry.collection] ?? entry.collection}
                   </p>
                 </div>
-                <span className="text-xs text-texto-terciario/50 shrink-0 ml-3">0 obras</span>
+                <span className="ml-3 shrink-0 text-xs text-texto-terciario/50">0 obras</span>
               </div>
             ))}
           </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }

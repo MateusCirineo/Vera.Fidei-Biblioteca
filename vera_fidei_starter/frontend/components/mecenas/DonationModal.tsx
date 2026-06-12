@@ -27,7 +27,7 @@ export default function DonationModal() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Apoie o Vera.Fidei via Pix"
-        className="fixed bottom-[5.5rem] right-4 z-40 flex items-center gap-1.5 rounded-full bg-dourado px-4 py-2 text-sm font-semibold text-fundo shadow-lg shadow-black/40 hover:bg-dourado-claro active:scale-95 transition-all"
+        className="fixed bottom-[5.4rem] right-3 z-40 flex items-center gap-1.5 rounded-lg border border-dourado/40 bg-dourado/90 px-3 py-2 text-xs font-semibold text-fundo shadow-lg shadow-black/35 transition-all hover:bg-dourado active:scale-95 sm:right-4 sm:px-4 sm:text-sm"
       >
         <HeartIcon />
         APOIE
@@ -41,7 +41,7 @@ export default function DonationModal() {
         >
           {/* Modal */}
           <div
-            className="w-full max-w-sm rounded-2xl border border-fundo-borda bg-fundo-card p-6 shadow-2xl"
+            className="w-full max-w-sm rounded-lg border border-fundo-borda bg-fundo-card p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Cabeçalho */}
@@ -66,7 +66,7 @@ export default function DonationModal() {
 
             {/* QR Code Pix */}
             <div className="mb-4 flex justify-center">
-              <div className="rounded-xl bg-white p-3 shadow-inner">
+              <div className="rounded-lg bg-white p-3 shadow-inner">
                 <QRCodeSVG
                   value={PIX_PAYLOAD}
                   size={200}
@@ -80,7 +80,7 @@ export default function DonationModal() {
             {/* Botão copiar */}
             <button
               onClick={handleCopy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dourado/30 bg-vinho/20 py-3 text-sm font-medium text-dourado transition-all hover:bg-vinho/40 active:scale-[0.98]"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dourado/30 bg-vinho/20 py-3 text-sm font-medium text-dourado transition-all hover:bg-vinho/40 active:scale-[0.98]"
             >
               {copied ? <CheckIcon /> : <CopyIcon />}
               {copied ? 'Código copiado!' : 'Copiar código Pix (Copia e Cola)'}

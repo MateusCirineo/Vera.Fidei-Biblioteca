@@ -1,9 +1,14 @@
-import logging
+﻿import logging
 import os
 import re
 import unicodedata
+from functools import lru_cache
 
 import pdfplumber
+try:
+    import fitz  # PyMuPDF
+except Exception:  # pragma: no cover - optional fast PDF backend
+    fitz = None
 
 _log = logging.getLogger(__name__)
 from langdetect import detect, LangDetectException
@@ -15,6 +20,7 @@ from search.semantic_search import SemanticSearchClient
 from confidence.scorer import CombinedScorer
 from confidence.classifier import DeterministicClassifier
 from confidence.explainer import ResultExplainer
+from storage.pdf_storage import get_pdf_storage
 from utils.language import (
     normalize_lang as _normalize_lang,
     detect_latin_heuristic,
@@ -45,49 +51,62 @@ def _detect_language(text: str, hint: str | None = None) -> str:
         return "unknown"
 
 
+def _author_core(value: str | None) -> str:
+    norm = _normalize_for_alias(value or "")
+    norm = re.sub(r"\b(santo|santa|sao|beato|beata|papa|padre)\b", " ", norm)
+    norm = re.sub(r"\b(de|da|do|dos|das|e)\b", " ", norm)
+    return re.sub(r"\s+", " ", norm).strip()
+
+
+def _author_name_matches(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    left_norm = _normalize_for_alias(left)
+    right_norm = _normalize_for_alias(right)
+    if left_norm == right_norm:
+        return True
+    if len(left_norm) >= 6 and left_norm in right_norm:
+        return True
+    if len(right_norm) >= 6 and right_norm in left_norm:
+        return True
+    left_core = _author_core(left)
+    right_core = _author_core(right)
+    if not left_core or not right_core:
+        return False
+    if left_core == right_core:
+        return True
+    if len(left_core) >= 6 and left_core in right_core:
+        return True
+    if len(right_core) >= 6 and right_core in left_core:
+        return True
+    return False
+
+
 def _author_matches(attributed_to: str, book, chunk=None) -> bool:
     """
-    Verifica se o autor atribuído bate com o livro/chunk encontrado.
+    Verifica se o autor atribuido bate com o livro/chunk encontrado.
 
-    Ordem de verificação:
-    1. chunk.chunk_author — mais específico (autor individual dentro de volume coletânea)
-    2. Alias lookup — "Inácio aos Efésios" → "Santo Inácio de Antioquia"
-    3. Comparação direta normalizada contra book.author e book.canonical_author
+    Usa aliases canonicos e comparacao tolerante para nomes com formas curtas,
+    como "Santo Agostinho" versus "Santo Agostinho de Hipona".
     """
     if not attributed_to or not book:
         return False
 
-    needle = _normalize_for_alias(attributed_to)
-
-    # 1. Verifica chunk_author (autor individual dentro de volume coletânea)
     if chunk and chunk.chunk_author:
-        chunk_author_norm = _normalize_for_alias(chunk.chunk_author)
-        if needle == chunk_author_norm or needle in chunk_author_norm:
+        if _author_name_matches(attributed_to, chunk.chunk_author):
             return True
 
-    # 2. Resolve alias (ex: "Inácio aos Efésios" → "Santo Inácio de Antioquia")
     resolved = resolve_author_alias(attributed_to)
     if resolved:
-        r_norm = _normalize_for_alias(resolved)
-        targets = [
-            chunk.chunk_author if chunk else None,
-            book.author,
-            book.canonical_author,
-        ]
-        for field in targets:
-            if field and r_norm == _normalize_for_alias(field):
+        for field in [chunk.chunk_author if chunk else None, book.author, book.canonical_author]:
+            if _author_name_matches(resolved, field):
                 return True
 
-    # 3. Comparação direta normalizada contra campos do livro
     for field in [book.author, book.canonical_author]:
-        if field and needle == _normalize_for_alias(field):
-            return True
-        # substring: "justino" bate em "São Justino Mártir"
-        if field and needle in _normalize_for_alias(field):
+        if _author_name_matches(attributed_to, field):
             return True
 
     return False
-
 
 # Marcadores de linguagem acadêmica moderna que NÃO aparecem em traduções patrísticas
 # autênticas. Lista conservadora: apenas termos que são anacrônicos de forma inequívoca.
@@ -210,51 +229,30 @@ _PDFS_DIR = os.environ.get("PDF_DIR") or os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "pdfs")
 )
 
+_ENABLE_PDF_PAGE_SCAN = os.environ.get("VERIFIER_ENABLE_PDF_PAGE_SCAN", "1").lower() not in {
+    "0",
+    "false",
+    "no",
+}
+# Default 0 = sem limite. O comportamento esperado do Vera.Fidei e tentar localizar
+# a pagina real em todo PDF vinculado, como era antes, mas usando PyMuPDF/cache.
+_PDF_PAGE_SCAN_MAX_BYTES = int(os.environ.get("VERIFIER_PDF_PAGE_SCAN_MAX_BYTES", "0"))
+_ALWAYS_RUN_SEMANTIC = os.environ.get("VERIFIER_ALWAYS_RUN_SEMANTIC", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+_SEMANTIC_FALLBACK_TIMEOUT = float(os.environ.get("VERIFIER_SEMANTIC_FALLBACK_TIMEOUT", "8"))
+
 
 def _resolve_pdf_path(stored_path: str) -> str | None:
     """
-    Resolve stored_path to an absolute path that actually exists on disk.
-    Mirrors api/routes/pdfs.py _resolve_filename but returns the full path
-    (needed for pdfplumber.open instead of the X-Accel-Redirect relative form).
+    Resolve stored_path to an absolute local path for PDF scanning.
+
+    In local mode this resolves legacy files under PDF_DIR. In S3/R2 mode it
+    downloads the object into the bounded cache and returns that cached path.
     """
-    if not stored_path:
-        return None
-    normalized = stored_path.replace("\\", "/")
-    basename = normalized.split("/")[-1]
-    if not basename:
-        return None
-
-    # Relative path stored correctly (post-fix)
-    if not os.path.isabs(normalized):
-        direct = os.path.join(_PDFS_DIR, normalized)
-        if os.path.isfile(direct):
-            return direct
-
-    # Basename in root
-    root_candidate = os.path.join(_PDFS_DIR, basename)
-    if os.path.isfile(root_candidate):
-        return root_candidate
-
-    # Suffix match in root (re-uploaded files with ID prefix)
-    try:
-        for fname in sorted(os.listdir(_PDFS_DIR)):
-            if fname.endswith(basename):
-                full = os.path.join(_PDFS_DIR, fname)
-                if os.path.isfile(full):
-                    return full
-    except OSError:
-        pass
-
-    # Recursive walk (subdirectories like documentos_pontificios/)
-    try:
-        for root, _dirs, files in os.walk(_PDFS_DIR):
-            for f in files:
-                if f == basename:
-                    return os.path.join(root, f)
-    except OSError:
-        pass
-
-    return None
+    return get_pdf_storage().resolve_for_processing(stored_path)
 
 
 # ─── Busca de página real no PDF ─────────────────────────────────────────────
@@ -347,6 +345,112 @@ def _extract_matching_excerpt(query: str, chunk_text: str) -> str:
     return result if len(result) >= 40 else chunk_text[:500]
 
 
+def _chunk_window_text(db, chunk: Chunk, before: int = 1, after: int = 2) -> str:
+    parts: list[str] = []
+
+    if chunk.sequence_index is not None:
+        previous = (
+            db.query(Chunk)
+            .filter(
+                Chunk.book_id == chunk.book_id,
+                Chunk.sequence_index < chunk.sequence_index,
+            )
+            .order_by(Chunk.sequence_index.desc())
+            .limit(before)
+            .all()
+        )
+        following = (
+            db.query(Chunk)
+            .filter(
+                Chunk.book_id == chunk.book_id,
+                Chunk.sequence_index > chunk.sequence_index,
+            )
+            .order_by(Chunk.sequence_index.asc())
+            .limit(after)
+            .all()
+        )
+    else:
+        previous = (
+            db.query(Chunk)
+            .filter(Chunk.book_id == chunk.book_id, Chunk.id < chunk.id)
+            .order_by(Chunk.id.desc())
+            .limit(before)
+            .all()
+        )
+        following = (
+            db.query(Chunk)
+            .filter(Chunk.book_id == chunk.book_id, Chunk.id > chunk.id)
+            .order_by(Chunk.id.asc())
+            .limit(after)
+            .all()
+        )
+
+    parts.extend(item.text or "" for item in reversed(previous))
+    parts.append(chunk.text or "")
+    parts.extend(item.text or "" for item in following)
+    return "\n".join(part for part in parts if part)
+
+
+def _is_exact_text_match(query: str, candidate_text: str) -> bool:
+    q_raw = (query or "").strip().lower()
+    if not q_raw or not candidate_text:
+        return False
+
+    q_ocr = _normalize_for_search(_normalize_ocr(query))
+    c_raw = candidate_text.lower()
+    c_norm = _normalize_for_search(candidate_text)
+    return (q_raw in c_raw) or bool(q_ocr and q_ocr in c_norm)
+
+
+@lru_cache(maxsize=32)
+def _cached_pdf_page_texts(pdf_path: str, mtime_ns: int, size_bytes: int) -> tuple[str, ...]:
+    del mtime_ns, size_bytes
+
+    if fitz is not None:
+        try:
+            with fitz.open(pdf_path) as doc:
+                return tuple(
+                    _normalize_for_search(_normalize_ocr(page.get_text("text") or ""))
+                    for page in doc
+                )
+        except Exception:
+            pass
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            return tuple(
+                _normalize_for_search(_normalize_ocr(page.extract_text() or ""))
+                for page in pdf.pages
+            )
+    except Exception:
+        return ()
+
+
+def _find_exact_window_page(pages: tuple[str, ...], words: list[str]) -> int | None:
+    if not pages or not words:
+        return None
+
+    beginning = words[: min(len(words), 45)]
+    candidate_sizes = [
+        min(len(beginning), size)
+        for size in (24, 18, 14, 10, 8, 6, 5)
+        if len(beginning) >= size
+    ]
+
+    seen_sizes: set[int] = set()
+    for size in candidate_sizes:
+        if size in seen_sizes:
+            continue
+        seen_sizes.add(size)
+        for offset in range(0, len(beginning) - size + 1):
+            window = " ".join(beginning[offset : offset + size])
+            for i, page_text in enumerate(pages, start=1):
+                if window and window in page_text:
+                    return i
+
+    return None
+
+
 def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> int | None:
     """
     Varre todas as páginas do PDF e retorna a página onde o trecho COMEÇA.
@@ -363,9 +467,9 @@ def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> i
     if not pdf_path or not os.path.isfile(pdf_path):
         return None
 
-    # Pula PDFs muito grandes (>50MB) para evitar timeout na varredura completa
     try:
-        if os.path.getsize(pdf_path) > 50_000_000:
+        stat = os.stat(pdf_path)
+        if _PDF_PAGE_SCAN_MAX_BYTES > 0 and stat.st_size > _PDF_PAGE_SCAN_MAX_BYTES:
             return None
     except OSError:
         return None
@@ -376,37 +480,41 @@ def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> i
     if len(chunk_words) < 5:
         return None
 
-    needle = set(chunk_words[:200])  # tokens representativos do trecho
-
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            scores: list[tuple[int, int]] = []  # (page_1based, score)
-
-            for i, page in enumerate(pdf.pages, start=1):
-                page_text  = _normalize_for_search(page.extract_text() or "")
-                page_words = set(page_text.split())
-                score = len(needle & page_words)
-                scores.append((i, score))
-
-            # Página âncora: maior score
-            best_pg, best_score = max(scores, key=lambda x: x[1])
-            if best_score < min_score:
-                return None
-
-            # Limiar de look-back: páginas próximas com pelo menos 40% do score âncora
-            lookback_threshold = max(2, int(best_score * 0.40))
-
-            # Recua até 3 páginas antes da âncora para encontrar onde o trecho começa
-            first_pg = best_pg
-            for pg, score in scores:
-                if pg >= best_pg:
-                    break
-                if pg >= best_pg - 3 and score >= lookback_threshold:
-                    first_pg = pg  # mantém a mais anterior válida
-
-            return first_pg
-    except Exception:
+    pdf_path = os.path.abspath(pdf_path)
+    pages = _cached_pdf_page_texts(pdf_path, stat.st_mtime_ns, stat.st_size)
+    if not pages:
         return None
+
+    if norm_text:
+        for i, page_text in enumerate(pages, start=1):
+            if norm_text in page_text:
+                return i
+
+    exact_window_page = _find_exact_window_page(pages, chunk_words)
+    if exact_window_page:
+        return exact_window_page
+
+    start_needle = set(chunk_words[: min(len(chunk_words), 40)])
+    if start_needle:
+        start_scores = [
+            (i, len(start_needle & set(page_text.split())))
+            for i, page_text in enumerate(pages, start=1)
+        ]
+        start_pg, start_score = max(start_scores, key=lambda x: x[1])
+        if start_score >= max(min_score, int(len(start_needle) * 0.30)):
+            return start_pg
+
+    needle = set(chunk_words[:200])
+
+    scores = [
+        (i, len(needle & set(page_text.split())))
+        for i, page_text in enumerate(pages, start=1)
+    ]
+    best_pg, best_score = max(scores, key=lambda x: x[1])
+    if best_score < min_score:
+        return None
+
+    return best_pg
 
 
 class VerificationService:
@@ -599,8 +707,25 @@ class VerificationService:
             limit=5,
             query_language=detected_lang,
         )
-        semantic_hits = self.semantic_search.search(payload.quote, limit=5)
-        semantic_map = {hit.chunk_id: hit.score for hit in semantic_hits}
+
+        semantic_hits = []
+        semantic_map = {}
+        semantic_searched = False
+
+        def ensure_semantic_hits() -> list:
+            nonlocal semantic_hits, semantic_map, semantic_searched
+            if not semantic_searched:
+                semantic_hits = self.semantic_search.search(
+                    payload.quote,
+                    limit=5,
+                    timeout=_SEMANTIC_FALLBACK_TIMEOUT,
+                )
+                semantic_map = {hit.chunk_id: hit.score for hit in semantic_hits}
+                semantic_searched = True
+            return semantic_hits
+
+        if _ALWAYS_RUN_SEMANTIC or not text_hits:
+            ensure_semantic_hits()
 
         if not text_hits and not semantic_hits:
             result = self.classifier.classify(0.0, exact_match=False, author_match=False)
@@ -622,21 +747,22 @@ class VerificationService:
                 author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
                 semantic_score = semantic_map.get(hit.chunk_id, 0.0)
                 combined = self.scorer.combine(hit.score, semantic_score, author_match)
-                # exact_match: tenta match direto E match com normalização OCR
-                _q_raw = payload.quote.lower()
-                _q_ocr = _normalize_for_search(_normalize_ocr(payload.quote))
-                _c_norm = _normalize_for_search(chunk.text)
-                exact_match = (_q_raw in chunk.text.lower()) or (_q_ocr in _c_norm)
+                # exact_match: tenta match OCR numa janela de chunks, pois
+                # citações reais podem atravessar a divisão interna do índice.
+                chunk_window = _chunk_window_text(db, chunk)
+                exact_match = _is_exact_text_match(payload.quote, chunk_window)
                 # Penalidade por autor divergente: menor quando a frase foi encontrada
                 # literalmente (pode ser obra que cita o autor original).
                 if payload.attributed_to and not author_match:
                     combined *= 0.6 if exact_match else 0.4
-                if combined > best_score:
-                    best_score = combined
+                selection_score = combined + (2.0 if exact_match else 0.0) + (0.2 if author_match else 0.0)
+                if selection_score > best_score:
+                    best_score = selection_score
                     best = (chunk, book, exact_match, author_match, combined)
 
             # Fallback: se só houve hits semânticos (busca cross-lingual)
             if best is None:
+                ensure_semantic_hits()
                 for hit in semantic_hits:
                     chunk = db.get(Chunk, hit.chunk_id)
                     if chunk is None:
@@ -647,9 +773,11 @@ class VerificationService:
                     # Penalidade por autor divergente (apenas semântico, sem texto exato)
                     if payload.attributed_to and not author_match:
                         combined *= 0.4
-                    exact_match = False
-                    if combined > best_score:
-                        best_score = combined
+                    chunk_window = _chunk_window_text(db, chunk)
+                    exact_match = _is_exact_text_match(payload.quote, chunk_window)
+                    selection_score = combined + (2.0 if exact_match else 0.0) + (0.2 if author_match else 0.0)
+                    if selection_score > best_score:
+                        best_score = selection_score
                         best = (chunk, book, exact_match, author_match, combined)
 
             if best is None:
@@ -661,6 +789,7 @@ class VerificationService:
                 )
 
             chunk, book, exact_match, author_match, combined = best
+            matched_window_text = _chunk_window_text(db, chunk)
 
             # Buscar tradução PT para o chunk encontrado
             translation_pt = db.query(Translation).filter(
@@ -674,7 +803,7 @@ class VerificationService:
                 fidelity = _translation_fidelity(payload.quote, translation_pt.text)
 
             # Âncora lexical: fração dos tokens da query presentes no trecho encontrado
-            anchor = _lexical_anchor(payload.quote, chunk.text, translation_pt.text if translation_pt else None)
+            anchor = _lexical_anchor(payload.quote, matched_window_text, translation_pt.text if translation_pt else None)
 
             # Detecção de intrusão conceitual: linguagem acadêmica moderna em citação patrística
             intrusion = _intrusion_score(payload.quote)
@@ -683,7 +812,7 @@ class VerificationService:
             # correspondente do chunk (não o chunk inteiro, que daria ratio muito baixo)
             from difflib import SequenceMatcher as _SM
             _q_ocr_norm = _normalize_for_search(_normalize_ocr(payload.quote))
-            _c_norm_full = _normalize_for_search(chunk.text)
+            _c_norm_full = _normalize_for_search(matched_window_text)
             # Se a query normalizada está contida no chunk → similaridade = 1.0
             if _q_ocr_norm in _c_norm_full:
                 ocr_similarity = 1.0
@@ -707,14 +836,25 @@ class VerificationService:
                 translation_fidelity=fidelity,
                 lexical_anchor=anchor,
                 intrusion_score=intrusion,
+                ocr_similarity=ocr_similarity,
             )
+            explanation_work = None if result.code == "NAO_ENCONTRADA" else (book.title if book else None)
+            explanation_author = None if result.code == "NAO_ENCONTRADA" else (book.author if book else None)
             explanation = self.explainer.explain(
                 payload, result,
-                book.title if book else None,
-                book.author if book else None,
+                explanation_work,
+                explanation_author,
                 intrusion_score=intrusion,
                 ocr_similarity=ocr_similarity,
             )
+
+            if result.code == "NAO_ENCONTRADA":
+                return VerifyCitationResponse(
+                    status_code=result.code,
+                    label=result.label,
+                    confidence=result.confidence,
+                    explanation=explanation,
+                )
 
             # Chunks adjacentes
             if chunk.sequence_index is not None:
@@ -739,12 +879,11 @@ class VerificationService:
             source_file = db.get(BookFile, chunk.book_file_id) if chunk.book_file_id else None
 
             # ─── Page-finding cross-lingual ──────────────────────────────────
-            # chunk.text está sempre no idioma do PDF; payload.quote pode estar
-            # em qualquer idioma digitado pelo usuário.
-            # Só tentamos a query do usuário quando ela está no mesmo idioma do PDF
-            # para evitar varredura inútil (PT vs latim/grego).
+            # Caminho rapido: a ingestao ja grava chunk.pdf_page. A varredura do PDF
+            # inteiro por requisicao deixava o verificador lento no celular.
             real_pdf_page = chunk.pdf_page  # fallback sempre disponível
-            if source_file and source_file.stored_path:
+            should_scan_pdf_page = _ENABLE_PDF_PAGE_SCAN or real_pdf_page is None
+            if should_scan_pdf_page and source_file and source_file.stored_path:
                 # Resolve o caminho real do PDF no disco (stored_path pode ser legado)
                 resolved_pdf = _resolve_pdf_path(source_file.stored_path)
                 _log.debug("[page_search] stored_path=%r resolved=%r", source_file.stored_path, resolved_pdf)
@@ -800,7 +939,7 @@ class VerificationService:
                 ),
                 original_language=book.language if book else None,
                 source_version=book.edition_label if book else None,
-                matched_excerpt=_extract_matching_excerpt(payload.quote, chunk.text),
+                matched_excerpt=_extract_matching_excerpt(payload.quote, matched_window_text),
                 context_before=prev_chunk.text if prev_chunk else None,
                 context_after=next_chunk.text if next_chunk else None,
                 explanation=explanation,
@@ -810,3 +949,4 @@ class VerificationService:
                 translator=translation_pt.translator if translation_pt else None,
                 translation_edition=translation_pt.edition_label if translation_pt else None,
             )
+

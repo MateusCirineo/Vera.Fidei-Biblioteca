@@ -9,7 +9,7 @@ class OrchestratorAgent(BaseAgent):
     def run(self, ctx: PipelineContext) -> AgentResult:
         task = ctx.user_task.lower()
 
-        if any(kw in task for kw in ("pdf", "upload", "upar", "ingest", "ingerir", "importar", "patrologia", "pg", "pl")):
+        if any(kw in task for kw in ("pdf", "upload", "upar", "ingest", "ingerir", "importar", "patrologia", "pg", "pl", "concilio", "concílio", "ecumenico", "ecuménico")):
             mission = self._pdf_ingestion_mission(ctx)
         elif any(
             kw in task

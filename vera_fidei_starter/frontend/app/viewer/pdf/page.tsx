@@ -108,7 +108,7 @@ function PdfPageCanvas({
     if (!el || !onVisible) return
     const obs = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) onVisible(pageNum) },
-      { threshold: 0.3 },
+      { threshold: 0.65 },
     )
     obs.observe(el)
     return () => obs.disconnect()
@@ -215,6 +215,7 @@ function PdfViewerInner() {
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
 
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   // Detecta mobile uma vez no cliente
   useEffect(() => {
@@ -256,13 +257,25 @@ function PdfViewerInner() {
   useEffect(() => {
     if (!pdfDoc || initialPage <= 1) return
     setTimeout(() => {
-      pageRefs.current[initialPage - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const el = pageRefs.current[initialPage - 1]
+      const container = scrollRef.current
+      if (!el || !container) return
+      // Calcula offset do elemento relativo ao container no momento do scroll (scrollTop=0)
+      const elRect = el.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      container.scrollTop = container.scrollTop + elRect.top - containerRect.top
     }, 300)
   }, [pdfDoc, initialPage])
 
   const goToPage = useCallback((n: number) => {
     const target = Math.min(Math.max(1, n), numPages)
-    pageRefs.current[target - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const el = pageRefs.current[target - 1]
+    const container = scrollRef.current
+    if (el && container) {
+      const elRect = el.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      container.scrollTop = container.scrollTop + elRect.top - containerRect.top
+    }
     setCurrentPage(target)
   }, [numPages])
 
@@ -343,6 +356,7 @@ function PdfViewerInner() {
 
       {/* ── Scroll contínuo de páginas ── */}
       <div
+        ref={scrollRef}
         className="flex-1 overflow-auto"
         style={{
           touchAction: 'pan-x pan-y pinch-zoom',

@@ -80,6 +80,30 @@ const tabs = [
       </svg>
     ),
   },
+  {
+    href: '/oracoes',
+    label: 'Orações',
+    icon: (active: boolean) => (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={active ? 2 : 1.5}
+        className="w-6 h-6"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 21s7-4.35 7-11.25A4.75 4.75 0 0 0 14.25 5 4.73 4.73 0 0 0 12 5.57 4.73 4.73 0 0 0 9.75 5 4.75 4.75 0 0 0 5 9.75C5 16.65 12 21 12 21Z"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 5.57V3m-2 2h4"
+        />
+      </svg>
+    ),
+  },
 ]
 
 export default function BottomNav() {

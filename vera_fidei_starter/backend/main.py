@@ -46,12 +46,13 @@ def startup() -> None:
     import logging
     log = logging.getLogger(__name__)
     init_db()
-    try:
-        from search.semantic_search import _get_model
-        _get_model()
-        log.info("[startup] embedding model loaded")
-    except Exception as e:
-        log.warning("[startup] model load error (non-fatal): %s", e)
+    if os.getenv("VERIFIER_PRELOAD_SEMANTIC", "").lower() in {"1", "true", "yes"}:
+        try:
+            from search.semantic_search import _get_model
+            _get_model()
+            log.info("[startup] embedding model loaded")
+        except Exception as e:
+            log.warning("[startup] model load error (non-fatal): %s", e)
 
 
 @app.get("/")

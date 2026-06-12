@@ -32,3 +32,173 @@ h2,
 h3 {
   font-family: var(--font-eb-garamond), Georgia, serif;
 }
+
+::selection {
+  background-color: rgba(201, 168, 76, 0.28);
+  color: #f5f0e8;
+}
+
+:focus-visible {
+  outline: 1px solid rgba(201, 168, 76, 0.7);
+  outline-offset: 3px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 168, 76, 0.45) #111111;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111111;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(201, 168, 76, 0.35);
+  border: 2px solid #111111;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 168, 76, 0.55);
+}
+
+.vf-app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+  background: #0d0d10;
+  opacity: 1;
+  pointer-events: none;
+  transition:
+    opacity 560ms ease,
+    visibility 560ms ease;
+}
+
+.vf-app-splash--leaving {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.vf-app-splash__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  transform: scale(1.025);
+  animation:
+    vf-splash-enter 900ms ease-out both,
+    vf-splash-breath 2600ms ease-in-out 900ms infinite alternate;
+}
+
+.vf-app-splash__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(201, 168, 76, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(17, 17, 17, 0.08), rgba(17, 17, 17, 0.18));
+}
+
+.vf-app-splash__loader {
+  position: absolute;
+  left: 50%;
+  bottom: max(26px, calc(env(safe-area-inset-bottom) + 22px));
+  width: 116px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(201, 168, 76, 0.2);
+  box-shadow: 0 0 22px rgba(201, 168, 76, 0.2);
+  transform: translateX(-50%);
+}
+
+.vf-app-splash__loader::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  height: 100%;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(224, 194, 120, 0.98), transparent);
+  animation: vf-splash-line 1450ms ease-in-out infinite;
+}
+
+.vf-app-splash__loader span {
+  display: none;
+}
+
+@keyframes vf-splash-enter {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: scale(1.06);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1.025);
+  }
+}
+
+@keyframes vf-splash-breath {
+  from {
+    transform: scale(1.025);
+  }
+
+  to {
+    transform: scale(1.045);
+  }
+}
+
+@keyframes vf-splash-line {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(285%);
+  }
+}
+
+@media (min-width: 768px) {
+  .vf-app-splash__art {
+    object-fit: contain;
+    transform: none;
+    animation: vf-splash-desktop-enter 720ms ease-out both;
+  }
+
+  .vf-app-splash__shade {
+    background:
+      radial-gradient(circle at 50% 42%, rgba(201, 168, 76, 0.08), transparent 30%),
+      linear-gradient(180deg, rgba(17, 17, 17, 0.06), rgba(17, 17, 17, 0.14));
+  }
+}
+
+@keyframes vf-splash-desktop-enter {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vf-app-splash,
+  .vf-app-splash__art,
+  .vf-app-splash__loader::before,
+  .vf-app-splash__loader span {
+    animation: none;
+    transition: none;
+  }
+}

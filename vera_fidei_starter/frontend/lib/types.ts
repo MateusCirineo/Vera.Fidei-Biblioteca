@@ -64,7 +64,13 @@ export type DocumentType =
   | 'motu_proprio'
   | 'exortacao_apostolica'
   | 'catecismo'
+  | 'catequese'
+  | 'liturgia'
+  | 'doutrina_social'
   | 'direito_canonico'
+  | 'teologia'
+  | 'linguas_biblicas'
+  | 'literatura_crista'
   | 'outro'
 
 export interface Book {
@@ -129,5 +135,6 @@ export interface DocumentosLibrary {
 export interface LibraryStructure {
   patristica: Record<PatristicTradition, Book[]>
   obras_por_autor: AuthorEntry[]
+  obras_santos: AuthorEntry[]
   documentos: DocumentosLibrary
 }

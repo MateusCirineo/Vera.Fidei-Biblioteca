@@ -50,7 +50,7 @@ export default function MatchReferenceCard({
     <div
       className={`rounded-lg border p-4 space-y-3 ${
         isPrimary
-          ? 'border-dourado/40 bg-vinho-escuro/30'
+          ? 'border-dourado/35 bg-vinho-escuro/25'
           : 'border-fundo-borda bg-fundo-card'
       }`}
     >
@@ -61,10 +61,10 @@ export default function MatchReferenceCard({
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
               isPrimary
                 ? 'bg-dourado/20 text-dourado'
-                : 'bg-blue-900/30 text-blue-300'
+                : 'bg-fundo text-texto-secundario'
             }`}
           >
-            {isPrimary ? 'Fonte Primária' : 'Tradução'}
+            {isPrimary ? 'Fonte primária' : 'Fonte de apoio'}
           </span>
           {reference.language && (
             <span className="text-xs text-texto-secundario">
@@ -95,7 +95,7 @@ export default function MatchReferenceCard({
       </div>
 
       {/* Editor / Translator */}
-      <div className="flex gap-4 text-xs text-texto-terciario">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-texto-terciario">
         <span>
           Editor:{' '}
           <span className="text-texto-secundario">

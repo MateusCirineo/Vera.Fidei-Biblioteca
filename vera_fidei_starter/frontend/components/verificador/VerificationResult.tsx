@@ -10,10 +10,41 @@ export default function VerificationResult({
   result: VerifyCitationResponse
   originalQuery?: string
 }) {
+  const sourceLabel =
+    result.reference?.source_label ||
+    result.reference?.edition_label ||
+    result.source_version ||
+    'Acervo indexado do Vera.Fidei'
+  const evidenceCount = [
+    result.reference,
+    result.matched_excerpt,
+    result.matched_translation,
+  ].filter(Boolean).length
+
   return (
     <div className="space-y-5">
       {/* Status */}
       <StatusBadge code={result.status_code} confidence={result.confidence} />
+
+      <section className="rounded-lg border border-dourado/20 bg-dourado/5 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+          Base da decisão
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="border-l border-fundo-borda pl-3">
+            <p className="text-xs text-texto-terciario">Confiança</p>
+            <p className="mt-0.5 text-sm font-medium text-texto">{result.confidence}</p>
+          </div>
+          <div className="border-l border-fundo-borda pl-3">
+            <p className="text-xs text-texto-terciario">Fonte</p>
+            <p className="mt-0.5 truncate text-sm font-medium text-texto">{sourceLabel}</p>
+          </div>
+          <div className="border-l border-fundo-borda pl-3">
+            <p className="text-xs text-texto-terciario">Evidências</p>
+            <p className="mt-0.5 text-sm font-medium text-texto">{evidenceCount}</p>
+          </div>
+        </div>
+      </section>
 
       {/* Quando não encontrada: mostrar só o status + análise, sem conteúdo aleatório */}
       {result.status_code !== 'NAO_ENCONTRADA' && (
@@ -66,7 +97,7 @@ export default function VerificationResult({
                 ? 'bg-green-900/40 text-green-400'
                 : 'bg-amber-900/40 text-amber-400'
             }`}>
-              {result.translation_fidelity === 'fiel' ? '✓ Tradução fiel' : '⚠ Tradução imprecisa'}
+              {result.translation_fidelity === 'fiel' ? 'Tradução fiel' : 'Tradução imprecisa'}
             </div>
           )}
 

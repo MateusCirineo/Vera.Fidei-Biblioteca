@@ -44,12 +44,18 @@ COLLECTION_TO_TRADITION: dict[str, str] = {
 }
 
 # Regras de coleção → seção da biblioteca
-COLLECTION_DOCUMENT_SECTIONS: frozenset[str] = frozenset({"CONC", "MAG"})
+COLLECTION_DOCUMENT_SECTIONS: frozenset[str] = frozenset({
+    "CONC", "MAG", "CIC", "CDC", "CCEO", "DZ",
+})
 
 # Tipo de documento por coleção
 COLLECTION_TO_DOCTYPE: dict[str, str] = {
     "CONC": "concilio",
     "MAG": "outro",
+    "CIC": "catecismo",        # CIC = Catecismo da Igreja Católica
+    "CDC": "direito_canonico", # CDC = Código de Direito Canônico
+    "CCEO": "direito_canonico",
+    "DZ": "outro",
 }
 
 

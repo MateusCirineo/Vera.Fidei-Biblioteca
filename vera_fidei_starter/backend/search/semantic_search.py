@@ -24,6 +24,14 @@ def _resolve_embedding_device() -> str:
     return "cpu"
 
 
+def _resolve_index_batch_size(default: int = 8) -> int:
+    raw = os.environ.get("VERA_SEMANTIC_INDEX_BATCH_SIZE", str(default)).strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
@@ -145,15 +153,20 @@ class SemanticSearchClient:
         self,
         items: list[tuple[int, str, dict]],
         language: str = "la",
-        batch_size: int = 32,
+        batch_size: int | None = None,
     ) -> None:
         if not items:
             return
         model = _get_model()
+        batch_size = batch_size or _resolve_index_batch_size()
         for start in range(0, len(items), batch_size):
             batch = items[start:start + batch_size]
             texts = [text for _, text, _ in batch]
-            embeddings = model.encode(texts).tolist()
+            embeddings = model.encode(
+                texts,
+                batch_size=min(batch_size, len(texts)),
+                show_progress_bar=False,
+            ).tolist()
             self.delta_collection.add(
                 ids=[str(chunk_id) for chunk_id, _, _ in batch],
                 embeddings=embeddings,

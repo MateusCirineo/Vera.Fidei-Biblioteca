@@ -3,7 +3,7 @@ import type { Book, AuthorCatalogEntry } from '@/lib/types'
 import LibraryView from '@/components/biblioteca/LibraryView'
 import BrandHeader from '@/components/BrandHeader'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 300
 
 export default async function BibliotecaPage() {
   let books: Book[] = []

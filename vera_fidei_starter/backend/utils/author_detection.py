@@ -819,6 +819,301 @@ AUTHOR_ALIASES: dict[str, str] = {
 }
 
 
+# ─── Documentos oficiais da Igreja Católica ──────────────────────────────────
+
+_YEAR_RE = re.compile(r'\b(1[0-9]{3}|20[0-9]{2})\b')
+
+CHURCH_DOCUMENT_PATTERNS: list[dict] = [
+    # Código de Direito Canônico (CDC 1983) — CIC = Catecismo no sistema
+    {
+        "patterns": [
+            r"c[oó]digo\s+de\s+direito\s+can[oô]nico",
+            r"codex\s+iuris\s+canonici",
+            r"\bcdc\s*1983\b",
+        ],
+        "author": "Santa Sé",
+        "canonical_author": "Santa Sé",
+        "collection": "CDC",
+        "document_type": "direito_canonico",
+        "library_section": "documentos",
+        "canonical_title": "Código de Direito Canônico",
+        "default_year": 1983,
+    },
+    # Código dos Cânones das Igrejas Orientais (CCEO 1990)
+    {
+        "patterns": [
+            r"c[oó]digo\s+dos\s+c[aâ]nones\s+das\s+igrejas\s+orientais",
+            r"codex\s+canonum\s+ecclesiarum\s+orientalium",
+            r"\bcceo\b",
+        ],
+        "author": "Santa Sé",
+        "canonical_author": "Santa Sé",
+        "collection": "CCEO",
+        "document_type": "direito_canonico",
+        "library_section": "documentos",
+        "canonical_title": "Código dos Cânones das Igrejas Orientais",
+        "default_year": 1990,
+    },
+    # Catecismo da Igreja Católica (CIC 1992) — CIC = Catecismo no sistema
+    {
+        "patterns": [
+            r"catecismo\s+da\s+igreja\s+cat[oó]lica",
+            r"catechismus\s+catholicae\s+ecclesiae",
+        ],
+        "author": "Santa Sé",
+        "canonical_author": "Santa Sé",
+        "collection": "CIC",
+        "document_type": "catecismo",
+        "library_section": "documentos",
+        "canonical_title": "Catecismo da Igreja Católica",
+        "default_year": 1992,
+    },
+    # Concílio Vaticano II — constituições e decretos específicos
+    {
+        "patterns": [r"lumen\s+gentium"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Lumen Gentium", "default_year": 1964,
+    },
+    {
+        "patterns": [r"dei\s+verbum"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Dei Verbum", "default_year": 1965,
+    },
+    {
+        "patterns": [r"sacrosanctum\s+concilium"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Sacrosanctum Concilium", "default_year": 1963,
+    },
+    {
+        "patterns": [r"gaudium\s+et\s+spes"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Gaudium et Spes", "default_year": 1965,
+    },
+    {
+        "patterns": [r"unitatis\s+redintegratio"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Unitatis Redintegratio", "default_year": 1964,
+    },
+    {
+        "patterns": [r"nostra\s+aetate"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Nostra Aetate", "default_year": 1965,
+    },
+    {
+        "patterns": [r"dignitatis\s+humanae"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Dignitatis Humanae", "default_year": 1965,
+    },
+    {
+        "patterns": [r"ad\s+gentes"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Ad Gentes", "default_year": 1965,
+    },
+    {
+        "patterns": [r"presbyterorum\s+ordinis"],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": "Presbyterorum Ordinis", "default_year": 1965,
+    },
+    # Genérico Vaticano II
+    {
+        "patterns": [
+            r"conc[íi]lio\s+vaticano\s+ii",
+            r"vaticano\s+(?:segundo|ii)\b",
+            r"concilium\s+vaticanum\s+(?:secundum|ii)\b",
+        ],
+        "author": "Concílio Vaticano II", "canonical_author": "Concílio Vaticano II",
+        "collection": "CONC", "document_type": "concilio",
+        "library_section": "documentos",
+        "canonical_title": None, "default_year": None,
+    },
+    # Encíclicas específicas
+    {
+        "patterns": [r"rerum\s+novarum"],
+        "author": "Papa Leão XIII", "canonical_author": "Papa Leão XIII",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Rerum Novarum", "default_year": 1891,
+    },
+    {
+        "patterns": [r"humanae\s+vitae"],
+        "author": "Papa Paulo VI", "canonical_author": "Papa Paulo VI",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Humanae Vitae", "default_year": 1968,
+    },
+    {
+        "patterns": [r"veritatis\s+splendor"],
+        "author": "Papa João Paulo II", "canonical_author": "Papa João Paulo II",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Veritatis Splendor", "default_year": 1993,
+    },
+    {
+        "patterns": [r"fides\s+et\s+ratio"],
+        "author": "Papa João Paulo II", "canonical_author": "Papa João Paulo II",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Fides et Ratio", "default_year": 1998,
+    },
+    {
+        "patterns": [r"evangelium\s+vitae"],
+        "author": "Papa João Paulo II", "canonical_author": "Papa João Paulo II",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Evangelium Vitae", "default_year": 1995,
+    },
+    {
+        "patterns": [r"redemptor\s+hominis"],
+        "author": "Papa João Paulo II", "canonical_author": "Papa João Paulo II",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Redemptor Hominis", "default_year": 1979,
+    },
+    {
+        "patterns": [r"familiaris\s+consortio"],
+        "author": "Papa João Paulo II", "canonical_author": "Papa João Paulo II",
+        "collection": "MAG", "document_type": "exortacao_apostolica",
+        "library_section": "documentos",
+        "canonical_title": "Familiaris Consortio", "default_year": 1981,
+    },
+    {
+        "patterns": [r"deus\s+caritas\s+est"],
+        "author": "Papa Bento XVI", "canonical_author": "Papa Bento XVI",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Deus Caritas Est", "default_year": 2006,
+    },
+    {
+        "patterns": [r"spe\s+salvi"],
+        "author": "Papa Bento XVI", "canonical_author": "Papa Bento XVI",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Spe Salvi", "default_year": 2007,
+    },
+    {
+        "patterns": [r"laudato\s+s[ií]\b"],
+        "author": "Papa Francisco", "canonical_author": "Papa Francisco",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": "Laudato Si", "default_year": 2015,
+    },
+    {
+        "patterns": [r"evangelii\s+gaudium"],
+        "author": "Papa Francisco", "canonical_author": "Papa Francisco",
+        "collection": "MAG", "document_type": "exortacao_apostolica",
+        "library_section": "documentos",
+        "canonical_title": "Evangelii Gaudium", "default_year": 2013,
+    },
+    {
+        "patterns": [r"amoris\s+laetitia"],
+        "author": "Papa Francisco", "canonical_author": "Papa Francisco",
+        "collection": "MAG", "document_type": "exortacao_apostolica",
+        "library_section": "documentos",
+        "canonical_title": "Amoris Laetitia", "default_year": 2016,
+    },
+    {
+        "patterns": [r"laudate\s+deum"],
+        "author": "Papa Francisco", "canonical_author": "Papa Francisco",
+        "collection": "MAG", "document_type": "exortacao_apostolica",
+        "library_section": "documentos",
+        "canonical_title": "Laudate Deum", "default_year": 2023,
+    },
+    # Denzinger
+    {
+        "patterns": [r"\bdenzinger\b", r"enchiridion\s+symbolorum"],
+        "author": "Heinrich Denzinger", "canonical_author": "Heinrich Denzinger",
+        "collection": "DZ", "document_type": "outro",
+        "library_section": "documentos",
+        "canonical_title": "Enchiridion Symbolorum", "default_year": None,
+    },
+    # Genéricos (fallback por tipo de documento)
+    {
+        "patterns": [r"enc[íi]clica\s+(?:do\s+papa\s+|apost[oó]lica\s+)"],
+        "author": "Santa Sé", "canonical_author": "Santa Sé",
+        "collection": "MAG", "document_type": "enciclica",
+        "library_section": "documentos",
+        "canonical_title": None, "default_year": None,
+    },
+    {
+        "patterns": [r"constitui[çc][ãa]o\s+apost[oó]lica"],
+        "author": "Santa Sé", "canonical_author": "Santa Sé",
+        "collection": "MAG", "document_type": "constituicao_apostolica",
+        "library_section": "documentos",
+        "canonical_title": None, "default_year": None,
+    },
+    {
+        "patterns": [r"exorta[çc][ãa]o\s+apost[oó]lica"],
+        "author": "Santa Sé", "canonical_author": "Santa Sé",
+        "collection": "MAG", "document_type": "exortacao_apostolica",
+        "library_section": "documentos",
+        "canonical_title": None, "default_year": None,
+    },
+    {
+        "patterns": [r"carta\s+apost[oó]lica"],
+        "author": "Santa Sé", "canonical_author": "Santa Sé",
+        "collection": "MAG", "document_type": "carta_apostolica",
+        "library_section": "documentos",
+        "canonical_title": None, "default_year": None,
+    },
+]
+
+
+def detect_church_document(
+    title: str,
+    content_sample: str = "",
+) -> dict | None:
+    """
+    Detecta se o documento é um documento oficial da Igreja Católica
+    (CIC, CCEO, Catecismo, encíclica, constituição conciliar, etc.)
+    e retorna metadados para preencher automaticamente o registro do livro.
+
+    Retorna um dict com: author, canonical_author, collection, document_type,
+    library_section, canonical_title, edition_label, year.
+    Retorna None se não reconhecido como documento da Igreja.
+    """
+    combined = (title + "\n" + content_sample)
+
+    for entry in CHURCH_DOCUMENT_PATTERNS:
+        for pattern in entry["patterns"]:
+            if re.search(pattern, combined, re.IGNORECASE):
+                year_match = _YEAR_RE.search(title)
+                year = int(year_match.group(1)) if year_match else entry.get("default_year")
+                canonical_title = entry.get("canonical_title") or title.strip()
+                edition_label = (
+                    f"{canonical_title} — {year}" if canonical_title and year else canonical_title or ""
+                )
+                return {
+                    "author": entry["author"],
+                    "canonical_author": entry["canonical_author"],
+                    "collection": entry["collection"],
+                    "document_type": entry["document_type"],
+                    "library_section": entry["library_section"],
+                    "canonical_title": canonical_title,
+                    "edition_label": edition_label,
+                    "year": year,
+                }
+
+    return None
+
+
 def _normalize_for_alias(text: str) -> str:
     """Normaliza texto para lookup em AUTHOR_ALIASES: remove acentos, lowercase, strip."""
     import unicodedata

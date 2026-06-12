@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import functools
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -73,8 +76,44 @@ def list_books() -> list[BookResponse]:
         if needs_commit:
             db.commit()
 
+        # Batch: chunk counts e files em 2 queries (evita N+1)
+        chunk_counts: dict[int, int] = dict(
+            db.query(Chunk.book_id, func.count(Chunk.id))
+            .group_by(Chunk.book_id)
+            .all()
+        )
+        files_by_book: dict[int, list] = {}
+        for f in db.query(BookFile).all():
+            files_by_book.setdefault(f.book_id, []).append(f)
+
         books.sort(key=lambda b: (b.volume_number is None, b.volume_number or 0, b.id))
-        return [_book_to_response(db, b) for b in books]
+        return [
+            BookResponse(
+                id=b.id,
+                collection=b.collection,
+                title=b.title,
+                author=b.author,
+                language=b.language,
+                edition_label=b.edition_label,
+                source_label=b.source_label,
+                is_primary_source=b.is_primary_source,
+                chunk_count=chunk_counts.get(b.id, 0),
+                library_section=b.library_section,
+                patristic_tradition=b.patristic_tradition,
+                document_type=b.document_type,
+                canonical_author=b.canonical_author,
+                canonical_title=b.canonical_title,
+                pope=b.pope,
+                document_year=b.document_year,
+                is_ecumenical=b.is_ecumenical,
+                document_status=b.document_status,
+                volume_number=b.volume_number,
+                ingest_status=b.ingest_status,
+                ingest_error=b.ingest_error,
+                files=[BookFileResponse.model_validate(f) for f in files_by_book.get(b.id, [])],
+            )
+            for b in books
+        ]
 
 
 @router.post("", response_model=BookResponse, status_code=201)
@@ -233,13 +272,18 @@ async def ingest_pdf(
 
     pdf_bytes = await file.read()
     service = _get_ingestion_service()
-    book_file, chunks_indexed = service.ingest(
-        book_id=book_id,
-        pdf_bytes=pdf_bytes,
-        original_filename=file.filename,
-        volume_number=volume_number,
-        editor=editor,
-        translator=translator,
+    loop = asyncio.get_event_loop()
+    book_file, chunks_indexed = await loop.run_in_executor(
+        None,
+        functools.partial(
+            service.ingest,
+            book_id=book_id,
+            pdf_bytes=pdf_bytes,
+            original_filename=file.filename,
+            volume_number=volume_number,
+            editor=editor,
+            translator=translator,
+        ),
     )
     return IngestPDFResponse(
         book_id=book_id,

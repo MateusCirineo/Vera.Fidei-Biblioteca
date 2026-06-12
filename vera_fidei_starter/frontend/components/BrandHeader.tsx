@@ -10,11 +10,11 @@ export default function BrandHeader({ title, description }: BrandHeaderProps) {
     <header className="mb-6">
       <div className="mb-5 flex items-center gap-3">
         <Image
-          src="/branding/Logo-VF.png"
+          src="/branding/Logo-VF-seal.png"
           alt="Vera.Fidei Católico"
           width={96}
-          height={54}
-          className="h-12 w-auto shrink-0"
+          height={96}
+          className="h-12 w-12 shrink-0 rounded-full"
           priority
         />
         <div>
