@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-cd /d "%~dp0vera_fidei_starter\backend"
+cd /d "%~dp0..\vera_fidei_starter\backend"
 set "VERA_EMBEDDING_DEVICE=cuda"
 set "ANONYMIZED_TELEMETRY=False"
 

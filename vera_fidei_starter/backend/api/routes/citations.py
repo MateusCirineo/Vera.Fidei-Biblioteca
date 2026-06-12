@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import io
+
+logger = logging.getLogger(__name__)
 
 from core.deps import get_current_user, get_optional_user, require_min_plan
 from models.database import SessionLocal, User, VerificationHistory
@@ -45,7 +49,7 @@ def verify_citation(
                 db.refresh(entry)
                 result = result.model_copy(update={"history_id": entry.id})
         except Exception:
-            pass  # histórico é best-effort — não quebrar a verificação
+            logger.exception("Falha ao salvar histórico para user_id=%s", current_user.id)
 
     return result
 

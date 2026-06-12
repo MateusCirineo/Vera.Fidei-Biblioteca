@@ -37,6 +37,7 @@ google-genai>=1.0.0
 # Autenticação JWT
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+email-validator==2.2.0
 
 # Geração de laudos em PDF
 reportlab==4.2.5

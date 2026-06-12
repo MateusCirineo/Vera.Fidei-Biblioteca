@@ -94,7 +94,7 @@ export default function HistoricoPage() {
                     day: '2-digit', month: 'short', year: 'numeric',
                   })}
                 </p>
-                <p className="text-sm text-texto line-clamp-2 italic">"{entry.citation_text}"</p>
+                <p className="text-sm text-texto line-clamp-2 italic">&ldquo;{entry.citation_text}&rdquo;</p>
               </div>
               <button
                 onClick={() => handleDelete(entry.id)}

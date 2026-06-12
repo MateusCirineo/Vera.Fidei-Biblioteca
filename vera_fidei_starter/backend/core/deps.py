@@ -43,10 +43,6 @@ PLAN_ORDER = ["fiel", "catequista", "apologeta", "patristico", "magisterio"]
 
 
 def require_min_plan(min_plan: str):
-    def check(user: User = get_current_user) -> User:  # type: ignore[assignment]
-        from fastapi import Depends
-        raise NotImplementedError  # substituído abaixo
-    # Retorna uma dependency factory real
     from fastapi import Depends
 
     def _check(user: User = Depends(get_current_user)) -> User:

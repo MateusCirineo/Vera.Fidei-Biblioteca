@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-cd /d "%~dp0vera_fidei_starter\frontend"
+cd /d "%~dp0..\vera_fidei_starter\frontend"
 
 echo Starting Vera Fidei frontend on http://127.0.0.1:3000
 echo Working directory: %CD%
