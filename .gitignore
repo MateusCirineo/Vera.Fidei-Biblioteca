@@ -21,3 +21,40 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.next/
+out/
+
+# Mobile builds
+dist-apk/
+build/
+*.apk
+*.aab
+*.ipa
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Binários externos / ferramentas
+poppler-25.12.0/
+*.zip
+*.dll
+*.so
+*.dylib
+
+# Banco de dados local
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs e artefatos de teste
+test-results/
+playwright-report/
+*.log
+
+# Dependências Python instaladas localmente
+site-packages/
