@@ -77,7 +77,7 @@ export default function VerificationForm() {
     void runVerification(e.currentTarget)
   }
 
-  function useExample(example: typeof examples[number]) {
+  function applyExample(example: typeof examples[number]) {
     if (quoteRef.current) quoteRef.current.value = example.quote
     if (attributedRef.current) attributedRef.current.value = example.author
     if (languageRef.current) languageRef.current.value = example.language
@@ -118,7 +118,7 @@ export default function VerificationForm() {
                 <button
                   key={example.label}
                   type="button"
-                  onClick={() => useExample(example)}
+                  onClick={() => applyExample(example)}
                   className="rounded-md border border-fundo-borda px-2.5 py-1 text-xs text-texto-terciario transition-colors hover:border-dourado/35 hover:text-dourado"
                 >
                   Exemplo: {example.label}
