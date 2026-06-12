@@ -29,9 +29,9 @@ if not exist "%FRONTEND%\node_modules" (
     echo.
 )
 
-:: Verificar dependencias novas (silencioso se ja instaladas)
+:: Verificar dependencias Python (silencioso se ja instaladas)
 echo [1/3] Verificando dependencias Python...
-"%VENV%\pip.exe" install --quiet "python-jose[cryptography]==3.3.0" "passlib[bcrypt]==1.7.4" "reportlab==4.2.5" "email-validator==2.2.0"
+"%VENV%\pip.exe" install --quiet -r "%BACKEND%\requirements.txt"
 echo       OK
 echo.
 

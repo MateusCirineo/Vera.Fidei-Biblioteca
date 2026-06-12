@@ -91,11 +91,11 @@ def get_historico(
     return {"total": total, "page": page, "per_page": per_page, "items": items}
 
 
-@router.delete("/historico/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/historico/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_historico(
     entry_id: int,
     current_user: User = Depends(get_current_user),
-) -> None:
+):
     with SessionLocal() as db:
         entry = db.get(VerificationHistory, entry_id)
         if not entry or entry.user_id != current_user.id:
