@@ -95,3 +95,58 @@ export async function deleteHistoricoEntry(id: number): Promise<void> {
   })
   if (!res.ok) throw new Error('Erro ao remover entrada')
 }
+
+export async function getApiKeys() {
+  const res = await fetch(`${BASE}/api-keys`, { headers: authBearerHeaders() })
+  if (!res.ok) throw new Error('Erro ao listar API keys')
+  return res.json()
+}
+
+export async function createApiKey(label: string): Promise<{ key: string }> {
+  const res = await fetch(`${BASE}/api-keys`, {
+    method: 'POST',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ label }),
+  })
+  if (!res.ok) throw new Error('Erro ao gerar API key')
+  return res.json()
+}
+
+export async function revokeApiKey(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/api-keys/${id}`, {
+    method: 'DELETE',
+    headers: authBearerHeaders(),
+  })
+  if (!res.ok) throw new Error('Erro ao revogar API key')
+}
+
+export async function getInstituicao() {
+  const res = await fetch(`${BASE}/instituicao`, { headers: authBearerHeaders({ 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }) })
+  if (!res.ok) throw new Error('Sem instituição')
+  return res.json()
+}
+
+export async function criarInstituicao(name: string) {
+  const res = await fetch(`${BASE}/instituicao`, {
+    method: 'POST',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json', 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }),
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) { const e = await res.json().catch(() => ({ detail: 'Erro' })); throw new Error(e.detail) }
+  return res.json()
+}
+
+export async function convidarMembro(email: string) {
+  const res = await fetch(`${BASE}/instituicao/convidar`, {
+    method: 'POST',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json', 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }),
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) { const e = await res.json().catch(() => ({ detail: 'Erro' })); throw new Error(e.detail) }
+}
+
+export async function getRelatorio() {
+  const res = await fetch(`${BASE}/instituicao/relatorio`, { headers: authBearerHeaders({ 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }) })
+  if (!res.ok) throw new Error('Erro ao carregar relatório')
+  return res.json()
+}

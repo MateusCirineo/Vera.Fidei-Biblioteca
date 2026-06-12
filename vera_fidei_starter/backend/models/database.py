@@ -49,6 +49,46 @@ class VerificationHistory(Base):
     user: Mapped["User | None"] = relationship(back_populates="verifications")
 
 
+class Institution(Base):
+    __tablename__ = "institutions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255))
+    admin_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    admin: Mapped["User"] = relationship(foreign_keys=[admin_user_id])
+    members: Mapped[list["InstitutionMember"]] = relationship(back_populates="institution", cascade="all, delete-orphan")
+
+
+class InstitutionMember(Base):
+    __tablename__ = "institution_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    institution_id: Mapped[int] = mapped_column(ForeignKey("institutions.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    role: Mapped[str] = mapped_column(String(20), default="membro")
+    joined_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    institution: Mapped["Institution"] = relationship(back_populates="members")
+    user: Mapped["User"] = relationship()
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    key_hash: Mapped[str] = mapped_column(String(64))
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    last_used_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship()
+
+
 class Book(Base):
     __tablename__ = "books"
 
@@ -196,6 +236,13 @@ def _migrate_add_library_columns() -> None:
         "CREATE INDEX IF NOT EXISTS idx_vhist_user_id ON verification_history(user_id)",
         # Para ambientes onde a tabela já existe sem response_json
         "ALTER TABLE verification_history ADD COLUMN IF NOT EXISTS response_json TEXT",
+        # Fase 4 — Gestão Institucional
+        "CREATE TABLE IF NOT EXISTS institutions (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, admin_user_id INTEGER REFERENCES users(id), created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS institution_members (id SERIAL PRIMARY KEY, institution_id INTEGER REFERENCES institutions(id) ON DELETE CASCADE, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, role VARCHAR(20) DEFAULT 'membro', joined_at TIMESTAMP DEFAULT NOW())",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_inst_members_unique ON institution_members(institution_id, user_id)",
+        "CREATE TABLE IF NOT EXISTS api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_hash VARCHAR(64) NOT NULL, label VARCHAR(100), is_active BOOLEAN DEFAULT TRUE, usage_count INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_used_at TIMESTAMP)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
     ]
     with engine.begin() as conn:
         for sql in migrations:

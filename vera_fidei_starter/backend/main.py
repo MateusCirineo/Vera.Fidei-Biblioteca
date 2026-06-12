@@ -13,6 +13,9 @@ from api.routes.books import router as books_router
 from api.routes.pdfs import router as pdfs_router
 from api.routes.authors import router as authors_router
 from api.routes.auth import router as auth_router
+from api.routes.institutions import router as institutions_router
+from api.routes.api_keys import router as api_keys_router
+from api.routes.api_v1 import router as api_v1_router
 from models.database import init_db
 from core.auth import require_api_key
 
@@ -44,6 +47,11 @@ app.include_router(pdfs_router, prefix="/pdfs", tags=["PDFs"],
 app.include_router(authors_router, prefix="/authors", tags=["Authors"],
                    dependencies=[Depends(require_api_key)])
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+app.include_router(institutions_router, prefix="/instituicao", tags=["Institutions"],
+                   dependencies=[Depends(require_api_key)])
+app.include_router(api_keys_router, prefix="/api-keys", tags=["API Keys"],
+                   dependencies=[Depends(require_api_key)])
+app.include_router(api_v1_router, prefix="/v1", tags=["API Pública"])
 
 
 @app.on_event("startup")
