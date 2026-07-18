@@ -212,11 +212,20 @@ def _timestamp_to_datetime(value: Any) -> datetime.datetime | None:
         return None
 
 
-def _coupon_payload_from_promotion_code(item: Any) -> AdminCouponResponse:
+def _coupon_payload_from_promotion_code(
+    item: Any,
+    coupon_cache: dict[str, Any] | None = None,
+) -> AdminCouponResponse:
     promotion = _stripe_get(item, "promotion") or {}
     coupon = _stripe_get(item, "coupon") or _stripe_get(promotion, "coupon") or {}
-    if not isinstance(coupon, dict):
-        coupon = {}
+    if isinstance(coupon, str):
+        if coupon_cache is not None and coupon in coupon_cache:
+            coupon = coupon_cache[coupon]
+        else:
+            coupon_obj = stripe.Coupon.retrieve(coupon)
+            if coupon_cache is not None:
+                coupon_cache[coupon] = coupon_obj
+            coupon = coupon_obj
 
     max_redemptions = _stripe_get(item, "max_redemptions")
     times_redeemed = int(_stripe_get(item, "times_redeemed", 0) or 0)
@@ -456,6 +465,7 @@ def list_admin_coupons(
 
     try:
         collected: list[AdminCouponResponse] = []
+        coupon_cache: dict[str, Any] = {}
         params: dict[str, Any] = {"limit": min(limit, 100)}
         has_more = True
         starting_after: str | None = None
@@ -469,7 +479,7 @@ def list_admin_coupons(
                 code = str(_stripe_get(item, "code") or "").upper()
                 if clean_prefix and not code.startswith(clean_prefix):
                     continue
-                collected.append(_coupon_payload_from_promotion_code(item))
+                collected.append(_coupon_payload_from_promotion_code(item, coupon_cache=coupon_cache))
                 if len(collected) >= limit:
                     break
             has_more = bool(_stripe_get(page, "has_more")) and bool(data)
