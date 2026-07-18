@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime
+from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
 import json
@@ -21,11 +21,45 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     plan: Mapped[str] = mapped_column(String(30), default="fiel")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    billing_provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    billing_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    billing_subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    billing_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    billing_current_period_end: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    billing_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
     verifications: Mapped[list["VerificationHistory"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    favorites: Mapped[list["UserFavorite"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class UserFavorite(Base):
+    __tablename__ = "user_favorites"
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "item_id", name="uq_user_favorites_item"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    item_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    subtitle: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    href: Mapped[str] = mapped_column(String(500), nullable=False)
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="favorites")
 
 
 class VerificationHistory(Base):
@@ -47,6 +81,26 @@ class VerificationHistory(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
     user: Mapped["User | None"] = relationship(back_populates="verifications")
+
+
+class BillingRequest(Base):
+    __tablename__ = "billing_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    plan: Mapped[str] = mapped_column(String(30))
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    provider: Mapped[str] = mapped_column(String(30), default="manual_pix")
+    reference_code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+    )
+
+    user: Mapped["User"] = relationship()
 
 
 class Institution(Base):
@@ -231,11 +285,30 @@ def _migrate_add_library_columns() -> None:
         # Tabela de usuários
         "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, password_hash VARCHAR(255) NOT NULL, plan VARCHAR(30) DEFAULT 'fiel', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())",
         "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_provider VARCHAR(30)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_customer_id VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_subscription_id VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_status VARCHAR(50)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_current_period_end TIMESTAMP",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_cancel_at_period_end BOOLEAN DEFAULT FALSE",
+        "CREATE INDEX IF NOT EXISTS idx_users_billing_customer_id ON users(billing_customer_id)",
+        "CREATE INDEX IF NOT EXISTS idx_users_billing_subscription_id ON users(billing_subscription_id)",
+        "UPDATE users SET plan = 'magisterio', billing_status = 'owner', billing_cancel_at_period_end = FALSE WHERE lower(email) = 'mateuscirineo@gmail.com'",
+        "CREATE TABLE IF NOT EXISTS user_favorites (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind VARCHAR(30) NOT NULL, item_id VARCHAR(255) NOT NULL, title VARCHAR(500) NOT NULL, subtitle VARCHAR(500), href VARCHAR(500) NOT NULL, source VARCHAR(255), metadata_json TEXT, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())",
+        "ALTER TABLE user_favorites DROP CONSTRAINT IF EXISTS user_favorites_user_id_fkey",
+        "ALTER TABLE user_favorites ADD CONSTRAINT user_favorites_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_favorites_unique ON user_favorites(user_id, kind, item_id)",
+        "CREATE INDEX IF NOT EXISTS idx_user_favorites_user_kind ON user_favorites(user_id, kind)",
         # Tabela de histórico de verificações
         "CREATE TABLE IF NOT EXISTS verification_history (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, citation_text TEXT NOT NULL, attributed_to VARCHAR(255), status_code VARCHAR(50), label VARCHAR(100), confidence VARCHAR(20), author VARCHAR(255), work VARCHAR(255), reference_json TEXT, matched_excerpt TEXT, explanation TEXT, response_json TEXT, created_at TIMESTAMP DEFAULT NOW())",
         "CREATE INDEX IF NOT EXISTS idx_vhist_user_id ON verification_history(user_id)",
         # Para ambientes onde a tabela já existe sem response_json
         "ALTER TABLE verification_history ADD COLUMN IF NOT EXISTS response_json TEXT",
+        "CREATE TABLE IF NOT EXISTS billing_requests (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, plan VARCHAR(30) NOT NULL, amount_cents INTEGER NOT NULL, status VARCHAR(30) DEFAULT 'pending', provider VARCHAR(30) DEFAULT 'manual_pix', reference_code VARCHAR(80) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())",
+        "ALTER TABLE billing_requests DROP CONSTRAINT IF EXISTS billing_requests_user_id_fkey",
+        "ALTER TABLE billing_requests ADD CONSTRAINT billing_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+        "CREATE INDEX IF NOT EXISTS idx_billing_requests_user_id ON billing_requests(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_billing_requests_reference_code ON billing_requests(reference_code)",
         # Fase 4 — Gestão Institucional
         "CREATE TABLE IF NOT EXISTS institutions (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, admin_user_id INTEGER REFERENCES users(id), created_at TIMESTAMP DEFAULT NOW())",
         "CREATE TABLE IF NOT EXISTS institution_members (id SERIAL PRIMARY KEY, institution_id INTEGER REFERENCES institutions(id) ON DELETE CASCADE, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, role VARCHAR(20) DEFAULT 'membro', joined_at TIMESTAMP DEFAULT NOW())",

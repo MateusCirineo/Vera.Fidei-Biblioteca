@@ -1,8 +1,6 @@
 import PdfViewer from '@/components/PdfViewer'
 import BackButton from '@/components/BackButton'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8001'
-
 export default async function VisualizarPage({
   params,
   searchParams,
@@ -22,7 +20,7 @@ export default async function VisualizarPage({
         <span className="text-sm text-texto-terciario">Visualizador de PDF</span>
       </header>
 
-      <PdfViewer fileId={fileIdNum} initialPage={initialPage} apiBase={API_BASE} />
+      <PdfViewer fileId={fileIdNum} initialPage={initialPage} />
     </div>
   )
 }

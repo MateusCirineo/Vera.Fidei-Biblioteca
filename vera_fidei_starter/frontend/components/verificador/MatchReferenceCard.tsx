@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { MatchReference } from '@/lib/types'
 import { getPdfUrl } from '@/lib/api'
@@ -9,10 +10,12 @@ export default function MatchReferenceCard({
   reference,
   quote,
   fallbackQuote,
+  canOpenPdf = true,
 }: {
   reference: MatchReference
   quote?: string
   fallbackQuote?: string
+  canOpenPdf?: boolean
 }) {
   const router = useRouter()
   const isPrimary = reference.is_primary_source
@@ -111,7 +114,7 @@ export default function MatchReferenceCard({
       </div>
 
       {/* Open PDF button */}
-      {reference.pdf_file_id && (
+      {reference.pdf_file_id && canOpenPdf && (
         <button
           onClick={openPdfViewer}
           className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
@@ -122,6 +125,14 @@ export default function MatchReferenceCard({
           </svg>
           Abrir trecho no PDF
         </button>
+      )}
+      {reference.pdf_file_id && !canOpenPdf && (
+        <Link
+          href="/planos"
+          className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-fundo-borda px-3 py-1.5 text-xs font-medium text-texto-terciario transition-colors hover:border-dourado hover:text-dourado"
+        >
+          PDF completo no Apologeta
+        </Link>
       )}
     </div>
   )

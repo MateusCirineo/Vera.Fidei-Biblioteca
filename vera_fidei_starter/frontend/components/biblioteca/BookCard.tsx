@@ -1,8 +1,11 @@
 import Link from 'next/link'
 import type { Book } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
+import { publisherForBook, UNKNOWN_PUBLISHER } from '@/lib/publisher'
 
 function sourceText(book: Book): string {
+  const publisher = publisherForBook(book, book.canonical_author ?? book.author)
+  if (publisher !== UNKNOWN_PUBLISHER) return publisher
   return book.edition_label || book.source_label || 'Ficha bibliográfica'
 }
 

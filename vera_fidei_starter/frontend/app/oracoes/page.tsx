@@ -2,6 +2,7 @@ import BrandHeader from '@/components/BrandHeader'
 import OracoesView from '@/components/oracoes/OracoesView'
 
 export const revalidate = 43200
+const PRAYER_FETCH_TIMEOUT_MS = 900
 
 type PrayerVersion = {
   lang: 'Português' | 'Latim' | 'Inglês'
@@ -597,9 +598,13 @@ async function getPrayerGroups(): Promise<{
   latestModified?: string
   isFallback: boolean
 }> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), PRAYER_FETCH_TIMEOUT_MS)
+
   try {
     const response = await fetch(CANCAO_NOVA_PRAYERS_URL, {
       next: { revalidate },
+      signal: controller.signal,
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
@@ -626,6 +631,8 @@ async function getPrayerGroups(): Promise<{
       source: 'Fallback local Vera.Fidei',
       isFallback: true,
     }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

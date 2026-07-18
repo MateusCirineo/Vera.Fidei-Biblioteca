@@ -28,7 +28,13 @@ from utils.language import (
     ORIGINAL_LANGS, TRANSLATION_LANGS,
     classify_book,
 )
-from utils.author_detection import detect_author, detect_canonical_title, resolve_author_alias, _normalize_for_alias
+from utils.author_detection import (
+    AUTHOR_ALIASES,
+    detect_author,
+    detect_canonical_title,
+    resolve_author_alias,
+    _normalize_for_alias,
+)
 
 
 def _detect_language(text: str, hint: str | None = None) -> str:
@@ -107,6 +113,49 @@ def _author_matches(attributed_to: str, book, chunk=None) -> bool:
             return True
 
     return False
+
+
+def _author_matches_in_context(attributed_to: str, book, context_text: str) -> bool:
+    """
+    Confirma autor dentro de coletaneas, como Padres Apostolicos, quando o
+    Book.author e generico e o chunk_author veio errado da indexacao.
+    """
+    if not attributed_to or not context_text:
+        return False
+
+    canonical = resolve_author_alias(attributed_to) or attributed_to
+    if _author_name_matches(attributed_to, context_text) or _author_name_matches(canonical, context_text):
+        return True
+
+    context_norm = _normalize_for_alias(context_text)
+    canonical_norm = _normalize_for_alias(canonical)
+    attributed_norm = _normalize_for_alias(attributed_to)
+    book_author_norm = _normalize_for_alias(getattr(book, "author", "") if book else "")
+    is_collective = any(
+        marker in book_author_norm
+        for marker in ("padres apostolicos", "padres apologistas", "varios", "vvaa", "vv aa")
+    )
+
+    for alias, target in AUTHOR_ALIASES.items():
+        target_norm = _normalize_for_alias(target)
+        if target_norm not in {canonical_norm, attributed_norm} and not _author_name_matches(canonical, target):
+            continue
+        alias_norm = _normalize_for_alias(alias)
+        if len(alias_norm) < 6 or alias_norm not in context_norm:
+            continue
+        # Aliases curtos como "inacio" so confirmam autor dentro de coletaneas.
+        if len(alias_norm.split()) >= 2 or is_collective:
+            return True
+
+    return False
+
+
+def _response_author(attributed_to: str, author_match: bool, book, chunk=None) -> str | None:
+    if attributed_to and author_match:
+        return resolve_author_alias(attributed_to) or attributed_to
+    if chunk is not None and getattr(chunk, "chunk_author", None):
+        return chunk.chunk_author
+    return book.author if book else None
 
 # Marcadores de linguagem acadêmica moderna que NÃO aparecem em traduções patrísticas
 # autênticas. Lista conservadora: apenas termos que são anacrônicos de forma inequívoca.
@@ -188,6 +237,50 @@ def _translation_fidelity(query: str, reference: str) -> str:
     return "nao_encontrada"
 
 
+def _variant_analysis(
+    *,
+    exact_match: bool,
+    ocr_similarity: float,
+    lexical_anchor: float,
+    translation_fidelity: str | None,
+    status_code: str,
+    known_paraphrase_score: float = 0.0,
+) -> str | None:
+    """Short, user-facing diagnosis of textual variation in the located evidence."""
+    if status_code == "NAO_ENCONTRADA":
+        return None
+    if exact_match or ocr_similarity >= 0.95:
+        return (
+            "Correspondencia literal ou praticamente literal: o texto informado "
+            "aparece na fonte com variacoes normais de OCR, pontuacao ou quebra de pagina."
+        )
+    if translation_fidelity == "fiel":
+        return (
+            "Variacao de traducao aceitavel: a formulacao nao e identica, mas os "
+            "termos centrais estao preservados no trecho localizado."
+        )
+    if known_paraphrase_score >= 0.80:
+        return (
+            "Parafrase conceitual localizada: a frase curta nao aparece como "
+            "citacao literal, mas resume uma tese encontrada em trecho especifico "
+            "da obra indexada."
+        )
+    if lexical_anchor >= 0.45:
+        return (
+            "Parafrase proxima: ha ancoragem real na fonte, mas a frase foi "
+            "reformulada e deve ser citada com cuidado."
+        )
+    if translation_fidelity == "imprecisa":
+        return (
+            "Traducao ou formulacao imprecisa: parte do vocabulario existe na "
+            "fonte, mas a frase introduz diferencas relevantes."
+        )
+    return (
+        "Correspondencia fraca: o sistema encontrou relacao tematica, mas nao "
+        "base suficiente para tratar a frase como citacao textual."
+    )
+
+
 def _lexical_anchor(query: str, chunk_text: str, translation_text: str | None) -> float:
     """
     Fração de tokens significativos da query que aparecem no trecho fonte
@@ -219,8 +312,14 @@ def _lexical_anchor(query: str, chunk_text: str, translation_text: str | None) -
     source = tokenize(chunk_text)
     trans = tokenize(translation_text) if translation_text else set()
     all_source = source | trans
+    ratio = len(q_tokens & all_source) / len(q_tokens)
+    # Frases curtas/aforísticas ficam perigosas: dois ou três termos em comum
+    # podem significar apenas proximidade temática. Sem correspondência literal,
+    # não devem passar como paráfrase localizada.
+    if len(q_tokens) < 4:
+        return min(ratio, 0.50)
 
-    return len(q_tokens & all_source) / len(q_tokens)
+    return ratio
 
 
 # ─── PDF directory + path resolution ─────────────────────────────────────────
@@ -258,11 +357,95 @@ def _resolve_pdf_path(stored_path: str) -> str | None:
 # ─── Busca de página real no PDF ─────────────────────────────────────────────
 
 def _normalize_for_search(text: str) -> str:
-    """Remove acentos, normaliza espaços e converte para minúsculas."""
+    """Remove acentos, pontuacao/numero solto, normaliza espaços e converte para minúsculas."""
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+    # PDFs costumam inserir numero de pagina no meio da frase extraida.
+    text = re.sub(r"(?<!\w)\d{1,4}(?!\w)", " ", text)
     text = re.sub(r"\s+", " ", text).strip().lower()
     return text
+
+
+_AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS: tuple[str, ...] = (
+    "ninguem pode amar algo totalmente desconhecido",
+    "somente se pode amar o que se conhece",
+    "ninguem ama o desconhecido",
+    "ninguem ama o que desconhece totalmente",
+    "nao se ama o que e absolutamente desconhecido",
+    "ninguem ama alguem de quem nao se recorde ou a quem ignore totalmente",
+    "o amor nao e excitado por algo completamente desconhecido",
+)
+
+
+def _known_conceptual_paraphrase_score(
+    query: str,
+    attributed_to: str | None,
+    book,
+    evidence_text: str,
+) -> float:
+    """
+    Reconhece máximas curtas que são resumos tradicionais de uma tese real,
+    sem relaxar o verificador inteiro para qualquer proximidade temática.
+
+    Caso coberto: "não se ama aquilo que não se conhece" como resumo do
+    argumento de Santo Agostinho em De Trinitate/A Trindade, Livro X.
+    """
+    if not query or not evidence_text:
+        return 0.0
+
+    canonical = resolve_author_alias(attributed_to or "") or (attributed_to or "")
+    if not _author_name_matches(canonical, "Santo Agostinho de Hipona"):
+        return 0.0
+
+    if book is not None and not any(
+        _author_name_matches(canonical, field)
+        for field in (getattr(book, "author", None), getattr(book, "canonical_author", None))
+    ):
+        return 0.0
+
+    q_norm = _normalize_for_search(query)
+    has_love = bool(re.search(r"\b(am(?:a|ar|amos|amem|ou|ei|e)|amor|amado|amada)\b", q_norm))
+    has_knowledge = "conhec" in q_norm or "desconhec" in q_norm or "ignor" in q_norm
+    has_negation = "nao" in q_norm or "desconhec" in q_norm or "ignor" in q_norm
+    if not (has_love and has_knowledge and has_negation):
+        return 0.0
+
+    source = _normalize_for_search(evidence_text)
+    if any(anchor in source for anchor in _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS):
+        return 0.95
+
+    # Fallback ainda conservador: exige o vocabulário central da tese no mesmo
+    # trecho e a obra/capítulo falando explicitamente de amor e desconhecimento.
+    if "desconhecido" in source and ("ama" in source or "amor" in source) and "conhec" in source:
+        if "trindade" in _normalize_for_search(getattr(book, "title", "") if book else ""):
+            return 0.82
+
+    return 0.0
+
+
+def _extract_known_conceptual_excerpt(
+    query: str,
+    attributed_to: str | None,
+    book,
+    evidence_text: str,
+) -> str | None:
+    if _known_conceptual_paraphrase_score(query, attributed_to, book, evidence_text) < 0.80:
+        return None
+
+    sentences = re.split(r'(?<=[.!?])\s+|\n', evidence_text)
+    if not sentences:
+        return None
+
+    for index, sentence in enumerate(sentences):
+        normalized = _normalize_for_search(sentence)
+        if any(anchor in normalized for anchor in _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS):
+            start = max(0, index - 1)
+            end = min(len(sentences), index + 3)
+            excerpt = " ".join(part.strip() for part in sentences[start:end] if part.strip())
+            return excerpt[:1400].strip()
+
+    return None
 
 
 def _normalize_ocr(text: str) -> str:
@@ -345,6 +528,26 @@ def _extract_matching_excerpt(query: str, chunk_text: str) -> str:
     return result if len(result) >= 40 else chunk_text[:500]
 
 
+def _clean_matched_excerpt_display(excerpt: str | None, pdf_page: int | None = None) -> str | None:
+    if not excerpt:
+        return excerpt
+
+    cleaned = _normalize_ocr(excerpt)
+    page_candidates: set[int] = set()
+    if isinstance(pdf_page, int):
+        page_candidates.update(n for n in (pdf_page - 1, pdf_page, pdf_page + 1) if n > 0)
+
+    for page_number in page_candidates:
+        cleaned = re.sub(
+            rf"(?<=[A-Za-zÀ-ÖØ-öø-ÿ])\s+{page_number}\s+(?=[A-Za-zÀ-ÖØ-öø-ÿ])",
+            " ",
+            cleaned,
+        )
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 def _chunk_window_text(db, chunk: Chunk, before: int = 1, after: int = 2) -> str:
     parts: list[str] = []
 
@@ -399,7 +602,17 @@ def _is_exact_text_match(query: str, candidate_text: str) -> bool:
     q_ocr = _normalize_for_search(_normalize_ocr(query))
     c_raw = candidate_text.lower()
     c_norm = _normalize_for_search(candidate_text)
-    return (q_raw in c_raw) or bool(q_ocr and q_ocr in c_norm)
+    if (q_raw in c_raw) or bool(q_ocr and q_ocr in c_norm):
+        return True
+
+    # pdftotext/pdfplumber insere o número da página entre palavras quando uma
+    # citação cruza a quebra de página (ex: "carne de\n68\nnosso Senhor").
+    # Após normalização de espaços o chunk fica "...carne de 68 nosso Senhor...".
+    # Tentativa final: remover números isolados de 1–3 dígitos antes de comparar.
+    _pnum = re.compile(r'(?<![a-z0-9])\d{1,3}(?![a-z0-9])')
+    q_stripped = re.sub(r'\s+', ' ', _pnum.sub(' ', q_ocr)).strip()
+    c_stripped = re.sub(r'\s+', ' ', _pnum.sub(' ', c_norm)).strip()
+    return bool(q_stripped and len(q_stripped) >= 20 and q_stripped in c_stripped)
 
 
 @lru_cache(maxsize=32)
@@ -431,18 +644,15 @@ def _find_exact_window_page(pages: tuple[str, ...], words: list[str]) -> int | N
         return None
 
     beginning = words[: min(len(words), 45)]
-    candidate_sizes = [
-        min(len(beginning), size)
-        for size in (24, 18, 14, 10, 8, 6, 5)
-        if len(beginning) >= size
-    ]
+    candidate_sizes = tuple(size for size in (24, 18, 14, 10, 8, 6, 5) if len(beginning) >= size)
 
-    seen_sizes: set[int] = set()
-    for size in candidate_sizes:
-        if size in seen_sizes:
-            continue
-        seen_sizes.add(size)
-        for offset in range(0, len(beginning) - size + 1):
+    # Prioriza o começo literal da citação. Uma citação pode atravessar página:
+    # a continuação na página seguinte costuma formar janelas mais longas, mas
+    # o destino correto para abrir o PDF é onde a frase começa.
+    for offset in range(0, len(beginning) - min(candidate_sizes, default=1) + 1):
+        for size in candidate_sizes:
+            if offset + size > len(beginning):
+                continue
             window = " ".join(beginning[offset : offset + size])
             for i, page_text in enumerate(pages, start=1):
                 if window and window in page_text:
@@ -474,10 +684,15 @@ def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> i
     except OSError:
         return None
 
-    # Normaliza OCR e tokeniza
+    # Normaliza OCR e tokeniza.
+    # A busca da janela inicial precisa preservar palavras curtas ("vos",
+    # "em", "de", "só"), pois elas fazem parte da sequência literal que aponta
+    # a página onde a citação começa. Para pontuação ampla, usamos só tokens
+    # significativos para reduzir ruído.
     norm_text = _normalize_for_search(_normalize_ocr(chunk_text))
-    chunk_words = [w for w in norm_text.split() if len(w) >= 4]
-    if len(chunk_words) < 5:
+    ordered_words = norm_text.split()
+    chunk_words = [w for w in ordered_words if len(w) >= 4]
+    if len(ordered_words) < 5 or len(chunk_words) < 3:
         return None
 
     pdf_path = os.path.abspath(pdf_path)
@@ -490,7 +705,7 @@ def _find_real_pdf_page(pdf_path: str, chunk_text: str, min_score: int = 5) -> i
             if norm_text in page_text:
                 return i
 
-    exact_window_page = _find_exact_window_page(pages, chunk_words)
+    exact_window_page = _find_exact_window_page(pages, ordered_words)
     if exact_window_page:
         return exact_window_page
 
@@ -744,21 +959,45 @@ class VerificationService:
                 if chunk is None:
                     continue
                 book = db.get(Book, chunk.book_id)
-                author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
                 semantic_score = semantic_map.get(hit.chunk_id, 0.0)
-                combined = self.scorer.combine(hit.score, semantic_score, author_match)
                 # exact_match: tenta match OCR numa janela de chunks, pois
                 # citações reais podem atravessar a divisão interna do índice.
-                chunk_window = _chunk_window_text(db, chunk)
+                chunk_window = _chunk_window_text(db, chunk, before=4, after=5)
+                author_match = _author_matches(payload.attributed_to, book, chunk=chunk) or _author_matches_in_context(
+                    payload.attributed_to,
+                    book,
+                    chunk_window,
+                )
+                combined = self.scorer.combine(hit.score, semantic_score, author_match)
                 exact_match = _is_exact_text_match(payload.quote, chunk_window)
                 # Penalidade por autor divergente: menor quando a frase foi encontrada
                 # literalmente (pode ser obra que cita o autor original).
                 if payload.attributed_to and not author_match:
                     combined *= 0.6 if exact_match else 0.4
-                selection_score = combined + (2.0 if exact_match else 0.0) + (0.2 if author_match else 0.0)
+                known_selection_score = _known_conceptual_paraphrase_score(
+                    payload.quote,
+                    payload.attributed_to,
+                    book,
+                    chunk.text or "",
+                )
+                known_paraphrase_score = max(
+                    known_selection_score,
+                    0.85 * _known_conceptual_paraphrase_score(
+                        payload.quote,
+                        payload.attributed_to,
+                        book,
+                        chunk_window,
+                    ),
+                )
+                selection_score = (
+                    combined
+                    + (2.0 if exact_match else 0.0)
+                    + (0.2 if author_match else 0.0)
+                    + (1.4 * known_selection_score)
+                )
                 if selection_score > best_score:
                     best_score = selection_score
-                    best = (chunk, book, exact_match, author_match, combined)
+                    best = (chunk, book, exact_match, author_match, combined, known_paraphrase_score)
 
             # Fallback: se só houve hits semânticos (busca cross-lingual)
             if best is None:
@@ -768,17 +1007,41 @@ class VerificationService:
                     if chunk is None:
                         continue
                     book = db.get(Book, chunk.book_id)
-                    author_match = _author_matches(payload.attributed_to, book, chunk=chunk)
+                    chunk_window = _chunk_window_text(db, chunk, before=4, after=5)
+                    author_match = _author_matches(payload.attributed_to, book, chunk=chunk) or _author_matches_in_context(
+                        payload.attributed_to,
+                        book,
+                        chunk_window,
+                    )
                     combined = self.scorer.combine(0.0, hit.score, author_match)
                     # Penalidade por autor divergente (apenas semântico, sem texto exato)
                     if payload.attributed_to and not author_match:
                         combined *= 0.4
-                    chunk_window = _chunk_window_text(db, chunk)
                     exact_match = _is_exact_text_match(payload.quote, chunk_window)
-                    selection_score = combined + (2.0 if exact_match else 0.0) + (0.2 if author_match else 0.0)
+                    known_selection_score = _known_conceptual_paraphrase_score(
+                        payload.quote,
+                        payload.attributed_to,
+                        book,
+                        chunk.text or "",
+                    )
+                    known_paraphrase_score = max(
+                        known_selection_score,
+                        0.85 * _known_conceptual_paraphrase_score(
+                            payload.quote,
+                            payload.attributed_to,
+                            book,
+                            chunk_window,
+                        ),
+                    )
+                    selection_score = (
+                        combined
+                        + (2.0 if exact_match else 0.0)
+                        + (0.2 if author_match else 0.0)
+                        + (1.4 * known_selection_score)
+                    )
                     if selection_score > best_score:
                         best_score = selection_score
-                        best = (chunk, book, exact_match, author_match, combined)
+                        best = (chunk, book, exact_match, author_match, combined, known_paraphrase_score)
 
             if best is None:
                 result = self.classifier.classify(0.0, exact_match=False, author_match=False)
@@ -788,8 +1051,8 @@ class VerificationService:
                     explanation=explanation,
                 )
 
-            chunk, book, exact_match, author_match, combined = best
-            matched_window_text = _chunk_window_text(db, chunk)
+            chunk, book, exact_match, author_match, combined, known_paraphrase_score = best
+            matched_window_text = _chunk_window_text(db, chunk, before=4, after=5)
 
             # Buscar tradução PT para o chunk encontrado
             translation_pt = db.query(Translation).filter(
@@ -837,9 +1100,11 @@ class VerificationService:
                 lexical_anchor=anchor,
                 intrusion_score=intrusion,
                 ocr_similarity=ocr_similarity,
+                known_paraphrase_score=known_paraphrase_score,
             )
+            response_author = _response_author(payload.attributed_to, author_match, book, chunk)
             explanation_work = None if result.code == "NAO_ENCONTRADA" else (book.title if book else None)
-            explanation_author = None if result.code == "NAO_ENCONTRADA" else (book.author if book else None)
+            explanation_author = None if result.code == "NAO_ENCONTRADA" else response_author
             explanation = self.explainer.explain(
                 payload, result,
                 explanation_work,
@@ -877,6 +1142,14 @@ class VerificationService:
                 ).order_by(Chunk.id.asc()).first()
 
             source_file = db.get(BookFile, chunk.book_file_id) if chunk.book_file_id else None
+            variant_analysis = _variant_analysis(
+                exact_match=exact_match,
+                ocr_similarity=ocr_similarity,
+                lexical_anchor=anchor,
+                translation_fidelity=fidelity,
+                status_code=result.code,
+                known_paraphrase_score=known_paraphrase_score,
+            )
 
             # ─── Page-finding cross-lingual ──────────────────────────────────
             # Caminho rapido: a ingestao ja grava chunk.pdf_page. A varredura do PDF
@@ -919,7 +1192,7 @@ class VerificationService:
                 status_code=result.code,
                 label=result.label,
                 confidence=result.confidence,
-                author=(chunk.chunk_author or book.author) if book else None,
+                author=response_author,
                 work=book.title if book else None,
                 reference=MatchReference(
                     collection=book.collection if book else "",
@@ -939,7 +1212,10 @@ class VerificationService:
                 ),
                 original_language=book.language if book else None,
                 source_version=book.edition_label if book else None,
-                matched_excerpt=_extract_matching_excerpt(payload.quote, matched_window_text),
+                matched_excerpt=_clean_matched_excerpt_display(
+                    _extract_matching_excerpt(payload.quote, matched_window_text),
+                    real_pdf_page,
+                ),
                 context_before=prev_chunk.text if prev_chunk else None,
                 context_after=next_chunk.text if next_chunk else None,
                 explanation=explanation,
@@ -948,5 +1224,5 @@ class VerificationService:
                 translation_fidelity=fidelity,
                 translator=translation_pt.translator if translation_pt else None,
                 translation_edition=translation_pt.edition_label if translation_pt else None,
+                variant_analysis=variant_analysis,
             )
-

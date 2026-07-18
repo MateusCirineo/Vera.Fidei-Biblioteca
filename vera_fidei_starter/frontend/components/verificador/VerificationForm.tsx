@@ -1,9 +1,10 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
-import { verifyCitation } from '@/lib/api'
+import { ApiError, getVerificationUsage, verifyCitation } from '@/lib/api'
 import { getUser } from '@/lib/auth'
-import type { VerifyCitationResponse } from '@/lib/types'
+import type { VerificationUsage, VerifyCitationResponse } from '@/lib/types'
 import VerificationResult from './VerificationResult'
 
 const examples = [
@@ -21,6 +22,41 @@ const examples = [
   },
 ]
 
+function formatResetTime(seconds: number): string {
+  if (seconds <= 0) return 'alguns instantes'
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (days > 0) return `${days} dia${days > 1 ? 's' : ''} e ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}min`
+  return `${Math.max(minutes, 1)}min`
+}
+
+function usageTone(usage: VerificationUsage): string {
+  if (usage.blocked) return 'border-red-800/50 bg-red-950/30 text-red-200'
+  if (usage.threshold === 'almost') return 'border-amber-700/50 bg-amber-950/25 text-amber-100'
+  if (usage.threshold === 'half') return 'border-dourado/35 bg-dourado/10 text-texto'
+  return 'border-fundo-borda bg-fundo-card text-texto'
+}
+
+function usageMessage(usage: VerificationUsage): string {
+  if (usage.limit === null) return 'Seu plano tem verificações ilimitadas.'
+  if (usage.blocked) {
+    return `Limite mensal atingido. Novas verificações em ${formatResetTime(usage.reset_seconds)}.`
+  }
+  if (usage.threshold === 'almost') {
+    return `Atenção: você já usou 90% das verificações do mês. Restam ${usage.remaining}.`
+  }
+  if (usage.threshold === 'half') {
+    return `Aviso: você já usou metade das verificações do mês. Restam ${usage.remaining}.`
+  }
+  return `Restam ${usage.remaining} verificações neste mês.`
+}
+
+function shouldSuggestUpgrade(usage: VerificationUsage): boolean {
+  return usage.limit !== null && Boolean(usage.threshold)
+}
+
 export default function VerificationForm() {
   const quoteRef = useRef<HTMLTextAreaElement>(null)
   const attributedRef = useRef<HTMLInputElement>(null)
@@ -34,10 +70,17 @@ export default function VerificationForm() {
   const [error, setError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const [userPlan, setUserPlan] = useState<string | undefined>(undefined)
+  const [usage, setUsage] = useState<VerificationUsage | null>(null)
 
   useEffect(() => {
     setHydrated(true)
-    getUser().then(u => setUserPlan(u?.plan)).catch(() => {})
+    getUser()
+      .then((u) => {
+        setUserPlan(u?.plan)
+        if (u) return getVerificationUsage().then(setUsage)
+        return undefined
+      })
+      .catch(() => {})
   }, [])
 
   async function runVerification(form: HTMLFormElement) {
@@ -64,9 +107,17 @@ export default function VerificationForm() {
         currentAttributedTo,
         currentLanguage || undefined
       )
+      if (res.quota) setUsage(res.quota)
       setResult(res)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      if (err instanceof ApiError && err.quota) {
+        setUsage(err.quota)
+        setError(usageMessage(err.quota))
+      } else if (err instanceof ApiError && err.status === 401) {
+        setError('Entre na sua conta para usar o verificador e acompanhar seu limite mensal.')
+      } else {
+        setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      }
     } finally {
       setLoading(false)
     }
@@ -101,6 +152,52 @@ export default function VerificationForm() {
           O Vera.Fidei procura correspondência, fonte, edição, idioma, tradução e trecho próximo para separar citação real, paráfrase e atribuição duvidosa.
         </p>
       </section>
+
+      {usage && (
+        <section className={`rounded-lg border p-4 ${usageTone(usage)}`}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+                Uso mensal
+              </p>
+              <p className="mt-1 text-sm">
+                {usage.limit === null
+                  ? `${usage.used} verificações usadas neste mês`
+                  : `${usage.used}/${usage.limit} verificações usadas`}
+              </p>
+              <p className="mt-1 text-xs text-texto-terciario">
+                {usageMessage(usage)}
+              </p>
+              {shouldSuggestUpgrade(usage) && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Link
+                    href="/planos"
+                    className="inline-flex items-center justify-center rounded-md border border-dourado/40 bg-dourado px-3 py-1.5 text-xs font-semibold text-fundo transition-colors hover:bg-dourado-claro"
+                  >
+                    Subir plano
+                  </Link>
+                  <span className="text-xs text-texto-terciario">
+                    Libere mais verificações mensais imediatamente.
+                  </span>
+                </div>
+              )}
+            </div>
+            {usage.limit !== null && (
+              <div className="min-w-[140px]">
+                <div className="h-2 overflow-hidden rounded-full bg-fundo-borda">
+                  <div
+                    className="h-full rounded-full bg-dourado transition-all"
+                    style={{ width: `${Math.min(usage.percent_used, 100)}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-right text-xs text-texto-terciario">
+                  {usage.percent_used.toFixed(0)}%
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-fundo-borda bg-fundo-card p-4">
         <div className="border-b border-fundo-borda pb-3">
@@ -195,7 +292,7 @@ export default function VerificationForm() {
             const form = e.currentTarget.form
             if (form) void runVerification(form)
           }}
-          disabled={loading || !hydrated}
+          disabled={loading || !hydrated || Boolean(usage?.blocked)}
           className="w-full rounded-lg border border-dourado/30 bg-vinho px-4 py-3 text-sm font-semibold text-texto transition-colors hover:bg-vinho-claro disabled:cursor-not-allowed disabled:opacity-50"
         >
           {!hydrated ? (

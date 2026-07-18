@@ -1,10 +1,50 @@
-import type { Book, AuthorCatalogEntry, VerifyCitationResponse } from './types'
+import { authBearerHeaders } from './auth'
+import type {
+  Book,
+  AuthorCatalogEntry,
+  FavoriteItem,
+  FavoriteKind,
+  FavoriteListResponse,
+  FavoritePayload,
+  VerificationUsage,
+  VerifyCitationResponse,
+} from './types'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return API_KEY ? { 'X-API-Key': API_KEY, ...extra } : extra
+}
+
+export class ApiError extends Error {
+  status: number
+  quota?: VerificationUsage
+
+  constructor(message: string, status: number, quota?: VerificationUsage) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.quota = quota
+  }
+}
+
+async function readApiError(res: Response, fallback: string): Promise<ApiError> {
+  const raw = await res.text()
+  if (!raw) return new ApiError(fallback, res.status)
+  try {
+    const parsed = JSON.parse(raw)
+    const detail = parsed.detail
+    if (typeof detail === 'string') {
+      return new ApiError(detail, res.status)
+    }
+    if (detail && typeof detail === 'object') {
+      return new ApiError(detail.message ?? fallback, res.status, detail.quota)
+    }
+    return new ApiError(parsed.message ?? fallback, res.status)
+  } catch {
+    return new ApiError(raw, res.status)
+  }
 }
 
 export async function verifyCitation(
@@ -14,13 +54,18 @@ export async function verifyCitation(
 ): Promise<VerifyCitationResponse> {
   const res = await fetch(`${BASE}/citations/verify-citation`, {
     method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ quote, attributed_to, language: language || null }),
   })
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || 'Erro ao verificar citação')
-  }
+  if (!res.ok) throw await readApiError(res, 'Erro ao verificar citação')
+  return res.json()
+}
+
+export async function getVerificationUsage(): Promise<VerificationUsage> {
+  const res = await fetch(`${BASE}/citations/usage`, {
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao carregar uso das verificações')
   return res.json()
 }
 
@@ -40,6 +85,34 @@ export async function getBook(id: number): Promise<Book> {
   const res = await fetch(`${BASE}/books/${id}`, { cache: 'no-store', headers: authHeaders() })
   if (!res.ok) throw new Error('Obra não encontrada')
   return res.json()
+}
+
+export async function listFavorites(kind?: FavoriteKind): Promise<FavoriteListResponse> {
+  const query = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+  const res = await fetch(`${BASE}/favorites${query}`, {
+    cache: 'no-store',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao carregar favoritos')
+  return res.json()
+}
+
+export async function saveFavorite(payload: FavoritePayload): Promise<FavoriteItem> {
+  const res = await fetch(`${BASE}/favorites`, {
+    method: 'POST',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao favoritar')
+  return res.json()
+}
+
+export async function deleteFavorite(kind: FavoriteKind, itemId: string): Promise<void> {
+  const res = await fetch(`${BASE}/favorites/${kind}/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao remover favorito')
 }
 
 export interface AutoIngestResult {
@@ -110,7 +183,11 @@ export async function updateBookFileMeta(
 }
 
 export function getPdfUrl(file_id: number, pdf_page?: number | null): string {
-  const keyParam = API_KEY ? `?api_key=${encodeURIComponent(API_KEY)}` : ''
   const anchor = pdf_page ? `#page=${pdf_page}` : ''
-  return `${BASE}/pdfs/${file_id}${keyParam}${anchor}`
+  return `/pdfs/${file_id}${anchor}`
+}
+
+export function getPdfDownloadUrl(file_id: number): string {
+  const params = new URLSearchParams({ download: '1' })
+  return `/pdfs/${file_id}?${params.toString()}`
 }

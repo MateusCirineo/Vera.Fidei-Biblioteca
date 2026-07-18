@@ -40,6 +40,11 @@ def _hardcoded_explanation(
             )
         return "A formulação encontrada corresponde ao conteúdo da fonte primária, mas apresenta diferenças textuais em relação à versão apresentada."
     if result.code == "PARAFRASE_PLAUSIVEL":
+        if author and work:
+            return (
+                f"A formulação não aparece literalmente, mas resume uma ideia localizada em "
+                f"{author}, na obra {work}. Use como paráfrase ou síntese, não como citação textual."
+            )
         return "O conteúdo temático é próximo ao de um trecho localizado na fonte, mas a formulação não coincide com o texto real — pode ser paráfrase livre ou resumo interpretativo."
     if result.code == "TRADUCAO_FIEL":
         return (

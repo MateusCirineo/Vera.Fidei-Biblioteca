@@ -29,7 +29,7 @@ export default async function BibliotecaPage() {
             Não foi possível carregar as obras. Verifique se o backend está
             rodando em{' '}
             <span className="font-mono">
-              {process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}
+              {process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'}
             </span>
             .
           </p>

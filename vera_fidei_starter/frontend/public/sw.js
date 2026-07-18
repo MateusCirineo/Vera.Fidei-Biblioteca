@@ -1,10 +1,5 @@
-const CACHE_NAME = 'vera-fidei-pwa-v7'
+const CACHE_NAME = 'vera-fidei-pwa-v10'
 const APP_SHELL = [
-  '/apresentacao',
-  '/biblioteca',
-  '/verificador',
-  '/santos',
-  '/oracoes',
   '/offline.html',
   '/branding/Logo-VF.png',
   '/branding/Logo-VF-seal.png',
@@ -62,6 +57,14 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     (async () => {
+      if (request.mode === 'navigate') {
+        try {
+          return await fetch(request)
+        } catch {
+          return caches.match('/offline.html')
+        }
+      }
+
       const cached = await caches.match(request)
 
       try {
@@ -69,7 +72,7 @@ self.addEventListener('fetch', (event) => {
 
         if (
           response.ok &&
-          ['document', 'style', 'script', 'image', 'font'].includes(request.destination)
+          ['style', 'script', 'image', 'font'].includes(request.destination)
         ) {
           const cache = await caches.open(CACHE_NAME)
           cache.put(request, response.clone())
@@ -79,10 +82,6 @@ self.addEventListener('fetch', (event) => {
       } catch {
         if (cached) {
           return cached
-        }
-
-        if (request.mode === 'navigate') {
-          return caches.match('/offline.html')
         }
 
         return new Response('', { status: 504, statusText: 'Offline' })

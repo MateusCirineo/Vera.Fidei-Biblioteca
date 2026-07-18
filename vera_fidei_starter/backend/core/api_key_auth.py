@@ -6,7 +6,7 @@ import datetime
 from fastapi import Header, HTTPException, status
 
 from models.database import SessionLocal, ApiKey, User
-from core.deps import PLAN_ORDER
+from core.plans import has_min_plan
 
 
 def require_vf_api_key(x_vf_api_key: str = Header(default="")) -> User:
@@ -33,7 +33,7 @@ def require_vf_api_key(x_vf_api_key: str = Header(default="")) -> User:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Usuário inativo.",
             )
-        if PLAN_ORDER.index(user.plan) < PLAN_ORDER.index("magisterio"):
+        if not has_min_plan(user.plan, "magisterio"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Requer plano Magistério.",

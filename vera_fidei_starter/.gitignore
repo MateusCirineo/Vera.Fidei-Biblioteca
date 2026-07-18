@@ -24,12 +24,17 @@ backend/scraper_output.log
 
 # Banco SQLite local
 backend/db.sqlite3
+backend/vera_fidei_dump.sql
+*.sql
 
 # Caches e temporários
 backend/.ocr_cache/
 backend/.tmp_*/
 backend/chroma_smoke_test/
 backend/chroma_fresh_smoke/
+*.bak
+*.bak-*
+backend/rclone/
 
 # PDFs (sincronizar manualmente via rsync no servidor)
 backend/pdfs/

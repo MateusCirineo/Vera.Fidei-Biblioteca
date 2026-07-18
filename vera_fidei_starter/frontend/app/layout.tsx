@@ -1,12 +1,9 @@
 import type { Metadata, Viewport } from 'next'
 import { EB_Garamond, Inter } from 'next/font/google'
 import './globals.css'
-import BottomNav from '@/components/nav/BottomNav'
-import DonationModal from '@/components/mecenas/DonationModal'
-import SiteFooter from '@/components/SiteFooter'
 import PwaRegister from '@/components/PwaRegister'
 import AppSplash from '@/components/AppSplash'
-import UserMenu from '@/components/nav/UserMenu'
+import AppChrome from '@/components/AppChrome'
 
 const ebGaramond = EB_Garamond({
   variable: '--font-eb-garamond',
@@ -49,7 +46,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'black',
     title: 'Vera.Fidei',
   },
   other: {
@@ -88,13 +85,7 @@ export default function RootLayout({
       <body className="flex flex-col min-h-dvh bg-fundo text-texto antialiased">
         <PwaRegister />
         <AppSplash />
-        <header className="fixed top-0 right-0 z-40 p-3 flex justify-end">
-          <UserMenu />
-        </header>
-        <main className="flex-1 pb-20">{children}</main>
-        <SiteFooter />
-        <BottomNav />
-        <DonationModal />
+        <AppChrome>{children}</AppChrome>
       </body>
     </html>
   )

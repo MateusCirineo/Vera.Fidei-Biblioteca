@@ -1,0 +1,38 @@
+{
+  "source_folder_id": "1IFAexOFxlpSu9FnR5Rd20iqzrsyKTilK",
+  "total_pdfs": 4,
+  "rows": [
+    {
+      "path": "Suma Contra Os Gentios - Livro 4.pdf",
+      "name": "Suma Contra Os Gentios - Livro 4.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 33051875,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Suma Contra Os Gentios - Livro 3.pdf",
+      "name": "Suma Contra Os Gentios - Livro 3.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 43644346,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Suma Contra Os Gentios - Livro 2.pdf",
+      "name": "Suma Contra Os Gentios - Livro 2.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 29260043,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Suma Contra Os Gentios - Livro 1.pdf",
+      "name": "Suma Contra Os Gentios - Livro 1.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 22045907,
+      "action": "importar",
+      "duplicate": false
+    }
+  ]
+}

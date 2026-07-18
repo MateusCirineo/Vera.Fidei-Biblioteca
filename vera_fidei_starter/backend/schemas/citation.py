@@ -1,3 +1,5 @@
+import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -27,6 +29,20 @@ class MatchReference(BaseModel):
     pdf_file_id: int | None = None
 
 
+class VerificationUsage(BaseModel):
+    plan: str
+    limit: int | None = None
+    used: int
+    remaining: int | None = None
+    period_start: datetime.datetime
+    resets_at: datetime.datetime
+    reset_seconds: int
+    percent_used: float
+    threshold: str | None = None
+    message: str | None = None
+    blocked: bool = False
+
+
 class VerifyCitationResponse(BaseModel):
     status_code: str
     label: str
@@ -45,4 +61,6 @@ class VerifyCitationResponse(BaseModel):
     translation_fidelity: str | None = None
     translator: str | None = None
     translation_edition: str | None = None
+    variant_analysis: str | None = None
     history_id: int | None = None
+    quota: VerificationUsage | None = None

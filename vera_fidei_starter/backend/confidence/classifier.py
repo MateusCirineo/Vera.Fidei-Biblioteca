@@ -24,6 +24,7 @@ class DeterministicClassifier:
         lexical_anchor: float = 0.0,
         intrusion_score: float = 0.0,
         ocr_similarity: float = 0.0,
+        known_paraphrase_score: float = 0.0,
     ) -> ClassificationResult:
         # Modern academic language in patristic quotes is treated as fabrication
         # unless the phrase was literally found in the corpus.
@@ -36,6 +37,14 @@ class DeterministicClassifier:
 
         # The text exists, but not under the attributed author.
         if exact_match and not author_match:
+            return ClassificationResult("ATRIBUICAO_DUVIDOSA", "Atribuição duvidosa", "Baixa")
+
+        # Máximas curtas e paráfrases conhecidas só passam quando há uma
+        # ancoragem real em trecho específico do acervo. Não são citações exatas.
+        if known_paraphrase_score >= 0.80 and author_match:
+            return ClassificationResult("PARAFRASE_PLAUSIVEL", "Paráfrase/variante localizada", "Média")
+
+        if known_paraphrase_score >= 0.80 and not author_match:
             return ClassificationResult("ATRIBUICAO_DUVIDOSA", "Atribuição duvidosa", "Baixa")
 
         # Translation fidelity.

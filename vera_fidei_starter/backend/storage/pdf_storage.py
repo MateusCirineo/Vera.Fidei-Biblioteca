@@ -45,7 +45,7 @@ def _sanitize_filename(name: str) -> str:
     return f"{stem[: max(1, 180 - len(suffix))]}{suffix}"
 
 
-def _content_disposition(original_filename: str) -> str:
+def _content_disposition(original_filename: str, disposition: str = "inline") -> str:
     cleaned = original_filename.replace('"', "'")
     ascii_name = (
         unicodedata.normalize("NFKD", cleaned)
@@ -56,7 +56,8 @@ def _content_disposition(original_filename: str) -> str:
     if not ascii_name:
         ascii_name = "documento.pdf"
     encoded_name = quote(cleaned, safe="")
-    return f'inline; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
+    safe_disposition = "attachment" if disposition == "attachment" else "inline"
+    return f'{safe_disposition}; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
 
 
 def _normalize_key(value: str) -> str:
@@ -318,42 +319,49 @@ class PdfStorage:
         stored_path: str,
         original_filename: str,
         range_header: str | None = None,
+        as_attachment: bool = False,
     ) -> Response:
+        disposition = "attachment" if as_attachment else "inline"
         local = self.resolve_local_path(stored_path)
         if local:
-            response = self._x_accel_response(local, original_filename)
+            response = self._x_accel_response(local, original_filename, disposition)
             if response:
                 return response
 
         if stored_path.replace("\\", "/").startswith("gdrive://"):
             local = self._local_mirror_for_gdrive(stored_path, original_filename)
             if local:
-                response = self._x_accel_response(local, original_filename)
+                response = self._x_accel_response(local, original_filename, disposition)
                 if response:
                     return response
 
             local = self.resolve_for_processing(stored_path)
             if not local:
                 raise HTTPException(status_code=404, detail="PDF remoto nao encontrado.")
-            return self._file_response(local, original_filename, range_header)
+            return self._file_response(local, original_filename, range_header, disposition)
 
         if _is_remote_path(stored_path):
             bucket, key = self._parse_remote_path(stored_path)
             if not bucket or not key:
                 raise HTTPException(status_code=404, detail="PDF remoto invalido.")
-            url = self._public_or_presigned_url(bucket, key, original_filename)
+            url = self._public_or_presigned_url(bucket, key, original_filename, disposition)
             return RedirectResponse(url=url, status_code=302)
 
         raise HTTPException(status_code=404, detail="PDF nao encontrado.")
 
-    def _x_accel_response(self, local_path: str, original_filename: str) -> Response | None:
+    def _x_accel_response(
+        self,
+        local_path: str,
+        original_filename: str,
+        disposition: str = "inline",
+    ) -> Response | None:
         filename = self._filename_for_x_accel(local_path)
         if not filename:
             return None
         response = Response()
         response.headers["X-Accel-Redirect"] = f"/protected_pdfs/{quote(filename, safe='/')}"
         response.headers["Content-Type"] = "application/pdf"
-        response.headers["Content-Disposition"] = _content_disposition(original_filename)
+        response.headers["Content-Disposition"] = _content_disposition(original_filename, disposition)
         response.headers["Accept-Ranges"] = "bytes"
         return response
 
@@ -417,13 +425,14 @@ class PdfStorage:
         local_path: str,
         original_filename: str,
         range_header: str | None,
+        disposition: str = "inline",
     ) -> Response:
         path = Path(local_path)
         if not path.is_file():
             raise HTTPException(status_code=404, detail="PDF nao encontrado.")
 
         headers = {
-            "Content-Disposition": _content_disposition(original_filename),
+            "Content-Disposition": _content_disposition(original_filename, disposition),
             "Accept-Ranges": "bytes",
         }
         file_size = path.stat().st_size
@@ -497,7 +506,13 @@ class PdfStorage:
                 return path.name
         return None
 
-    def _public_or_presigned_url(self, bucket: str, key: str, original_filename: str) -> str:
+    def _public_or_presigned_url(
+        self,
+        bucket: str,
+        key: str,
+        original_filename: str,
+        disposition: str = "inline",
+    ) -> str:
         if self.public_base_url:
             return f"{self.public_base_url}/{quote(key, safe='/')}"
         if not self.is_remote:
@@ -506,7 +521,7 @@ class PdfStorage:
             "Bucket": bucket,
             "Key": key,
             "ResponseContentType": "application/pdf",
-            "ResponseContentDisposition": _content_disposition(original_filename),
+            "ResponseContentDisposition": _content_disposition(original_filename, disposition),
         }
         return self._client().generate_presigned_url(
             "get_object",

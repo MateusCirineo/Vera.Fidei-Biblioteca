@@ -3,7 +3,7 @@ import BookList from '@/components/admin/BookList'
 
 export default function AdminPage() {
   return (
-    <div className="mx-auto max-w-lg px-4 pt-8 pb-24 space-y-10">
+    <div className="mx-auto max-w-6xl px-4 pt-8 pb-24 space-y-10">
       <div>
         <div className="mb-6">
           <h1 className="font-garamond text-3xl font-semibold text-texto">

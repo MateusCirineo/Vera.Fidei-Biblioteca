@@ -8,9 +8,12 @@ export default function PwaRegister() {
       return
     }
 
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // O PWA nao deve interromper a experiencia caso o navegador recuse o registro.
-    })
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch(() => {
+        // O PWA nao deve interromper a experiencia caso o navegador recuse o registro.
+      })
   }, [])
 
   return null

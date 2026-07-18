@@ -1,0 +1,30 @@
+{
+  "source_folder_id": "1BHuETeWAdlt93HlH73unH3v9pTN_M_75",
+  "total_pdfs": 3,
+  "rows": [
+    {
+      "path": "Salterio À Virgem Maria - São Boaventura.pdf",
+      "name": "Salterio À Virgem Maria - São Boaventura.pdf",
+      "top_folder": "São Boaventura",
+      "size": 3772525,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Legenda Maior_ Vida de Sao Fran - Sao Boaventura.pdf",
+      "name": "Legenda Maior_ Vida de Sao Fran - Sao Boaventura.pdf",
+      "top_folder": "São Boaventura",
+      "size": 1057162,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Obras Escolhidas - São Boaventura.pdf",
+      "name": "Obras Escolhidas - São Boaventura.pdf",
+      "top_folder": "São Boaventura",
+      "size": 90576730,
+      "action": "importar",
+      "duplicate": false
+    }
+  ]
+}

@@ -4,8 +4,8 @@ from fastapi import APIRouter
 from sqlalchemy import func, or_
 from pydantic import BaseModel
 
-from models.database import SessionLocal, Book, Chunk
-from schemas.book import BookResponse
+from models.database import SessionLocal, Book, BookFile, Chunk
+from schemas.book import BookFileResponse, BookResponse
 from utils.author_detection import PATRISTIC_AUTHORS
 
 router = APIRouter()
@@ -20,7 +20,7 @@ class AuthorCatalogEntry(BaseModel):
     books: list[BookResponse]
 
 
-def _book_to_response_with_count(b: Book, chunk_count: int) -> BookResponse:
+def _book_to_response_with_count(b: Book, chunk_count: int, files: list[BookFile] | None = None) -> BookResponse:
     return BookResponse(
         id=b.id,
         collection=b.collection,
@@ -41,6 +41,9 @@ def _book_to_response_with_count(b: Book, chunk_count: int) -> BookResponse:
         is_ecumenical=b.is_ecumenical,
         document_status=b.document_status,
         volume_number=b.volume_number,
+        ingest_status=b.ingest_status,
+        ingest_error=b.ingest_error,
+        files=[BookFileResponse.model_validate(f) for f in files] if files else None,
     )
 
 
@@ -93,6 +96,16 @@ def get_authors_catalog() -> list[AuthorCatalogEntry]:
             )
 
             books = direct_books + collectanea_books
+            book_ids = [b.id for b in books]
+            files_by_book: dict[int, list[BookFile]] = {}
+            if book_ids:
+                for book_file in (
+                    db.query(BookFile)
+                    .filter(BookFile.book_id.in_(book_ids))
+                    .order_by(BookFile.id.asc())
+                    .all()
+                ):
+                    files_by_book.setdefault(book_file.book_id, []).append(book_file)
 
             total_chunks = 0
             book_responses: list[BookResponse] = []
@@ -102,7 +115,7 @@ def get_authors_catalog() -> list[AuthorCatalogEntry]:
                 else:
                     count = all_author_counts.get((b.id, author_name), 0)
                 total_chunks += count
-                book_responses.append(_book_to_response_with_count(b, count))
+                book_responses.append(_book_to_response_with_count(b, count, files_by_book.get(b.id)))
 
             result.append(AuthorCatalogEntry(
                 name=author_name,

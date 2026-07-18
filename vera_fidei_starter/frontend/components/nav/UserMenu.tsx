@@ -2,26 +2,79 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { getUser, logout, type UserInfo } from '@/lib/auth'
+
+function avatarStorageKey(userId: number) {
+  return `vf_profile_avatar_${userId}`
+}
+
+const PLAN_LABELS: Record<string, string> = {
+  fiel: 'Fiel',
+  catequista: 'Catequista',
+  apologeta: 'Apologeta',
+  patristico: 'Patrístico',
+  magisterio: 'Magistério',
+}
 
 export default function UserMenu() {
   const [user, setUser] = useState<UserInfo | null>(null)
+  const [avatar, setAvatar] = useState('')
   const [open, setOpen] = useState(false)
   const router = useRouter()
+  const pathname = usePathname()
+  const isAuthPage = pathname === '/login' || pathname === '/cadastro'
 
   useEffect(() => {
-    getUser().then(setUser)
+    let active = true
+    getUser().then((currentUser) => {
+      if (!active) return
+      setUser(currentUser)
+      if (currentUser) {
+        setAvatar(localStorage.getItem(avatarStorageKey(currentUser.id)) ?? '')
+      }
+    })
+    return () => {
+      active = false
+    }
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const userId = user.id
+
+    function handleAvatarChanged(event: Event) {
+      const detail = (event as CustomEvent<{ userId: number; avatar: string }>).detail
+      if (detail?.userId === userId) {
+        setAvatar(detail.avatar)
+      }
+    }
+
+    function handleStorage(event: StorageEvent) {
+      if (event.key === avatarStorageKey(userId)) {
+        setAvatar(event.newValue ?? '')
+      }
+    }
+
+    window.addEventListener('vf:profile-avatar-changed', handleAvatarChanged)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('vf:profile-avatar-changed', handleAvatarChanged)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [user])
 
   function handleLogout() {
     logout()
     setUser(null)
+    setAvatar('')
     setOpen(false)
     router.push('/verificador')
   }
 
   if (!user) {
+    if (isAuthPage) return null
+
     return (
       <Link
         href="/login"
@@ -38,8 +91,13 @@ export default function UserMenu() {
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 text-xs text-texto-secundario hover:text-dourado transition-colors"
       >
-        <span className="w-7 h-7 rounded-full bg-dourado/20 flex items-center justify-center text-dourado font-semibold uppercase">
-          {user.name.charAt(0)}
+        <span className="w-7 h-7 overflow-hidden rounded-full bg-dourado/20 flex items-center justify-center text-dourado font-semibold uppercase">
+          {avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatar} alt="" className="h-full w-full object-cover" />
+          ) : (
+            user.name.charAt(0)
+          )}
         </span>
         <span className="hidden sm:inline">{user.name.split(' ')[0]}</span>
       </button>
@@ -49,7 +107,7 @@ export default function UserMenu() {
           <div className="px-3 py-2 border-b border-fundo-borda">
             <p className="text-xs font-medium text-texto truncate">{user.name}</p>
             <p className="text-xs text-texto-terciario truncate">{user.email}</p>
-            <p className="text-xs text-dourado capitalize mt-0.5">Plano {user.plan}</p>
+            <p className="text-xs text-dourado mt-0.5">Plano {PLAN_LABELS[user.plan] ?? user.plan}</p>
           </div>
           <Link
             href="/perfil"
@@ -59,7 +117,7 @@ export default function UserMenu() {
             Meu Perfil
           </Link>
           <Link
-            href="/historico"
+            href="/perfil#historico"
             onClick={() => setOpen(false)}
             className="block px-3 py-2 text-xs text-texto-secundario hover:text-dourado hover:bg-fundo transition-colors"
           >

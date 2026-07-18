@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { Book, PatristicTradition, LibraryStructure } from '@/lib/types'
+import { normalizePublisherId, publisherForBook, publisherTabsForBooks } from '@/lib/publisher'
 import BookCard from './BookCard'
 
 type TraditionTab = {
@@ -93,14 +94,14 @@ export default function PatristicaSection({ patristica }: PatristicaSectionProps
 
   const allBooks = active ? patristica[active] : []
   const activeMeta = active ? TRADITIONS.find((t) => t.id === active) : null
-  const publisherTabs = active === 'portuguesa' ? buildPublisherTabs(allBooks) : []
+  const publisherTabs = active === 'portuguesa' ? publisherTabsForBooks(allBooks) : []
   const requestedPublisherTab = active ? activePublisherTabs[active] ?? 'todos' : 'todos'
   const resolvedPublisherTab =
     requestedPublisherTab === 'todos' || publisherTabs.some(tab => tab.id === requestedPublisherTab)
       ? requestedPublisherTab
       : 'todos'
   const books = active === 'portuguesa' && resolvedPublisherTab !== 'todos'
-    ? allBooks.filter(book => normalizeKey(publisherLabelFor(book)) === resolvedPublisherTab)
+    ? allBooks.filter(book => normalizePublisherId(publisherForBook(book, book.canonical_author ?? book.author)) === resolvedPublisherTab)
     : allBooks
 
   if (!active) {

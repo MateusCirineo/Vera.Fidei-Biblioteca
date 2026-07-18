@@ -49,43 +49,44 @@ PATRISTIC_FOLDER_KEYS = {
 AUTHOR_BY_FOLDER = {
     "beata anne catherine emmerich": "Beata Anne Catherine Emmerich",
     "beato duns scotus": "Beato Duns Scotus",
-    "hugo de sao vitor": "Hugo de Sao Vitor",
+    "boecio": "Boécio",
+    "hugo de sao vitor": "Hugo de São Vítor",
     "padre adolphe tanquerey": "Padre Adolphe Tanquerey",
     "padre gabriele amorth": "Padre Gabriele Amorth",
-    "padre julio maria de lombaerde": "Padre Julio Maria de Lombaerde",
+    "padre julio maria de lombaerde": "Padre Júlio Maria de Lombaerde",
     "papa bento xvi ratzinger": "Papa Bento XVI",
     "papa francisco": "Papa Francisco",
     "santa catarina de sena": "Santa Catarina de Sena",
     "santa edith stein": "Santa Edith Stein",
     "santa hildegarda de bingen": "Santa Hildegarda de Bingen",
     "santa teresa de jesus": "Santa Teresa de Jesus",
-    "santo afonso maria de ligorio": "Santo Afonso Maria de Ligorio",
-    "santo agostinho": "Santo Agostinho de Hipona",
-    "santo anselmo de cantuaria": "Santo Anselmo de Cantuaria",
-    "santo epifanio": "Santo Epifanio",
-    "santo inacio de antioquia": "Santo Inacio de Antioquia",
-    "santo inacio de loyola": "Santo Inacio de Loyola",
-    "santo tomas de aquino": "Santo Tomas de Aquino",
-    "sao belarmino": "Sao Roberto Belarmino",
-    "sao bento": "Sao Bento",
-    "sao bernardo de claraval": "Sao Bernardo de Claraval",
-    "sao boaventura": "Sao Boaventura",
-    "sao clemente de alexandria": "Sao Clemente de Alexandria",
-    "sao francisco de sales": "Sao Francisco de Sales",
-    "sao gregorio magno": "Sao Gregorio Magno",
-    "sao jeronimo": "Sao Jeronimo",
-    "sao joao bosco dom bosco": "Sao Joao Bosco",
-    "sao joao da cruz": "Sao Joao da Cruz",
-    "sao joao eudes": "Sao Joao Eudes",
-    "sao joao maria vianney": "Sao Joao Maria Vianney",
-    "sao joao paulo ii": "Sao Joao Paulo II",
-    "sao josemaria escriva": "Sao Josemaria Escriva",
-    "sao leonardo de porto mauricio": "Sao Leonardo de Porto Mauricio",
-    "sao luis maria grignon de montfort": "Sao Luis Maria Grignion de Montfort",
-    "sao paulo vi": "Sao Paulo VI",
-    "sao roberto belarmino": "Sao Roberto Belarmino",
-    "sao vicente de lerins": "Sao Vicente de Lerins",
-    "tomas de kempis": "Tomas de Kempis",
+    "santo afonso maria de ligorio": "Santo Afonso Maria de Ligório",
+    "santo agostinho": "Santo Agostinho",
+    "santo anselmo de cantuaria": "Santo Anselmo de Cantuária",
+    "santo epifanio": "Santo Epifânio",
+    "santo inacio de antioquia": "Santo Inácio de Antioquia",
+    "santo inacio de loyola": "Santo Inácio de Loyola",
+    "santo tomas de aquino": "Santo Tomás de Aquino",
+    "sao belarmino": "São Roberto Belarmino",
+    "sao bento": "São Bento",
+    "sao bernardo de claraval": "São Bernardo de Claraval",
+    "sao boaventura": "São Boaventura",
+    "sao clemente de alexandria": "São Clemente de Alexandria",
+    "sao francisco de sales": "São Francisco de Sales",
+    "sao gregorio magno": "São Gregório Magno",
+    "sao jeronimo": "São Jerônimo",
+    "sao joao bosco dom bosco": "São João Bosco",
+    "sao joao da cruz": "São João da Cruz",
+    "sao joao eudes": "São João Eudes",
+    "sao joao maria vianney": "São João Maria Vianney",
+    "sao joao paulo ii": "São João Paulo II",
+    "sao josemaria escriva": "São Josemaria Escrivá",
+    "sao leonardo de porto mauricio": "São Leonardo de Porto Maurício",
+    "sao luis maria grignon de montfort": "São Luís Maria Grignion de Montfort",
+    "sao paulo vi": "São Paulo VI",
+    "sao roberto belarmino": "São Roberto Belarmino",
+    "sao vicente de lerins": "São Vicente de Lérins",
+    "tomas de kempis": "Tomás de Kempis",
 }
 
 DOCTYPE_COLLECTION = {
@@ -229,14 +230,14 @@ def pope_from_text(text: str) -> str | None:
     patterns = [
         ("Papa Francisco", r"\b(francisco|papa francisco)\b"),
         ("Papa Bento XVI", r"\b(bento xvi|ratzinger|papa bento xvi)\b"),
-        ("Papa Joao Paulo II", r"\b(joao paulo ii|jp ii|papa joao paulo ii)\b"),
+        ("Papa João Paulo II", r"\b(joao paulo ii|jp ii|papa joao paulo ii)\b"),
         ("Papa Paulo VI", r"\b(paulo vi|papa paulo vi)\b"),
-        ("Papa Joao XXIII", r"\b(joao xxiii|papa joao xxiii)\b"),
+        ("Papa João XXIII", r"\b(joao xxiii|papa joao xxiii)\b"),
         ("Papa Pio XII", r"\b(pio xii|papa pio xii)\b"),
         ("Papa Pio XI", r"\b(pio xi|papa pio xi)\b"),
         ("Papa Pio X", r"\b(pio x\b|papa pio x\b)"),
-        ("Papa Sao Pio V", r"\b(pio v\b|sao pio v\b|papa pio v\b)"),
-        ("Papa Leao XIII", r"\b(leao xiii|papa leao xiii)\b"),
+        ("Papa São Pio V", r"\b(pio v\b|sao pio v\b|papa pio v\b)"),
+        ("Papa Leão XIII", r"\b(leao xiii|papa leao xiii)\b"),
     ]
     for label, pattern in patterns:
         if re.search(pattern, norm):
@@ -252,7 +253,7 @@ def document_type_from_text(top_folder: str, path: str, title: str) -> str:
         return "catecismo"
     if any(term in text for term in ("catequese", "iniciacao crista", "curso elementar")):
         return "catequese"
-    if any(term in text for term in ("liturgia", "missal", "ritual", "rito", "breviario", "cerimonial", "sacrament", "exorcismo", "bencao", "bencoes", "indulgencia")):
+    if any(term in text for term in ("liturgia", "missal", "ritual", "breviario", "cerimonial", "sacrament", "exorcismo", "bencao", "bencoes", "indulgencia")) or re.search(r"\brito\b", text):
         return "liturgia"
     if any(term in text for term in ("codigo de direito canonico", "direito canonico", "cdc", "codex iuris canonici")):
         return "direito_canonico"
@@ -282,12 +283,12 @@ def known_document_override(text: str) -> dict[str, Any] | None:
     if "quo primum" in norm:
         return {
             "title": "Quo Primum Tempore",
-            "author": "Papa Sao Pio V",
-            "pope": "Papa Sao Pio V",
+            "author": "Papa São Pio V",
+            "pope": "Papa São Pio V",
             "document_type": "bula",
             "collection": "MAG",
             "document_year": 1570,
-            "edition_label": "Magisterio pontificio",
+            "edition_label": "Magistério pontifício",
         }
     if "summorum pontificum" in norm:
         return {
@@ -297,7 +298,7 @@ def known_document_override(text: str) -> dict[str, Any] | None:
             "document_type": "motu_proprio",
             "collection": "MAG",
             "document_year": 2007,
-            "edition_label": "Magisterio pontificio",
+            "edition_label": "Magistério pontifício",
         }
     if "traditionis custodes" in norm:
         return {
@@ -307,7 +308,7 @@ def known_document_override(text: str) -> dict[str, Any] | None:
             "document_type": "motu_proprio",
             "collection": "MAG",
             "document_year": 2021,
-            "edition_label": "Magisterio pontificio",
+            "edition_label": "Magistério pontifício",
         }
     if "missale romanum" in norm:
         return {
@@ -317,7 +318,7 @@ def known_document_override(text: str) -> dict[str, Any] | None:
             "document_type": "constituicao_apostolica",
             "collection": "MAG",
             "document_year": 1969,
-            "edition_label": "Magisterio pontificio",
+            "edition_label": "Magistério pontifício",
         }
     return None
 
@@ -362,6 +363,30 @@ def patristic_collection(top_folder: str, path: str, tradition: str) -> str | No
 
 def edition_for(top_folder: str, path: str, section: str, doctype: str | None, detected_publisher: str | None) -> str:
     text = normalize(f"{top_folder} {path}")
+    if "catena aurea" in text:
+        return "Ecclesiae"
+    if "suma contra os gentios" in text:
+        return "Vozes"
+    if "suma teologica" in text:
+        return "Loyola"
+    if "salterio a virgem maria" in text or "salterio virgem maria" in text:
+        return "Ave-Maria"
+    if "de institutione arithmetica" in text:
+        return "Rodopi"
+    if "meditacoes para a quaresma" in text or "sermoes o pai nosso" in text:
+        return "Permanência"
+    if "questoes disputadas sobre a alma" in text:
+        return "Vozes"
+    if "escritos politicos" in text:
+        return "Vozes"
+    if "verdade e conhecimento" in text:
+        return "WMF Martins Fontes"
+    if "comentario ao tratado da trindade de boecio" in text:
+        return "Editora UNESP"
+    if "comentario a tessalonicenses" in text:
+        return "Concreta"
+    if "fundamentals of music" in text:
+        return "Yale University Press"
     if "patristica paulus" in text or detected_publisher == "Paulus":
         return "Paulus"
     if "patrologia grega" in text or re.search(r"\bpg\s*0*\d+", text):
@@ -373,7 +398,7 @@ def edition_for(top_folder: str, path: str, section: str, doctype: str | None, d
     if section == "patristica":
         return "Outras editoras"
     if section == "documentos" and doctype in {"enciclica", "bula", "constituicao_apostolica", "carta_apostolica", "motu_proprio", "exortacao_apostolica"}:
-        return "Magisterio pontificio"
+        return "Magistério pontifício"
     return ""
 
 
@@ -487,13 +512,15 @@ def build_metadata(row: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
         elif edition_label == "Migne PL":
             language = "latim"
 
+    source_folder_label = author_from_folder(top_folder) or top_folder
+
     return {
         "collection": collection,
         "title": field(title),
         "author": field(author or "Autor desconhecido"),
         "language": field(language or "pt", 50),
         "edition_label": field(edition_label, 180),
-        "source_label": field(f"Google Drive - {top_folder}", 180),
+        "source_label": field(f"Google Drive - {source_folder_label}", 180),
         "is_primary_source": is_primary_source(section, doctype, author or "", top_folder, title),
         "library_section": section,
         "patristic_tradition": tradition,
@@ -637,6 +664,15 @@ def upload_and_update_file(book_id: int, file_id: int, original_filename: str, l
     return stored.stored_path
 
 
+def mark_file_only(book_id: int) -> None:
+    with SessionLocal() as db:
+        book = db.get(Book, book_id)
+        if book is not None:
+            book.ingest_status = "file_only"
+            book.ingest_error = None
+            db.commit()
+
+
 def delete_book_quietly(service: IngestionService, book_id: int) -> None:
     try:
         service.delete_book(book_id)
@@ -759,6 +795,28 @@ def import_rows(args: argparse.Namespace) -> int:
 
                 book_id, file_id = create_book_and_file(meta, name, local_pdf)
                 stored_path = upload_and_update_file(book_id, file_id, name, local_pdf)
+                if args.file_only:
+                    mark_file_only(book_id)
+                    imported += 1
+                    existing_names.add(name_key)
+                    existing_titles.add(meta_title_key)
+                    log_event(
+                        log_path,
+                        {
+                            "event": "file_only_done",
+                            "index": index,
+                            "book_id": book_id,
+                            "file_id": file_id,
+                            "title": meta["title"],
+                            "author": meta["author"],
+                            "section": meta["library_section"],
+                            "doctype": meta["document_type"],
+                            "tradition": meta["patristic_tradition"],
+                            "stored_path": stored_path,
+                        },
+                    )
+                    continue
+
                 log_event(
                     log_path,
                     {
@@ -825,6 +883,7 @@ def main() -> int:
     parser.add_argument("--exclude-regex", default="", help="Skip source paths matching this regex")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--delete-errors", action="store_true", help="Remove books created by this run if ingestion fails")
+    parser.add_argument("--file-only", action="store_true", help="Import metadata and PDF without extracting/indexing chunks")
     parser.add_argument("--catholic-core-only", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--ingest-timeout", type=int, default=1800, help="Maximum seconds to spend extracting/indexing one PDF; 0 disables timeout")
     parser.add_argument("--max-size-mb", type=int, default=0, help="Skip PDFs larger than this size in MiB; 0 disables size filtering")

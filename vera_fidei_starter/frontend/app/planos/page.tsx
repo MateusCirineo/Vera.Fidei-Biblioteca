@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { getUser, type UserInfo } from '@/lib/auth'
+import {
+  createCheckoutSession,
+  getUser,
+  openBillingPortal,
+  type UserInfo,
+} from '@/lib/auth'
 
 interface Plano {
   key: string
@@ -24,11 +29,11 @@ const PLANOS: Plano[] = [
     preco: 'Grátis',
     periodicidade: '',
     limite: '10 verificações/mês',
-    indicado: 'Consulta pessoal',
+    indicado: 'Uso pessoal',
     recursos: [
-      'Verificação de citações patrísticas',
-      'Veredito com nível de confiança',
-      'Histórico das últimas verificações',
+      'Verificação básica de citações',
+      'Resultado com nível de confiança',
+      'Histórico recente de verificações',
       'Acesso à biblioteca digital',
     ],
   },
@@ -41,9 +46,10 @@ const PLANOS: Plano[] = [
     indicado: 'Aulas e grupos',
     recursos: [
       'Tudo do plano Fiel',
-      'Exportação de laudos em PDF',
+      'Laudos em PDF',
       'Referência exata da fonte',
-      'Histórico completo por conta',
+      'Histórico completo da conta',
+      'Indicado para catequese e grupos de estudo',
     ],
   },
   {
@@ -56,10 +62,10 @@ const PLANOS: Plano[] = [
     destaque: true,
     recursos: [
       'Tudo do plano Catequista',
-      'Contexto patrístico completo',
-      'Análise de tradução e edição',
+      'Contexto patrístico mais completo',
+      'Análise de tradução e variação textual',
       'Acesso a PDFs digitalizados',
-      'Exportação do histórico em CSV',
+      'Exportação do histórico em Excel',
     ],
   },
   {
@@ -74,6 +80,7 @@ const PLANOS: Plano[] = [
       'Painel de gestão institucional',
       'Convite e gestão de membros',
       'Relatório mensal de uso',
+      'Indicado para apostolados e equipes',
     ],
   },
   {
@@ -82,25 +89,34 @@ const PLANOS: Plano[] = [
     preco: 'R$ 99,99',
     periodicidade: '/mês',
     limite: 'Ilimitado',
-    indicado: 'Integrações e equipes',
+    indicado: 'Equipes e integrações',
     recursos: [
       'Tudo do plano Patrístico',
-      'API Key dedicada',
+      'API dedicada',
       'Endpoint REST /v1/verificar',
       'Geração e revogação de chaves',
       'Integração com sistemas externos',
+      'Prioridade para uso avançado',
     ],
   },
 ]
 
 const PLAN_LABELS = Object.fromEntries(PLANOS.map((plano) => [plano.key, plano.nome]))
+const ACTIVE_BILLING_STATUSES = new Set(['active', 'trialing'])
 
 function planRank(plan: string | undefined) {
-  return PLAN_ORDER.indexOf(plan ?? 'fiel')
+  const index = PLAN_ORDER.indexOf(plan ?? 'fiel')
+  return index >= 0 ? index : 0
+}
+
+function isOwner(user: UserInfo | null) {
+  return user?.billing_status === 'owner' || user?.email.toLowerCase() === 'mateuscirineo@gmail.com'
 }
 
 export default function PlanosPage() {
   const [user, setUser] = useState<UserInfo | null>(null)
+  const [busyPlan, setBusyPlan] = useState('')
+  const [billingError, setBillingError] = useState('')
 
   useEffect(() => {
     getUser().then(setUser).catch(() => setUser(null))
@@ -112,6 +128,32 @@ export default function PlanosPage() {
   )
 
   const currentRank = planRank(user?.plan)
+  const owner = isOwner(user)
+  const hasActiveBilling = Boolean(user?.billing_status && ACTIVE_BILLING_STATUSES.has(user.billing_status))
+
+  async function handleSubscribe(plan: string) {
+    setBillingError('')
+    setBusyPlan(plan)
+    try {
+      const { url } = await createCheckoutSession(plan)
+      window.location.assign(url)
+    } catch (err: unknown) {
+      setBillingError(err instanceof Error ? err.message : 'Erro ao iniciar assinatura.')
+      setBusyPlan('')
+    }
+  }
+
+  async function handleManageBilling() {
+    setBillingError('')
+    setBusyPlan('portal')
+    try {
+      const { url } = await openBillingPortal()
+      window.location.assign(url)
+    } catch (err: unknown) {
+      setBillingError(err instanceof Error ? err.message : 'Erro ao abrir assinatura.')
+      setBusyPlan('')
+    }
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
@@ -120,41 +162,68 @@ export default function PlanosPage() {
           <p className="mb-2 text-xs font-medium uppercase tracking-[0.22em] text-texto-terciario">
             Assinatura Vera.Fidei
           </p>
-          <h1 className="font-eb-garamond text-3xl text-dourado sm:text-4xl">
-            Planos para verificar, estudar e documentar fontes católicas.
+          <h1 className="font-garamond text-3xl text-dourado sm:text-4xl">
+            Planos mensais para verificar, estudar e documentar fontes católicas.
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-texto-secundario">
-            Escolha o nível de acesso conforme o uso: consulta pessoal, catequese,
-            pesquisa patrística, instituições ou integrações via API.
+            Escolha o nível de acesso conforme o uso. As assinaturas pagas são mensais
+            e podem ser canceladas a qualquer momento pelo portal seguro de cobrança.
           </p>
         </div>
 
         <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4">
           <p className="text-xs text-texto-terciario">Plano atual</p>
           <div className="mt-1 flex items-end justify-between gap-3">
-            <span className="font-eb-garamond text-2xl text-dourado">
+            <span className="font-garamond text-2xl text-dourado">
               {user ? PLAN_LABELS[user.plan] ?? user.plan : 'Visitante'}
             </span>
-            <Link
-              href={user ? '/perfil' : '/login?redirect=/planos'}
-              className="rounded-md border border-dourado/40 px-3 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado hover:text-fundo"
-            >
-              {user ? 'Ver perfil' : 'Entrar'}
-            </Link>
+            {user && hasActiveBilling && !owner ? (
+              <button
+                type="button"
+                onClick={handleManageBilling}
+                disabled={busyPlan === 'portal'}
+                className="rounded-md border border-dourado/40 px-3 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado hover:text-fundo disabled:cursor-default disabled:opacity-60"
+              >
+                Gerenciar
+              </button>
+            ) : user ? (
+              <Link
+                href="/perfil"
+                className="rounded-md border border-dourado/40 px-3 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado hover:text-fundo"
+              >
+                {owner ? 'Acesso total' : 'Ver perfil'}
+              </Link>
+            ) : (
+              <Link
+                href="/login?redirect=/planos"
+                className="rounded-md border border-dourado/40 px-3 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado hover:text-fundo"
+              >
+                Entrar
+              </Link>
+            )}
           </div>
           <p className="mt-2 text-xs leading-relaxed text-texto-terciario">
             {user
-              ? `${planoAtual.limite} liberadas neste nível.`
-              : 'Entre para ver seu plano ativo e avaliar upgrades.'}
+              ? owner
+                ? 'Conta proprietária com todos os recursos liberados.'
+                : `${planoAtual.limite} liberadas neste nível.`
+              : 'Entre para ver seu plano ativo e assinar melhorias.'}
           </p>
         </div>
       </section>
+
+      {billingError && (
+        <div className="mt-5 rounded-lg border border-vermelho/40 bg-vermelho/10 p-3 text-sm text-vermelho">
+          {billingError}
+        </div>
+      )}
 
       <section className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {PLANOS.map((plano) => {
           const isAtual = user?.plan === plano.key
           const isUpgrade = user ? planRank(plano.key) > currentRank : plano.key !== 'fiel'
-          const ctaHref = user ? '/perfil' : plano.key === 'fiel' ? '/cadastro' : '/login?redirect=/planos'
+          const isPaid = plano.key !== 'fiel'
+          const loading = busyPlan === plano.key
 
           return (
             <article
@@ -172,16 +241,14 @@ export default function PlanosPage() {
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-texto-terciario">
                     {plano.indicado}
                   </p>
-                  <h2 className="mt-2 font-eb-garamond text-2xl text-texto">
+                  <h2 className="mt-2 font-garamond text-2xl text-texto">
                     {plano.nome}
                   </h2>
                 </div>
                 {(isAtual || plano.destaque) && (
                   <span
                     className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-                      isAtual
-                        ? 'bg-dourado text-fundo'
-                        : 'border border-dourado/30 text-dourado'
+                      isAtual ? 'bg-dourado text-fundo' : 'border border-dourado/30 text-dourado'
                     }`}
                   >
                     {isAtual ? 'Atual' : 'Popular'}
@@ -191,7 +258,7 @@ export default function PlanosPage() {
 
               <div className="mt-5 border-b border-fundo-borda pb-4">
                 <div className="flex items-end gap-1">
-                  <span className="font-eb-garamond text-3xl font-semibold text-dourado">
+                  <span className="font-garamond text-3xl font-semibold text-dourado">
                     {plano.preco}
                   </span>
                   {plano.periodicidade && (
@@ -225,18 +292,49 @@ export default function PlanosPage() {
                 ))}
               </ul>
 
-              <Link
-                href={ctaHref}
-                className={`mt-5 rounded-md px-3 py-2.5 text-center text-xs font-medium transition-colors ${
-                  isAtual
-                    ? 'border border-dourado/40 text-dourado hover:bg-dourado hover:text-fundo'
-                    : plano.destaque || isUpgrade
+              {!user ? (
+                <Link
+                  href={plano.key === 'fiel' ? '/cadastro' : '/login?redirect=/planos'}
+                  className={`mt-5 rounded-md px-3 py-2.5 text-center text-xs font-medium transition-colors ${
+                    plano.destaque || isUpgrade
                       ? 'bg-dourado text-fundo hover:bg-dourado-claro'
                       : 'border border-fundo-borda text-texto-secundario hover:border-dourado hover:text-dourado'
-                }`}
-              >
-                {isAtual ? 'Gerenciar no perfil' : user ? 'Avaliar upgrade' : plano.key === 'fiel' ? 'Criar conta' : 'Entrar para avaliar'}
-              </Link>
+                  }`}
+                >
+                  {plano.key === 'fiel' ? 'Criar conta' : 'Entrar para assinar'}
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (owner || isAtual) {
+                      if (hasActiveBilling && !owner) void handleManageBilling()
+                      return
+                    }
+                    if (isPaid) void handleSubscribe(plano.key)
+                  }}
+                  disabled={owner || !isPaid || loading || (isAtual && !hasActiveBilling)}
+                  className={`mt-5 rounded-md px-3 py-2.5 text-center text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-60 ${
+                    isAtual
+                      ? 'border border-dourado/40 text-dourado hover:bg-dourado hover:text-fundo'
+                      : plano.destaque || isUpgrade
+                        ? 'bg-dourado text-fundo hover:bg-dourado-claro'
+                        : 'border border-fundo-borda text-texto-secundario hover:border-dourado hover:text-dourado'
+                  }`}
+                >
+                  {owner
+                    ? 'Liberado'
+                    : loading
+                      ? 'Abrindo...'
+                      : isAtual
+                        ? hasActiveBilling
+                          ? 'Gerenciar assinatura'
+                          : 'Plano atual'
+                        : isPaid
+                          ? 'Assinar mensalmente'
+                          : 'Plano gratuito'}
+                </button>
+              )}
             </article>
           )
         })}
@@ -246,16 +344,16 @@ export default function PlanosPage() {
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.18em] text-texto-terciario">
-              Regras comerciais
+              Cobrança
             </p>
-            <h2 className="mt-2 font-eb-garamond text-xl text-texto">
-              Upgrade sem surpresa
+            <h2 className="mt-2 font-garamond text-xl text-texto">
+              Mensal e cancelável
             </h2>
           </div>
           <p className="text-xs leading-relaxed text-texto-terciario sm:col-span-2">
-            Os limites e recursos já estão refletidos no app. A cobrança/checkout ainda
-            depende de integração externa, então o perfil concentra a avaliação do plano
-            atual, favoritos e recursos liberados.
+            O checkout cria uma assinatura mensal segura. O cancelamento e a troca de
+            forma de pagamento ficam no portal de cobrança; quando o provedor confirma
+            pagamento ou cancelamento por webhook, o plano da conta é atualizado.
           </p>
         </div>
       </section>

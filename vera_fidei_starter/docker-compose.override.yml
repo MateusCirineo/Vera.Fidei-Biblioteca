@@ -1,3 +1,16 @@
-networks:
-  npm_network:
-    external: false
+services:
+  nginx:
+    ports:
+      -  127.0.0.1:8081:80
+  backend:
+    environment:
+      PDF_STORAGE: gdrive
+      PDF_CACHE_DIR: /tmp/vera_fidei_pdf_cache
+      PDF_CACHE_MAX_GB: 5
+      GDRIVE_REMOTE: vera_drive
+      GDRIVE_PREFIX: vera-fidei/pdfs
+      RCLONE_BIN: rclone
+      VERA_RCLONE_TIMEOUT: "900"
+      RCLONE_CONFIG: /app/rclone/rclone.conf
+    volumes:
+      - ./backend/rclone:/app/rclone

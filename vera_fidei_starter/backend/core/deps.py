@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from core.plans import ensure_owner_access, has_min_plan
 from core.security import decode_token
 from models.database import SessionLocal, User
 
@@ -14,6 +15,9 @@ def _get_db() -> Session:
 def _get_user_by_id(user_id: int) -> User:
     with _get_db() as db:
         user = db.get(User, user_id)
+        if user and ensure_owner_access(user):
+            db.commit()
+            db.refresh(user)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado ou inativo.")
     return user
@@ -39,14 +43,11 @@ def get_optional_user(authorization: str = Header(default="")) -> User | None:
     return _get_user_by_id(user_id)
 
 
-PLAN_ORDER = ["fiel", "catequista", "apologeta", "patristico", "magisterio"]
-
-
 def require_min_plan(min_plan: str):
     from fastapi import Depends
 
     def _check(user: User = Depends(get_current_user)) -> User:
-        if PLAN_ORDER.index(user.plan) < PLAN_ORDER.index(min_plan):
+        if not has_min_plan(user.plan, min_plan):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requer plano '{min_plan}' ou superior.",

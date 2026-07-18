@@ -1,19 +1,34 @@
 'use client'
 
-import { Suspense, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { login } from '@/lib/auth'
+import { useSearchParams } from 'next/navigation'
+import AuthShell from '@/components/auth/AuthShell'
+import { getUser, login } from '@/lib/auth'
+
+function safeRedirectPath(value: string | null) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) {
+    return '/perfil'
+  }
+  return value
+}
 
 function LoginForm() {
-  const router = useRouter()
   const params = useSearchParams()
-  const redirect = params.get('redirect') ?? '/verificador'
+  const redirect = safeRedirectPath(params.get('redirect'))
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    setReady(true)
+    getUser().then((user) => {
+      if (user) window.location.replace(redirect)
+    })
+  }, [redirect])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -21,10 +36,9 @@ function LoginForm() {
     setLoading(true)
     try {
       await login(email, password)
-      router.push(redirect)
+      window.location.assign(redirect)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao entrar')
-    } finally {
       setLoading(false)
     }
   }
@@ -32,23 +46,25 @@ function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
-        <label className="text-xs text-texto-secundario mb-1 block">E-mail</label>
+        <label className="mb-1 block text-xs text-texto-secundario">E-mail</label>
         <input
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full bg-fundo-card border border-fundo-borda rounded-lg px-3 py-2 text-sm text-texto focus:outline-none focus:border-dourado"
+          autoComplete="email"
+          className="w-full rounded-lg border border-fundo-borda bg-fundo px-3 py-2.5 text-sm text-texto transition-colors placeholder:text-texto-terciario focus:border-dourado focus:outline-none"
         />
       </div>
       <div>
-        <label className="text-xs text-texto-secundario mb-1 block">Senha</label>
+        <label className="mb-1 block text-xs text-texto-secundario">Senha</label>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          className="w-full bg-fundo-card border border-fundo-borda rounded-lg px-3 py-2 text-sm text-texto focus:outline-none focus:border-dourado"
+          autoComplete="current-password"
+          className="w-full rounded-lg border border-fundo-borda bg-fundo px-3 py-2.5 text-sm text-texto transition-colors placeholder:text-texto-terciario focus:border-dourado focus:outline-none"
         />
       </div>
 
@@ -56,10 +72,10 @@ function LoginForm() {
 
       <button
         type="submit"
-        disabled={loading}
-        className="bg-dourado text-fundo font-medium text-sm rounded-lg py-2.5 hover:bg-dourado/90 transition-colors disabled:opacity-50"
+        disabled={loading || !ready}
+        className="rounded-lg bg-dourado py-2.5 text-sm font-medium text-fundo transition-colors hover:bg-dourado-claro disabled:opacity-50"
       >
-        {loading ? 'Entrando…' : 'Entrar'}
+        {!ready ? 'Carregando...' : loading ? 'Entrando...' : 'Entrar'}
       </button>
     </form>
   )
@@ -67,22 +83,21 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <h1 className="font-eb-garamond text-3xl text-dourado text-center mb-2">Vera.Fidei</h1>
-        <p className="text-texto-terciario text-sm text-center mb-8">Entre na sua conta</p>
-
-        <Suspense fallback={null}>
-          <LoginForm />
-        </Suspense>
-
-        <p className="text-center text-xs text-texto-terciario mt-6">
-          Não tem conta?{' '}
+    <AuthShell
+      title="Entre na sua conta"
+      subtitle={<>Acesse seu perfil, hist&oacute;rico e verifica&ccedil;&otilde;es salvas.</>}
+      footer={
+        <p className="text-center text-xs text-texto-terciario">
+          N&atilde;o tem conta?{' '}
           <Link href="/cadastro" className="text-dourado hover:underline">
             Cadastre-se
           </Link>
         </p>
-      </div>
-    </div>
+      }
+    >
+      <Suspense fallback={<p className="py-8 text-center text-sm text-texto-terciario">Carregando...</p>}>
+        <LoginForm />
+      </Suspense>
+    </AuthShell>
   )
 }

@@ -1,7 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getUser, getInstituicao, criarInstituicao, convidarMembro, getRelatorio } from '@/lib/auth'
+import {
+  atualizarPapelMembro,
+  getUser,
+  getInstituicao,
+  getMembrosInstituicao,
+  criarInstituicao,
+  convidarMembro,
+  getRelatorio,
+  removerMembro,
+} from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 
 interface Membro {
@@ -26,6 +35,14 @@ interface Relatorio {
   period: string
   total_verificacoes: number
   distribuicao_vereditos: Record<string, number>
+  membros?: Array<{
+    user_id: number
+    name: string | null
+    email: string | null
+    role: string
+    total_verificacoes: number
+    distribuicao_vereditos: Record<string, number>
+  }>
 }
 
 const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
@@ -34,6 +51,7 @@ export default function PainelPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [accessDenied, setAccessDenied] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
 
   const [inst, setInst] = useState<Instituicao | null>(null)
   const [membros, setMembros] = useState<Membro[]>([])
@@ -50,6 +68,7 @@ export default function PainelPage() {
   const [convidando, setConvidando] = useState(false)
   const [conviteMsg, setConviteMsg] = useState('')
   const [conviteError, setConviteError] = useState('')
+  const [memberAction, setMemberAction] = useState<number | null>(null)
 
   useEffect(() => {
     getUser().then((u) => {
@@ -62,6 +81,7 @@ export default function PainelPage() {
         setLoading(false)
         return
       }
+      setCurrentUserId(u.id)
       setLoading(false)
       loadInstitution()
     })
@@ -72,12 +92,7 @@ export default function PainelPage() {
     try {
       const [instData, membrosData, relData] = await Promise.allSettled([
         getInstituicao(),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/instituicao/membros`, {
-          headers: {
-            Authorization: `Bearer ${document.cookie.match(/vf_token=([^;]*)/)?.[1] ?? ''}`,
-            'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '',
-          },
-        }).then((r) => (r.ok ? r.json() : Promise.reject())),
+        getMembrosInstituicao(),
         getRelatorio(),
       ])
 
@@ -98,8 +113,10 @@ export default function PainelPage() {
     try {
       const data = await criarInstituicao(nomeInst.trim())
       setInst(data)
+      setMembros([])
+      setRelatorio(null)
       setNomeInst('')
-      await loadInstitution()
+      void loadInstitution()
     } catch (e: unknown) {
       setCreateError(e instanceof Error ? e.message : 'Erro ao criar instituição.')
     } finally {
@@ -121,6 +138,31 @@ export default function PainelPage() {
       setConviteError(e instanceof Error ? e.message : 'Erro ao convidar membro.')
     } finally {
       setConvidando(false)
+    }
+  }
+
+  async function handleRoleChange(memberId: number, role: string) {
+    setMemberAction(memberId)
+    try {
+      await atualizarPapelMembro(memberId, role)
+      await loadInstitution()
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao atualizar membro.')
+    } finally {
+      setMemberAction(null)
+    }
+  }
+
+  async function handleRemover(memberId: number) {
+    if (!confirm('Remover este membro da instituição?')) return
+    setMemberAction(memberId)
+    try {
+      await removerMembro(memberId)
+      await loadInstitution()
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao remover membro.')
+    } finally {
+      setMemberAction(null)
     }
   }
 
@@ -203,6 +245,7 @@ export default function PainelPage() {
                       <th className="text-left pb-2 font-normal">Nome</th>
                       <th className="text-left pb-2 font-normal">E-mail</th>
                       <th className="text-left pb-2 font-normal">Papel</th>
+                      <th className="text-right pb-2 font-normal">Ações</th>
                       <th className="text-left pb-2 font-normal">Entrou em</th>
                     </tr>
                   </thead>
@@ -211,7 +254,27 @@ export default function PainelPage() {
                       <tr key={m.id}>
                         <td className="py-2 text-texto pr-3">{m.name ?? '—'}</td>
                         <td className="py-2 text-texto-secundario pr-3">{m.email ?? '—'}</td>
-                        <td className="py-2 text-texto-terciario pr-3 capitalize">{m.role}</td>
+                        <td className="py-2 text-texto-terciario pr-3">
+                          <select
+                            value={m.role}
+                            disabled={memberAction === m.id || m.user_id === currentUserId}
+                            onChange={(event) => void handleRoleChange(m.id, event.target.value)}
+                            className="rounded-md border border-fundo-borda bg-fundo px-2 py-1 text-xs text-texto focus:border-dourado focus:outline-none disabled:opacity-50"
+                          >
+                            <option value="membro">Membro</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </td>
+                        <td className="py-2 text-right pr-3">
+                          <button
+                            type="button"
+                            disabled={memberAction === m.id || m.user_id === currentUserId}
+                            onClick={() => void handleRemover(m.id)}
+                            className="text-xs text-vermelho transition-colors hover:text-dourado disabled:cursor-default disabled:opacity-40"
+                          >
+                            Remover
+                          </button>
+                        </td>
                         <td className="py-2 text-texto-terciario">
                           {m.joined_at ? new Date(m.joined_at).toLocaleDateString('pt-BR') : '—'}
                         </td>
@@ -278,6 +341,36 @@ export default function PainelPage() {
                 </table>
               ) : (
                 <p className="text-xs text-texto-terciario">Nenhuma verificação este mês.</p>
+              )}
+
+              {relatorio.membros && relatorio.membros.length > 0 && (
+                <div className="mt-5 border-t border-fundo-borda pt-4">
+                  <h3 className="mb-3 text-sm font-medium text-texto">Uso por membro</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-fundo-borda text-texto-terciario">
+                          <th className="pb-2 pr-3 text-left font-normal">Membro</th>
+                          <th className="pb-2 pr-3 text-left font-normal">Papel</th>
+                          <th className="pb-2 text-right font-normal">Verificações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-fundo-borda">
+                        {relatorio.membros.map((membro) => (
+                          <tr key={membro.user_id}>
+                            <td className="py-2 pr-3 text-texto">
+                              {membro.name ?? membro.email ?? 'Sem nome'}
+                            </td>
+                            <td className="py-2 pr-3 text-texto-terciario capitalize">{membro.role}</td>
+                            <td className="py-2 text-right text-texto-secundario">
+                              {membro.total_verificacoes}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
             </div>
           )}

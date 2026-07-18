@@ -1,0 +1,46 @@
+{
+  "source_folder_id": "18LHL3KL3suwXDAwUdwVeX0AtqRv0HpzH",
+  "total_pdfs": 5,
+  "rows": [
+    {
+      "path": "Catena Aurea Vol 4 - Evangelho de São João - Santo Tomas de Aquino",
+      "name": "Catena Aurea Vol 4 - Evangelho de São João - Santo Tomas de Aquino.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 4094149,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Catena Aurea Vol 3 - Evangelho de São Lucas - Santo Tomas de Aquino",
+      "name": "Catena Aurea Vol 3 - Evangelho de São Lucas - Santo Tomas de Aquino.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 4898027,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Catena Aurea Vol 2 - Evangelho de São Marcos - Santo Tomas de Aquino",
+      "name": "Catena Aurea Vol 2 - Evangelho de São Marcos - Santo Tomas de Aquino.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 2954154,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Catena Aurea Vol 1 - Evangelho de São Mateus - Santo Tomas de Aquino",
+      "name": "Catena Aurea Vol 1 - Evangelho de São Mateus - Santo Tomas de Aquino.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 5628597,
+      "action": "importar",
+      "duplicate": false
+    },
+    {
+      "path": "Tradução boa/São Mateus 01 - Catena Aurea.pdf",
+      "name": "São Mateus 01 - Catena Aurea.pdf",
+      "top_folder": "Santo Tomás de Aquino",
+      "size": 4423972,
+      "action": "revisar",
+      "duplicate": false
+    }
+  ]
+}

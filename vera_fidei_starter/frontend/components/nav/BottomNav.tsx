@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 const tabs = [
   {
     href: '/apresentacao',
-    label: 'Apresentação',
+    label: 'Início',
     icon: (active: boolean) => (
       <svg
         viewBox="0 0 24 24"
@@ -105,25 +105,6 @@ const tabs = [
     ),
   },
   {
-    href: '/historico',
-    label: 'Histórico',
-    icon: (active: boolean) => (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={active ? 2 : 1.5}
-        className="w-6 h-6"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"
-        />
-      </svg>
-    ),
-  },
-  {
     href: '/perfil',
     label: 'Perfil',
     icon: (active: boolean) => (
@@ -149,14 +130,15 @@ export default function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-fundo-borda bg-fundo-card/95 backdrop-blur">
-      <div className="flex items-stretch overflow-x-auto">
+      <div className="grid grid-cols-6 items-stretch">
         {tabs.map((tab) => {
           const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           return (
             <Link
               key={tab.href}
               href={tab.href}
-              className={`flex min-w-[4.25rem] flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[10px] transition-colors sm:min-w-0 sm:py-3 sm:text-xs ${
+              prefetch={false}
+              className={`flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 text-[10px] transition-colors sm:py-3 sm:text-xs ${
                 active
                   ? 'text-dourado'
                   : 'text-texto-terciario hover:text-texto-secundario'

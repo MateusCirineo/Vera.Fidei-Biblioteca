@@ -15,6 +15,20 @@ export interface MatchReference {
   pdf_file_id: number | null
 }
 
+export interface VerificationUsage {
+  plan: string
+  limit: number | null
+  used: number
+  remaining: number | null
+  period_start: string
+  resets_at: string
+  reset_seconds: number
+  percent_used: number
+  threshold: 'half' | 'almost' | 'full' | null
+  message: string | null
+  blocked: boolean
+}
+
 export type StatusCode =
   | 'CONFIRMADA_EXATA'
   | 'ATRIBUICAO_DUVIDOSA'
@@ -42,6 +56,9 @@ export interface VerifyCitationResponse {
   translation_fidelity: 'fiel' | 'imprecisa' | 'nao_encontrada' | null
   translator: string | null
   translation_edition: string | null
+  variant_analysis: string | null
+  history_id?: number | null
+  quota?: VerificationUsage | null
 }
 
 export interface BookFile {
@@ -95,6 +112,39 @@ export interface Book {
   document_year: number | null
   is_ecumenical: boolean | null
   document_status: string | null
+  volume_number: number | null
+  ingest_status?: string | null
+  ingest_error?: string | null
+}
+
+export type FavoriteKind = 'book' | 'prayer'
+
+export interface FavoriteItem {
+  id: number
+  kind: FavoriteKind
+  item_id: string
+  title: string
+  subtitle: string | null
+  href: string
+  source: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface FavoriteListResponse {
+  items: FavoriteItem[]
+  total: number
+}
+
+export interface FavoritePayload {
+  kind: FavoriteKind
+  item_id: string
+  title: string
+  subtitle?: string | null
+  href: string
+  source?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 // ─── Catálogo de autores (API /authors/catalog) ───────────────────────────────

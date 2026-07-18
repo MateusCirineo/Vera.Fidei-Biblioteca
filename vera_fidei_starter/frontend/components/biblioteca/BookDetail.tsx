@@ -1,11 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import FavoriteButton from '@/components/favorites/FavoriteButton'
+import { getUser, type UserInfo } from '@/lib/auth'
 import type { Book } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
+import { publisherForBook, UNKNOWN_PUBLISHER } from '@/lib/publisher'
+
+const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
+
+function hasPlan(userPlan: string | undefined, min: string): boolean {
+  if (!userPlan) return false
+  return PLAN_ORDER.indexOf(userPlan) >= PLAN_ORDER.indexOf(min)
+}
 
 function sourceNameFor(book: Book): string {
+  const publisher = publisherForBook(book, book.canonical_author ?? book.author)
+  if (publisher !== UNKNOWN_PUBLISHER) return publisher
   return book.source_label || book.edition_label || 'Fonte cadastrada'
 }
 
@@ -27,8 +39,11 @@ function metaValue(value: string | number | null | undefined): string {
 
 export default function BookDetail({ book }: { book: Book }) {
   const [copied, setCopied] = useState(false)
+  const [user, setUser] = useState<UserInfo | null>(null)
   const hasPdf = (book.files?.length ?? 0) > 0
   const isIndexed = (book.chunk_count ?? 0) > 0
+  const canOpenPdf = hasPlan(user?.plan, 'apologeta')
+  const lockedPdfHref = user ? '/planos' : `/login?redirect=/biblioteca/${book.id}`
   const sourceName = sourceNameFor(book)
   const referenceLine = referenceLineFor(book)
   const referenceItems = [
@@ -52,6 +67,16 @@ export default function BookDetail({ book }: { book: Book }) {
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1800)
   }
+
+  useEffect(() => {
+    let active = true
+    getUser().then((currentUser) => {
+      if (active) setUser(currentUser)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -96,6 +121,22 @@ export default function BookDetail({ book }: { book: Book }) {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <FavoriteButton
+              payload={{
+                kind: 'book',
+                item_id: String(book.id),
+                title: book.title,
+                subtitle: [book.author, book.edition_label || book.source_label].filter(Boolean).join(' - ') || null,
+                href: `/biblioteca/${book.id}`,
+                source: book.collection || book.source_label || undefined,
+                metadata: {
+                  author: book.author,
+                  collection: book.collection,
+                  language: book.language,
+                },
+              }}
+              compact
+            />
             <button
               type="button"
               onClick={copyReference}
@@ -177,12 +218,21 @@ export default function BookDetail({ book }: { book: Book }) {
                     <span>{new Date(file.created_at).toLocaleDateString('pt-BR')}</span>
                   </div>
                 </div>
-                <Link
-                  href={`/visualizar/${file.id}`}
-                  className="shrink-0 rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
-                >
-                  Ler PDF
-                </Link>
+                {canOpenPdf ? (
+                  <Link
+                    href={`/visualizar/${file.id}`}
+                    className="shrink-0 rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
+                  >
+                    Ler PDF
+                  </Link>
+                ) : (
+                  <Link
+                    href={lockedPdfHref}
+                    className="shrink-0 rounded-md border border-fundo-borda px-3 py-1.5 text-xs font-medium text-texto-terciario transition-colors hover:border-dourado hover:text-dourado"
+                  >
+                    {user ? 'PDF no Apologeta' : 'Entrar para ler'}
+                  </Link>
+                )}
               </div>
             ))}
           </div>

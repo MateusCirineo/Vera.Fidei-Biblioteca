@@ -1,6 +1,7 @@
 'use client'
 
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import FavoriteButton from '@/components/favorites/FavoriteButton'
 
 type PrayerVersion = {
   lang: 'Português' | 'Latim' | 'Inglês'
@@ -29,6 +30,8 @@ interface OracoesViewProps {
   sourceUrl?: string
   latestModified?: string
   isFallback: boolean
+  initialGroupCode?: string
+  initialPrayerId?: string
 }
 
 function BackButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
@@ -44,7 +47,7 @@ function BackButton({ children, onClick }: { children: ReactNode; onClick: () =>
   )
 }
 
-function PrayerDetail({ item }: { item: PrayerItem }) {
+function PrayerDetail({ group, item }: { group: PrayerGroup; item: PrayerItem }) {
   const [selectedLang, setSelectedLang] = useState<PrayerVersion['lang']>(
     item.versions[0]?.lang ?? 'Português'
   )
@@ -52,24 +55,38 @@ function PrayerDetail({ item }: { item: PrayerItem }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {item.versions.map(version => {
-          const isActive = selectedLang === version.lang
-          return (
-            <button
-              key={version.lang}
-              type="button"
-              onClick={() => setSelectedLang(version.lang)}
-              className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors ${
-                isActive
-                  ? 'border-dourado/40 bg-dourado/15 text-dourado'
-                  : 'border-fundo-borda bg-fundo-card text-texto-terciario hover:border-dourado/30 hover:text-texto'
-              }`}
-            >
-              {version.lang}
-            </button>
-          )
-        })}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {item.versions.map(version => {
+            const isActive = selectedLang === version.lang
+            return (
+              <button
+                key={version.lang}
+                type="button"
+                onClick={() => setSelectedLang(version.lang)}
+                className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  isActive
+                    ? 'border-dourado/40 bg-dourado/15 text-dourado'
+                    : 'border-fundo-borda bg-fundo-card text-texto-terciario hover:border-dourado/30 hover:text-texto'
+                }`}
+              >
+                {version.lang}
+              </button>
+            )
+          })}
+        </div>
+        <FavoriteButton
+          payload={{
+            kind: 'prayer',
+            item_id: item.id,
+            title: item.title,
+            subtitle: group.title,
+            href: `/oracoes?grupo=${encodeURIComponent(group.code)}&oracao=${encodeURIComponent(item.id)}`,
+            source: item.source || group.title,
+            metadata: { group: group.code },
+          }}
+          compact
+        />
       </div>
 
       <div className="rounded-md border border-fundo-borda bg-fundo-card px-3 py-3">
@@ -97,11 +114,28 @@ export default function OracoesView({
   sourceUrl,
   latestModified,
   isFallback,
+  initialGroupCode,
+  initialPrayerId,
 }: OracoesViewProps) {
-  const [activeCode, setActiveCode] = useState<string | null>(null)
-  const [activePrayerId, setActivePrayerId] = useState<string | null>(null)
+  const initialGroup = groups.find(group => group.code === initialGroupCode) ?? null
+  const [activeCode, setActiveCode] = useState<string | null>(initialGroup?.code ?? null)
+  const [activePrayerId, setActivePrayerId] = useState<string | null>(initialGroup ? (initialPrayerId ?? null) : null)
   const activeGroup = groups.find(group => group.code === activeCode) ?? null
   const activePrayer = activeGroup?.items.find(item => item.id === activePrayerId) ?? null
+
+  useEffect(() => {
+    if (initialGroupCode || typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const groupCode = params.get('grupo')
+    if (!groupCode) return
+
+    const group = groups.find(item => item.code === groupCode)
+    if (!group) return
+
+    setActiveCode(group.code)
+    setActivePrayerId(params.get('oracao'))
+  }, [groups, initialGroupCode])
 
   const totalPrayers = groups.reduce((sum, group) => sum + group.items.length, 0)
   const totalVersions = groups.reduce(
@@ -249,7 +283,7 @@ export default function OracoesView({
               {activeGroup.title}
             </p>
           </div>
-          <PrayerDetail item={activePrayer} />
+          <PrayerDetail group={activeGroup} item={activePrayer} />
         </section>
       )}
 

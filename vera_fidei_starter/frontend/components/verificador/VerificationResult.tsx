@@ -79,6 +79,7 @@ export default function VerificationResult({
                   reference={result.reference}
                   quote={originalQuery ?? undefined}
                   fallbackQuote={result.matched_excerpt ?? undefined}
+                  canOpenPdf={hasPlan(userPlan, 'apologeta')}
                 />
               ) : (
                 <>
@@ -86,6 +87,7 @@ export default function VerificationResult({
                     reference={result.reference}
                     quote={originalQuery ?? undefined}
                     fallbackQuote={result.matched_excerpt ?? undefined}
+                    canOpenPdf={hasPlan(userPlan, 'apologeta')}
                   />
                   <p className="text-xs text-texto-terciario pl-1">
                     Fonte primária não disponível no acervo atual.
@@ -98,6 +100,21 @@ export default function VerificationResult({
       )}
 
       {/* Aviso de upgrade quando contexto/tradução estão bloqueados */}
+      {result.status_code !== 'NAO_ENCONTRADA' && !hasPlan(userPlan, 'catequista') && (
+        <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 flex items-start gap-3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5 text-dourado flex-shrink-0 mt-0.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-texto mb-0.5">Referência exata e laudo em PDF</p>
+            <p className="text-xs text-texto-terciario leading-relaxed">
+              Página, edição, trecho localizado e laudo de verificação ficam disponíveis no plano{' '}
+              <Link href="/planos" className="text-dourado hover:underline">Catequista</Link>.
+            </p>
+          </div>
+        </div>
+      )}
+
       {result.status_code !== 'NAO_ENCONTRADA' && result.matched_excerpt && !hasPlan(userPlan, 'apologeta') && (
         <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 flex items-start gap-3">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5 text-dourado flex-shrink-0 mt-0.5">
@@ -161,6 +178,17 @@ export default function VerificationResult({
               <blockquote className="border-l-2 border-dourado/50 pl-3 text-sm text-texto-secundario leading-relaxed">
                 {result.matched_translation}
               </blockquote>
+            </div>
+          )}
+
+          {result.variant_analysis && (
+            <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-texto-terciario">
+                Análise de tradução e variação textual
+              </p>
+              <p className="text-sm text-texto-secundario leading-relaxed">
+                {result.variant_analysis}
+              </p>
             </div>
           )}
         </div>

@@ -25,6 +25,24 @@ class Settings(BaseSettings):
     jwt_secret: str = "CHANGE_ME_IN_PRODUCTION"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 dias
+    owner_email: str = "mateuscirineo@gmail.com"
+    site_url: str = "https://verafidei.oialfred.com"
+    usage_reset_timezone: str = "America/Sao_Paulo"
+
+    # Billing
+    billing_provider: str = "stripe"
+    billing_recipient_name: str = ""
+    billing_recipient_bank: str = ""
+    billing_recipient_pix_key: str = ""
+    billing_pix_payload: str = ""
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_portal_configuration_id: str = ""
+    stripe_payment_method_types: str = "card,pix"
+    stripe_price_catequista: str = ""
+    stripe_price_apologeta: str = ""
+    stripe_price_patristico: str = ""
+    stripe_price_magisterio: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
