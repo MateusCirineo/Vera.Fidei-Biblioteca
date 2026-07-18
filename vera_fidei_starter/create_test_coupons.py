@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--name", default=None, help="Nome descritivo do coupon no Stripe")
     parser.add_argument("--sequential", action="store_true", help="Gerar COLEGIO01, COLEGIO02... em vez de aleatorio")
     parser.add_argument("--out", default=None, help="Arquivo CSV de saida. Padrao: coupons/coupons_<prefix>_<data>.csv")
+    parser.add_argument("--coupon-id", default=None, help="Usa um coupon Stripe existente e cria apenas os codigos promocionais")
     return parser.parse_args()
 
 
@@ -113,15 +114,21 @@ def main() -> None:
     mode_label = "TESTE" if is_test else "PRODUCAO"
     prefix = args.prefix.strip().upper()
 
-    print(f"\n{mode_label} - Criando coupon no Stripe...")
+    print(f"\n{mode_label} - Preparando coupon no Stripe...")
     print(f"  Desconto : {args.percent}%")
     print(f"  Duracao  : {duration_label}")
     mode = "sequenciais" if args.sequential else "aleatorios"
     print(f"  Codigos  : {args.count} codigos {mode} com prefixo {prefix}")
     print("  Uso      : 1 vez por codigo\n")
 
-    coupon = stripe.Coupon.create(**coupon_args)
-    print(f"Coupon criado: {coupon['id']}\n")
+    if args.coupon_id:
+        coupon_id = args.coupon_id.strip()
+        stripe.Coupon.retrieve(coupon_id)
+        print(f"Coupon existente: {coupon_id}\n")
+    else:
+        coupon = stripe.Coupon.create(**coupon_args)
+        coupon_id = coupon["id"]
+        print(f"Coupon criado: {coupon_id}\n")
 
     output_path = Path(args.out) if args.out else Path("coupons") / f"coupons_{prefix.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +138,10 @@ def main() -> None:
     print("-" * 45)
     for code in generate_codes(prefix, args.count, args.sequential):
         promo = stripe.PromotionCode.create(
-            coupon=coupon["id"],
+            promotion={
+                "type": "coupon",
+                "coupon": coupon_id,
+            },
             code=code,
             max_redemptions=1,
         )
@@ -139,7 +149,7 @@ def main() -> None:
             {
                 "code": promo["code"],
                 "promotion_code_id": promo["id"],
-                "coupon_id": coupon["id"],
+                "coupon_id": coupon_id,
                 "percent_off": args.percent,
                 "duration": duration_label,
                 "max_redemptions": 1,
