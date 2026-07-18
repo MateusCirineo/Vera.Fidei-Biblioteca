@@ -1,5 +1,6 @@
 import UploadForm from '@/components/admin/UploadForm'
 import BookList from '@/components/admin/BookList'
+import CouponList from '@/components/admin/CouponList'
 
 export default function AdminPage() {
   return (
@@ -18,6 +19,10 @@ export default function AdminPage() {
 
       <div className="border-t border-fundo-borda pt-8">
         <BookList />
+      </div>
+
+      <div className="border-t border-fundo-borda pt-8">
+        <CouponList />
       </div>
     </div>
   )

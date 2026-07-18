@@ -5,7 +5,7 @@ import secrets
 from typing import Any
 
 import stripe
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from core.auth import require_api_key
@@ -64,6 +64,33 @@ class PixRequestResponse(BaseModel):
     created_at: datetime.datetime
 
 
+class AdminCouponResponse(BaseModel):
+    id: str
+    code: str
+    active: bool
+    status: str
+    status_label: str
+    percent_off: float | None = None
+    amount_off: int | None = None
+    currency: str | None = None
+    duration: str | None = None
+    times_redeemed: int
+    max_redemptions: int | None = None
+    created_at: datetime.datetime | None = None
+
+
+class AdminCouponsResponse(BaseModel):
+    mode: str
+    prefix: str
+    total: int
+    available_count: int
+    used_count: int
+    inactive_count: int
+    available: list[AdminCouponResponse]
+    used: list[AdminCouponResponse]
+    inactive: list[AdminCouponResponse]
+
+
 def _site_url() -> str:
     return settings.site_url.rstrip("/")
 
@@ -98,6 +125,14 @@ def _configure_stripe() -> None:
             detail="Stripe ainda não configurado. Defina STRIPE_SECRET_KEY e os price IDs mensais.",
         )
     stripe.api_key = settings.stripe_secret_key
+
+
+def _require_owner_admin(current_user: User) -> None:
+    if not is_owner_email(current_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito ao administrador do Vera.Fidei.",
+        )
 
 
 def _payment_method_types() -> list[str] | None:
@@ -160,6 +195,39 @@ def _timestamp_to_datetime(value: Any) -> datetime.datetime | None:
         return datetime.datetime.fromtimestamp(int(value), datetime.timezone.utc).replace(tzinfo=None)
     except (TypeError, ValueError, OSError):
         return None
+
+
+def _coupon_payload_from_promotion_code(item: Any) -> AdminCouponResponse:
+    coupon = item.get("coupon") or ((item.get("promotion") or {}).get("coupon") or {})
+    max_redemptions = item.get("max_redemptions")
+    times_redeemed = int(item.get("times_redeemed") or 0)
+    active = bool(item.get("active"))
+    exhausted = max_redemptions is not None and times_redeemed >= int(max_redemptions)
+
+    if active and not exhausted:
+        status_value = "available"
+        status_label = "Disponivel"
+    elif exhausted:
+        status_value = "used"
+        status_label = "Usado"
+    else:
+        status_value = "inactive"
+        status_label = "Inativo"
+
+    return AdminCouponResponse(
+        id=item["id"],
+        code=item["code"],
+        active=active,
+        status=status_value,
+        status_label=status_label,
+        percent_off=coupon.get("percent_off"),
+        amount_off=coupon.get("amount_off"),
+        currency=coupon.get("currency"),
+        duration=coupon.get("duration"),
+        times_redeemed=times_redeemed,
+        max_redemptions=max_redemptions,
+        created_at=_timestamp_to_datetime(item.get("created")),
+    )
 
 
 def _ensure_customer(db, user: User) -> str:
@@ -353,6 +421,61 @@ def create_portal_session(current_user: User = Depends(get_current_user)) -> Bil
             return BillingUrlResponse(url=_portal_url(user.billing_customer_id))
         except stripe.error.StripeError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get("/admin/coupons", response_model=AdminCouponsResponse, dependencies=[Depends(require_api_key)])
+def list_admin_coupons(
+    prefix: str = Query(default="COLEGIO", max_length=40),
+    limit: int = Query(default=100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+) -> AdminCouponsResponse:
+    _require_owner_admin(current_user)
+    _configure_stripe()
+
+    clean_prefix = prefix.strip().upper()
+    mode = "teste" if settings.stripe_secret_key.startswith("sk_test_") else "producao"
+
+    try:
+        collected: list[AdminCouponResponse] = []
+        params: dict[str, Any] = {"limit": min(limit, 100)}
+        has_more = True
+        starting_after: str | None = None
+
+        while has_more and len(collected) < limit:
+            if starting_after:
+                params["starting_after"] = starting_after
+            page = stripe.PromotionCode.list(**params)
+            data = page.get("data") or []
+            for item in data:
+                code = str(item.get("code") or "").upper()
+                if clean_prefix and not code.startswith(clean_prefix):
+                    continue
+                collected.append(_coupon_payload_from_promotion_code(item))
+                if len(collected) >= limit:
+                    break
+            has_more = bool(page.get("has_more")) and bool(data)
+            if data:
+                starting_after = data[-1]["id"]
+            else:
+                break
+    except stripe.error.StripeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    available = [coupon for coupon in collected if coupon.status == "available"]
+    used = [coupon for coupon in collected if coupon.status == "used"]
+    inactive = [coupon for coupon in collected if coupon.status == "inactive"]
+
+    return AdminCouponsResponse(
+        mode=mode,
+        prefix=clean_prefix,
+        total=len(collected),
+        available_count=len(available),
+        used_count=len(used),
+        inactive_count=len(inactive),
+        available=available,
+        used=used,
+        inactive=inactive,
+    )
 
 
 @router.post("/webhook")

@@ -191,3 +191,40 @@ export function getPdfDownloadUrl(file_id: number): string {
   const params = new URLSearchParams({ download: '1' })
   return `/pdfs/${file_id}?${params.toString()}`
 }
+
+export interface AdminCoupon {
+  id: string
+  code: string
+  active: boolean
+  status: 'available' | 'used' | 'inactive'
+  status_label: string
+  percent_off?: number | null
+  amount_off?: number | null
+  currency?: string | null
+  duration?: string | null
+  times_redeemed: number
+  max_redemptions?: number | null
+  created_at?: string | null
+}
+
+export interface AdminCouponsResponse {
+  mode: string
+  prefix: string
+  total: number
+  available_count: number
+  used_count: number
+  inactive_count: number
+  available: AdminCoupon[]
+  used: AdminCoupon[]
+  inactive: AdminCoupon[]
+}
+
+export async function getAdminCoupons(prefix = 'COLEGIO'): Promise<AdminCouponsResponse> {
+  const params = new URLSearchParams({ prefix, limit: '500' })
+  const res = await fetch(`${BASE}/billing/admin/coupons?${params.toString()}`, {
+    cache: 'no-store',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao carregar cupons')
+  return res.json()
+}
