@@ -89,6 +89,20 @@ AUTHOR_BY_FOLDER = {
     "tomas de kempis": "Tomás de Kempis",
 }
 
+PATRISTIC_TRADITION_BY_AUTHOR = {
+    "autor da carta a diogneto": "grega",
+    "carta a diogneto": "grega",
+    "santo epifanio": "grega",
+    "sao epifanio": "grega",
+    "sao epifanio de salamina": "grega",
+    "sao clemente de alexandria": "grega",
+    "clemente de alexandria": "grega",
+    "santo inacio de antioquia": "grega",
+    "sao gregorio magno": "latina",
+    "sao jeronimo": "latina",
+    "sao vicente de lerins": "latina",
+}
+
 DOCTYPE_COLLECTION = {
     "concilio": "CONC",
     "bula": "MAG",
@@ -336,7 +350,13 @@ def is_patristic_folder(top_folder: str, path: str, parsed_tradition: str | None
     )
 
 
-def patristic_tradition_for(top_folder: str, path: str, parsed_tradition: str | None, language: str | None = None) -> str:
+def patristic_tradition_for(
+    top_folder: str,
+    path: str,
+    parsed_tradition: str | None,
+    language: str | None = None,
+    author: str | None = None,
+) -> str:
     text = normalize(f"{top_folder} {path}")
     lang = normalize(language)
     if "patrologia grega" in text or re.search(r"\bpg\s*0*\d+", text):
@@ -345,19 +365,44 @@ def patristic_tradition_for(top_folder: str, path: str, parsed_tradition: str | 
         return "latina"
     if "oriental" in text:
         return "oriental"
+    if "carta a diogneto" in text:
+        return "grega"
+    author_key = normalize(author)
+    folder_author_key = normalize(author_from_folder(top_folder))
+    if author_key in PATRISTIC_TRADITION_BY_AUTHOR:
+        return PATRISTIC_TRADITION_BY_AUTHOR[author_key]
+    if folder_author_key in PATRISTIC_TRADITION_BY_AUTHOR:
+        return PATRISTIC_TRADITION_BY_AUTHOR[folder_author_key]
+    if parsed_tradition:
+        return parsed_tradition
     if "paulus" in text or "portugues" in text or "portuguese" in text or lang in {"pt", "por", "portugues", "portuguese"}:
         return "portuguesa"
-    return parsed_tradition or "portuguesa"
+    return "latina"
 
 
-def patristic_collection(top_folder: str, path: str, tradition: str) -> str | None:
+def patristic_collection(
+    top_folder: str,
+    path: str,
+    tradition: str,
+    language: str | None = None,
+    detected_publisher: str | None = None,
+) -> str | None:
     text = normalize(f"{top_folder} {path}")
+    lang = normalize(language)
     if "patrologia grega" in text or re.search(r"\bpg\s*0*\d+", text):
         return "PG"
     if "patrologia latina" in text or re.search(r"\bpl\s*0*\d+", text):
         return "PL"
-    if tradition == "portuguesa":
+    if "oriental" in text:
+        return "PO"
+    if "patristica paulus" in text or detected_publisher == "Paulus":
         return "PT"
+    if lang in {"en", "eng", "english", "ingles"}:
+        return "Patrística EN"
+    if lang in {"la", "lat", "latin", "latim"}:
+        return "Patrística LA"
+    if tradition == "portuguesa" or lang in {"pt", "por", "portugues", "portuguese"}:
+        return "Patrística PT"
     return None
 
 
@@ -387,6 +432,22 @@ def edition_for(top_folder: str, path: str, section: str, doctype: str | None, d
         return "Concreta"
     if "fundamentals of music" in text:
         return "Yale University Press"
+    if "panarion" in text and "epifanio" in text:
+        return "Brill"
+    if "forty gospel homilies" in text:
+        return "Gorgias Press"
+    if "moralia" in text and ("job" in text or "jo" in text):
+        return "John Henry Parker"
+    if "commentary on ephesians" in text or "commentaries on galatians" in text:
+        return "University of Notre Dame Press"
+    if "homilies volume 2 homilies 60 96" in text or "fathers of the church patristic series" in text:
+        return "The Catholic University of America Press"
+    if "tratado salmos" in text or "tractatus sive homiliae" in text:
+        return "Maredsous / J. Parker"
+    if "commonitorium" in text or "comonitorio" in text:
+        return "Santuário"
+    if "todos que se preocupam com a verdade" in text:
+        return "Translatio"
     if "patristica paulus" in text or detected_publisher == "Paulus":
         return "Paulus"
     if "patrologia grega" in text or re.search(r"\bpg\s*0*\d+", text):
@@ -438,6 +499,7 @@ def build_metadata(row: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
     name = row.get("name") or basename(source_path)
     top_folder = row.get("top_folder") or (source_path.split("/", 1)[0] if "/" in source_path else "")
     raw_title = clean_title_from_filename(name)
+    folder_author = author_from_folder(top_folder)
 
     sample_pages = _extract_sample_pages(str(pdf_path), n=8)
     sample_text = "\n".join(page.get("text", "") for page in sample_pages if isinstance(page, dict))
@@ -474,14 +536,17 @@ def build_metadata(row: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
         canonical_title = church_meta.get("canonical_title") or title
         edition_label = church_meta.get("edition_label") or edition_for(top_folder, source_path, section, doctype, detected_publisher)
     elif is_patristic_folder(top_folder, source_path, parsed.patristic_tradition):
-        tradition = patristic_tradition_for(top_folder, source_path, parsed.patristic_tradition, language)
         section = "patristica"
         doctype = None
-        collection = patristic_collection(top_folder, source_path, tradition)
         title = parsed.canonical_title or raw_title
-        author = parsed.author or author_from_folder(top_folder) or "Autor desconhecido"
+        author = parsed.author or folder_author or "Autor desconhecido"
+        if "carta a diogneto" in normalize(f"{top_folder} {source_path} {raw_title}"):
+            title = "Carta a Diogneto"
+            author = "Autor da Carta a Diogneto"
         canonical_author = parsed.canonical_author or author
         canonical_title = parsed.canonical_title or title
+        tradition = patristic_tradition_for(top_folder, source_path, parsed.patristic_tradition, language, canonical_author)
+        collection = patristic_collection(top_folder, source_path, tradition, language, detected_publisher)
         edition_label = edition_for(top_folder, source_path, section, doctype, detected_publisher)
     else:
         doctype = document_type_from_text(top_folder, source_path, raw_title)
@@ -489,7 +554,6 @@ def build_metadata(row: dict[str, Any], pdf_path: Path) -> dict[str, Any]:
         tradition = None
         collection = DOCTYPE_COLLECTION.get(doctype, "DOC")
         title = raw_title
-        folder_author = author_from_folder(top_folder)
         pope = pope_from_text(f"{top_folder} {source_path} {raw_title}")
         if pope and doctype == "teologia":
             doctype = "outro"
@@ -884,6 +948,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--delete-errors", action="store_true", help="Remove books created by this run if ingestion fails")
     parser.add_argument("--file-only", action="store_true", help="Import metadata and PDF without extracting/indexing chunks")
+    parser.add_argument("--skip-chroma", action="store_true", help="Indexa DB e Elasticsearch agora, deixando embeddings semanticos para uma rodada posterior.")
     parser.add_argument("--catholic-core-only", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--ingest-timeout", type=int, default=1800, help="Maximum seconds to spend extracting/indexing one PDF; 0 disables timeout")
     parser.add_argument("--max-size-mb", type=int, default=0, help="Skip PDFs larger than this size in MiB; 0 disables size filtering")
@@ -892,6 +957,8 @@ def main() -> int:
     args = parser.parse_args()
     args.include_re = re.compile(args.include_regex, re.IGNORECASE) if args.include_regex else None
     args.exclude_re = re.compile(args.exclude_regex, re.IGNORECASE) if args.exclude_regex else None
+    if args.skip_chroma:
+        os.environ["VERA_SKIP_SEMANTIC_INDEX"] = "1"
     return import_rows(args)
 
 

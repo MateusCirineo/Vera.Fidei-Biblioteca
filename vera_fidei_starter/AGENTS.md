@@ -25,7 +25,7 @@ O sistema possui três fluxos distintos, detectados automaticamente pelo Orchest
 | Fluxo | Palavras-chave detectadas | Agentes envolvidos |
 |---|---|---|
 | **Verificação de Citações** | cita, atribu, disse, escreveu | 10 agentes |
-| **Ingestão de PDFs** | pdf, upload, ingest, importar, patrologia, pg, pl, concilio | 4 agentes |
+| **Ingestão de PDFs** | pdf, upload, ingest, importar, patrologia, pg, pl, po, concilio | 4 agentes |
 | **Tarefa Geral** | qualquer outro input | 2 agentes |
 
 ---
@@ -176,14 +176,14 @@ Agente final do fluxo de verificação. Traduz os 7 códigos internos do Citatio
 ### 12. PDF Ingestion Agent
 **Arquivo:** `pdf_ingestion_agent.py` | **Nome:** `pdf_ingestion_agent`
 
-Inventaria os PDFs-alvo para ingestão. Busca arquivos PG002–PG005 (Patrologia Graeca) e PL001–PL005 (Patrologia Latina). Verifica existência e tamanho de cada arquivo (identifica arquivos zerados). Recomenda o comando de importação com parâmetros batch, cooldown e cuda. Usa Chroma delta para embeddings. Depende de: Planner.
+Inventaria os PDFs-alvo para ingestão. Busca dinamicamente arquivos `PG*.pdf`, `PL*.pdf` e `PO*.pdf` (Patrologia Graeca, Latina e Orientalis). Verifica existência e tamanho de cada arquivo (identifica arquivos zerados). Recomenda o comando de importação com parâmetros batch, cooldown e cuda. Usa Chroma delta para embeddings quando a etapa semântica está habilitada. Depende de: Planner.
 
 ---
 
 ### 13. Ingestion Validation Agent
 **Arquivo:** `ingestion_validation_agent.py` | **Nome:** `ingestion_validation_agent`
 
-Valida se a ingestão dos PDFs foi concluída com sucesso no banco. Consulta o PostgreSQL para os 9 volumes esperados (PG002–PG005, PL001–PL005). Conta registros de `BookFile` e `Chunk` por volume. Retorna status por volume: `not_imported`, `in_progress` ou `done`. Rastreia progresso com contadores `done` e `remaining`. Depende de: PDF Ingestion Agent.
+Valida se a ingestão dos PDFs foi concluída com sucesso no banco. Consulta o PostgreSQL para todos os volumes `PG`, `PL` e `PO` presentes na pasta de PDFs. Conta registros de `BookFile` e `Chunk` por volume. Retorna status por volume: `not_imported`, `in_progress` ou `done`. Rastreia progresso com contadores `done` e `remaining`. Depende de: PDF Ingestion Agent.
 
 ---
 

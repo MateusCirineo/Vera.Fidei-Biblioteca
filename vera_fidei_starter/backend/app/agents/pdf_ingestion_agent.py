@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from app.agents.base import BaseAgent, AgentResult, PipelineContext
@@ -11,10 +12,11 @@ class PdfIngestionAgent(BaseAgent):
     def run(self, ctx: PipelineContext) -> AgentResult:
         backend_dir = Path(__file__).resolve().parents[2]
         pdf_dir = backend_dir / "pdfs"
-        targets = [
-            *(pdf_dir / f"PG{i:03d}.pdf" for i in range(2, 6)),
-            *(pdf_dir / f"PL{i:03d}.pdf" for i in range(1, 6)),
-        ]
+        targets = sorted(
+            path
+            for path in pdf_dir.glob("*.pdf")
+            if re.fullmatch(r"(PG|PL|PO)\d{3}", path.stem.upper())
+        )
 
         inventory = []
         missing = []
@@ -31,7 +33,7 @@ class PdfIngestionAgent(BaseAgent):
                 "path": str(path),
                 "exists": exists,
                 "bytes": size,
-                "collection": path.stem[:2],
+                "collection": path.stem[:2].upper(),
                 "volume": int(path.stem[2:]),
             })
 
@@ -56,7 +58,11 @@ class PdfIngestionAgent(BaseAgent):
             notes=[
                 f"PDFs-alvo encontrados: {len(targets) - len(missing)}/{len(targets)}.",
                 f"Arquivos zerados: {len(zero)}.",
-                "Fluxo de ingestao preparado para PG002-PG005 e PL001-PL005.",
+                "Fluxo de ingestao preparado para volumes PG, PL e PO presentes em backend/pdfs.",
             ],
-            warnings=[*(f"Arquivo ausente: {name}" for name in missing), *(f"Arquivo zerado: {name}" for name in zero)],
+            warnings=[
+                *(f"Arquivo ausente: {name}" for name in missing),
+                *(f"Arquivo zerado: {name}" for name in zero),
+                *([] if targets else ["Nenhum PDF PG/PL/PO encontrado em backend/pdfs."]),
+            ],
         )

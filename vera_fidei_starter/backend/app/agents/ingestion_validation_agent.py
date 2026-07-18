@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from app.agents.base import BaseAgent, AgentResult, PipelineContext
 
 
@@ -7,7 +10,13 @@ class IngestionValidationAgent(BaseAgent):
     name = "ingestion_validation_agent"
 
     def run(self, ctx: PipelineContext) -> AgentResult:
-        expected = ["PG002", "PG003", "PG004", "PG005", "PL001", "PL002", "PL003", "PL004", "PL005"]
+        backend_dir = Path(__file__).resolve().parents[2]
+        pdf_dir = backend_dir / "pdfs"
+        expected = sorted(
+            path.stem.upper()
+            for path in pdf_dir.glob("*.pdf")
+            if re.fullmatch(r"(PG|PL|PO)\d{3}", path.stem.upper())
+        )
 
         try:
             from models.database import Book, BookFile, Chunk, SessionLocal
@@ -22,7 +31,13 @@ class IngestionValidationAgent(BaseAgent):
         rows = []
         with SessionLocal() as db:
             for key in expected:
-                book = db.query(Book).filter(Book.title == f"Patrologia {'Graeca' if key.startswith('PG') else 'Latina'} {key}").first()
+                collection_label = {
+                    "PG": "Graeca",
+                    "PL": "Latina",
+                    "PO": "Orientalis",
+                }[key[:2]]
+                title = f"Patrologia {collection_label} {key}"
+                book = db.query(Book).filter(Book.title == title).first()
                 if book is None:
                     rows.append({"target": key, "status": "not_imported", "files": 0, "chunks": 0})
                     continue
@@ -49,4 +64,5 @@ class IngestionValidationAgent(BaseAgent):
             status="ok",
             data=result,
             notes=[f"Volumes concluidos: {len(done)}/{len(expected)}."],
+            warnings=[] if expected else ["Nenhum PDF PG/PL/PO encontrado para validar."],
         )

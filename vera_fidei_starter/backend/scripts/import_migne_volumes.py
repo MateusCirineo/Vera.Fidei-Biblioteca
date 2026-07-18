@@ -20,129 +20,94 @@ from search.text_search import ES_INDEX, TextSearchClient
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PDF_DIR = BACKEND_DIR / "pdfs"
 
+
+def _pg(volume: int) -> dict:
+    key = f"PG{volume:03d}"
+    return {
+        "filename": f"{key}.pdf",
+        "collection": "PG",
+        "title": f"Patrologia Graeca {key}",
+        "canonical_title": f"Patrologia Graeca Tomus {volume}",
+        "author": "Varios Padres Gregos",
+        "canonical_author": "Varios Padres Gregos",
+        "language": "latim/grego",
+        "semantic_language": "grc+la",
+        "tradition": "grega",
+        "volume": volume,
+        "edition_label": "Migne PG",
+        "source_label": "Migne",
+        "editor": "Jacques-Paul Migne",
+    }
+
+
+def _pl(volume: int) -> dict:
+    key = f"PL{volume:03d}"
+    return {
+        "filename": f"{key}.pdf",
+        "collection": "PL",
+        "title": f"Patrologia Latina {key}",
+        "canonical_title": f"Patrologia Latina Tomus {volume}",
+        "author": "Varios Padres Latinos",
+        "canonical_author": "Varios Padres Latinos",
+        "language": "latim",
+        "semantic_language": "la",
+        "tradition": "latina",
+        "volume": volume,
+        "edition_label": "Migne PL",
+        "source_label": "Migne",
+        "editor": "Jacques-Paul Migne",
+    }
+
+
+def _po(volume: int) -> dict:
+    key = f"PO{volume:03d}"
+    return {
+        "filename": f"{key}.pdf",
+        "collection": "PO",
+        "title": f"Patrologia Orientalis {key}",
+        "canonical_title": f"Patrologia Orientalis Tomus {volume}",
+        "author": "Varios Padres Orientais",
+        "canonical_author": "Varios Padres Orientais",
+        "language": "frances/latim/grego/oriental",
+        "semantic_language": "fr+la+grc+oriental",
+        "tradition": "oriental",
+        "volume": volume,
+        "edition_label": "Patrologia Orientalis",
+        "source_label": "Patrologia Orientalis",
+        "editor": "Patrologia Orientalis",
+    }
+
+
 TARGETS: dict[str, dict] = {
-    "PG002": {
-        "filename": "PG002.pdf",
-        "collection": "PG",
-        "title": "Patrologia Graeca PG002",
-        "canonical_title": "Patrologia Graeca Tomus II",
-        "author": "Varios Padres Gregos",
-        "canonical_author": "Varios Padres Gregos",
-        "language": "latim/grego",
-        "semantic_language": "grc+la",
-        "tradition": "grega",
-        "volume": 2,
-        "edition_label": "Migne PG",
-    },
-    "PG003": {
-        "filename": "PG003.pdf",
-        "collection": "PG",
-        "title": "Patrologia Graeca PG003",
-        "canonical_title": "Patrologia Graeca Tomus III",
-        "author": "Varios Padres Gregos",
-        "canonical_author": "Varios Padres Gregos",
-        "language": "latim/grego",
-        "semantic_language": "grc+la",
-        "tradition": "grega",
-        "volume": 3,
-        "edition_label": "Migne PG",
-    },
-    "PG004": {
-        "filename": "PG004.pdf",
-        "collection": "PG",
-        "title": "Patrologia Graeca PG004",
-        "canonical_title": "Patrologia Graeca Tomus IV",
-        "author": "Varios Padres Gregos",
-        "canonical_author": "Varios Padres Gregos",
-        "language": "latim/grego",
-        "semantic_language": "grc+la",
-        "tradition": "grega",
-        "volume": 4,
-        "edition_label": "Migne PG",
-    },
-    "PG005": {
-        "filename": "PG005.pdf",
-        "collection": "PG",
-        "title": "Patrologia Graeca PG005",
-        "canonical_title": "Patrologia Graeca Tomus V",
-        "author": "Varios Padres Gregos",
-        "canonical_author": "Varios Padres Gregos",
-        "language": "latim/grego",
-        "semantic_language": "grc+la",
-        "tradition": "grega",
-        "volume": 5,
-        "edition_label": "Migne PG",
-    },
-    "PL001": {
-        "filename": "PL001.pdf",
-        "collection": "PL",
-        "title": "Patrologia Latina PL001",
-        "canonical_title": "Patrologia Latina Tomus I",
-        "author": "Varios Padres Latinos",
-        "canonical_author": "Varios Padres Latinos",
-        "language": "latim",
-        "semantic_language": "la",
-        "tradition": "latina",
-        "volume": 1,
-        "edition_label": "Migne PL",
-    },
-    "PL002": {
-        "filename": "PL002.pdf",
-        "collection": "PL",
-        "title": "Patrologia Latina PL002",
-        "canonical_title": "Patrologia Latina Tomus II",
-        "author": "Varios Padres Latinos",
-        "canonical_author": "Varios Padres Latinos",
-        "language": "latim",
-        "semantic_language": "la",
-        "tradition": "latina",
-        "volume": 2,
-        "edition_label": "Migne PL",
-    },
-    "PL003": {
-        "filename": "PL003.pdf",
-        "collection": "PL",
-        "title": "Patrologia Latina PL003",
-        "canonical_title": "Patrologia Latina Tomus III",
-        "author": "Varios Padres Latinos",
-        "canonical_author": "Varios Padres Latinos",
-        "language": "latim",
-        "semantic_language": "la",
-        "tradition": "latina",
-        "volume": 3,
-        "edition_label": "Migne PL",
-    },
-    "PL004": {
-        "filename": "PL004.pdf",
-        "collection": "PL",
-        "title": "Patrologia Latina PL004",
-        "canonical_title": "Patrologia Latina Tomus IV",
-        "author": "Varios Padres Latinos",
-        "canonical_author": "Varios Padres Latinos",
-        "language": "latim",
-        "semantic_language": "la",
-        "tradition": "latina",
-        "volume": 4,
-        "edition_label": "Migne PL",
-    },
-    "PL005": {
-        "filename": "PL005.pdf",
-        "collection": "PL",
-        "title": "Patrologia Latina PL005",
-        "canonical_title": "Patrologia Latina Tomus V",
-        "author": "Varios Padres Latinos",
-        "canonical_author": "Varios Padres Latinos",
-        "language": "latim",
-        "semantic_language": "la",
-        "tradition": "latina",
-        "volume": 5,
-        "edition_label": "Migne PL",
-    },
+    **{f"PG{i:03d}": _pg(i) for i in range(2, 6)},
+    **{f"PL{i:03d}": _pl(i) for i in [1, 2, 3, 4, 5, 6, 7, 20]},
+    **{f"PO{i:03d}": _po(i) for i in [2, 3, 6, 7, 8, 9, 10, 11]},
 }
 
-# PG003 appears to be the only target without useful embedded text in the first
-# sample. Process it last so the digital volumes land in the DB first.
-DEFAULT_ORDER = ["PG002", "PG004", "PG005", "PL001", "PL002", "PL003", "PL004", "PL005", "PG003"]
+# Processa primeiro os volumes novos pedidos agora. PG003 continua por ultimo
+# entre os antigos porque tende a exigir mais OCR.
+DEFAULT_ORDER = [
+    "PO002",
+    "PO003",
+    "PO006",
+    "PO007",
+    "PO008",
+    "PO009",
+    "PO010",
+    "PO011",
+    "PL006",
+    "PL007",
+    "PL020",
+    "PG002",
+    "PG004",
+    "PG005",
+    "PL001",
+    "PL002",
+    "PL003",
+    "PL004",
+    "PL005",
+    "PG003",
+]
 
 
 def pdf_path(spec: dict) -> Path:
@@ -162,7 +127,7 @@ def ensure_book(db, spec: dict) -> Book:
             author=spec["author"],
             language=spec["language"],
             edition_label=spec["edition_label"],
-            source_label="Migne",
+            source_label=spec["source_label"],
             is_primary_source=True,
             library_section="patristica",
             patristic_tradition=spec["tradition"],
@@ -183,7 +148,7 @@ def ensure_book(db, spec: dict) -> Book:
     book.author = spec["author"]
     book.language = spec["language"]
     book.edition_label = spec["edition_label"]
-    book.source_label = book.source_label or "Migne"
+    book.source_label = spec["source_label"]
     book.is_primary_source = True
     book.library_section = "patristica"
     book.patristic_tradition = spec["tradition"]
@@ -214,8 +179,8 @@ def ensure_book_file(db, book_id: int, spec: dict, source_path: Path) -> BookFil
         original_filename=source_path.name,
         stored_path=stored_path,
         volume_number=spec["volume"],
-        editor="Jacques-Paul Migne",
-        translator=None,
+        editor=spec.get("editor"),
+        translator=spec.get("translator"),
     )
     db.add(book_file)
     db.commit()
@@ -348,7 +313,7 @@ def index_missing_chroma(
                     "collection": book.collection,
                     "volume": chunk.volume or spec["volume"],
                     "language": spec["semantic_language"],
-                    "source_label": "Migne",
+                    "source_label": spec["source_label"],
                 },
             )
             for chunk in missing
@@ -375,15 +340,20 @@ def index_missing_chroma(
     return len(chroma_delta_ids(semantic_search, book_id)), indexed
 
 
-def refresh_status(book_id: int, text_search: TextSearchClient, semantic_search: SemanticSearchClient) -> tuple[int, int, int, str]:
+def refresh_status(
+    book_id: int,
+    text_search: TextSearchClient,
+    semantic_search: SemanticSearchClient,
+    require_chroma: bool = True,
+) -> tuple[int, int, int, str]:
     with SessionLocal() as db:
         book = db.get(Book, book_id)
         db_chunks = count_chunks(db, book_id)
         es_docs = es_count(text_search, book_id)
         chroma_docs = len(chroma_delta_ids(semantic_search, book_id))
-        if db_chunks > 0 and es_docs >= db_chunks and chroma_docs >= db_chunks:
+        if db_chunks > 0 and es_docs >= db_chunks and (not require_chroma or chroma_docs >= db_chunks):
             book.ingest_status = "done"
-            book.ingest_error = None
+            book.ingest_error = None if require_chroma else "Texto e busca exata concluídos; etapa semântica vetorial pendente."
         else:
             book.ingest_status = "processing"
             book.ingest_error = f"Parcial: DB={db_chunks}, ES={es_docs}, ChromaDelta={chroma_docs}"
@@ -421,7 +391,7 @@ def import_target(key: str, batch_size: int, cooldown_seconds: float, skip_chrom
         final_count, added = index_missing_chroma(book_id, spec, semantic_search, batch_size, cooldown_seconds)
         print(f"  Chroma delta final={final_count}; adicionados={added}", flush=True)
 
-    db_chunks, es_docs, chroma_docs, status = refresh_status(book_id, text_search, semantic_search)
+    db_chunks, es_docs, chroma_docs, status = refresh_status(book_id, text_search, semantic_search, require_chroma=not skip_chroma)
     print(f"  STATUS {status}: DB={db_chunks} ES={es_docs} ChromaDelta={chroma_docs}", flush=True)
 
 

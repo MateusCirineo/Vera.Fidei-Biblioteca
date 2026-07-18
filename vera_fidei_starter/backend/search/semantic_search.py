@@ -157,6 +157,8 @@ class SemanticSearchClient:
     ) -> None:
         if not items:
             return
+        if os.environ.get("VERA_SKIP_SEMANTIC_INDEX", "").strip().lower() in {"1", "true", "yes"}:
+            return
         model = _get_model()
         batch_size = batch_size or _resolve_index_batch_size()
         for start in range(0, len(items), batch_size):

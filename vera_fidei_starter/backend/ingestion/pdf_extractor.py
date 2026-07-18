@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,7 +12,9 @@ import pytesseract
 
 DIGITAL_THRESHOLD = 50
 OCR_LANG_FALLBACKS = (
+    "fra+lat+grc+eng",
     "lat+grc+por+eng",
+    "fra+lat+eng",
     "fra+eng",
     "lat+eng",
     "lat+por+eng",
@@ -76,9 +79,31 @@ class PDFExtractor:
             # Check the first pages; covers and indexes can be empty.
             for page in pdf.pages[:8]:
                 sample = page.extract_text() or ""
-                if len(sample.strip()) > DIGITAL_THRESHOLD:
+                if self._has_usable_digital_text(sample):
                     return True
         return self._has_poppler_sample_text(pdf_path)
+
+    def _has_usable_digital_text(self, sample: str) -> bool:
+        text = (sample or "").strip()
+        if len(text) <= DIGITAL_THRESHOLD:
+            return False
+
+        compact = "".join(ch for ch in text if not ch.isspace())
+        if not compact:
+            return False
+
+        letters = sum(1 for ch in compact if ch.isalpha())
+        punctuation = sum(1 for ch in compact if not ch.isalnum())
+        replacement = text.count("\ufffd")
+        words = re.findall(r"[^\W\d_]{3,}", text, flags=re.UNICODE)
+
+        if replacement / max(len(text), 1) > 0.02:
+            return False
+        if letters / max(len(compact), 1) < 0.45:
+            return False
+        if punctuation / max(len(compact), 1) > 0.22:
+            return False
+        return len(words) >= 8
 
     def _has_poppler_sample_text(self, pdf_path: str) -> bool:
         if not PDFTOTEXT_PATH or not os.path.exists(PDFTOTEXT_PATH):
@@ -98,7 +123,7 @@ class PDFExtractor:
             print(f"[pdf] pdftotext sample failed for {pdf_path}: {exc}")
             return False
 
-        return result.returncode in (0, 1) and len((result.stdout or "").strip()) > DIGITAL_THRESHOLD
+        return result.returncode in (0, 1) and self._has_usable_digital_text(result.stdout or "")
 
     def _extract_digital(self, pdf_path: str) -> list[dict]:
         poppler_pages = self._extract_digital_poppler(pdf_path)
