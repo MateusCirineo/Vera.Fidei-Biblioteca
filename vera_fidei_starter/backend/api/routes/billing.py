@@ -107,10 +107,25 @@ def _stripe_ready_for_plan(plan: str) -> bool:
     )
 
 
+def _stripe_get(obj: Any, key: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    try:
+        return obj.get(key, default)
+    except AttributeError:
+        pass
+    try:
+        return obj[key]
+    except (KeyError, TypeError):
+        return default
+
+
 def _resolve_promotion_code(code: str) -> str | None:
     results = stripe.PromotionCode.list(code=code.strip().upper(), active=True, limit=1)
-    items = (results.get("data") or [])
-    return items[0]["id"] if items else None
+    items = (_stripe_get(results, "data") or [])
+    return _stripe_get(items[0], "id") if items else None
 
 
 def _configure_stripe() -> None:
@@ -198,10 +213,14 @@ def _timestamp_to_datetime(value: Any) -> datetime.datetime | None:
 
 
 def _coupon_payload_from_promotion_code(item: Any) -> AdminCouponResponse:
-    coupon = item.get("coupon") or ((item.get("promotion") or {}).get("coupon") or {})
-    max_redemptions = item.get("max_redemptions")
-    times_redeemed = int(item.get("times_redeemed") or 0)
-    active = bool(item.get("active"))
+    promotion = _stripe_get(item, "promotion") or {}
+    coupon = _stripe_get(item, "coupon") or _stripe_get(promotion, "coupon") or {}
+    if not isinstance(coupon, dict):
+        coupon = {}
+
+    max_redemptions = _stripe_get(item, "max_redemptions")
+    times_redeemed = int(_stripe_get(item, "times_redeemed", 0) or 0)
+    active = bool(_stripe_get(item, "active"))
     exhausted = max_redemptions is not None and times_redeemed >= int(max_redemptions)
 
     if active and not exhausted:
@@ -215,18 +234,18 @@ def _coupon_payload_from_promotion_code(item: Any) -> AdminCouponResponse:
         status_label = "Inativo"
 
     return AdminCouponResponse(
-        id=item["id"],
-        code=item["code"],
+        id=_stripe_get(item, "id"),
+        code=_stripe_get(item, "code"),
         active=active,
         status=status_value,
         status_label=status_label,
-        percent_off=coupon.get("percent_off"),
-        amount_off=coupon.get("amount_off"),
-        currency=coupon.get("currency"),
-        duration=coupon.get("duration"),
+        percent_off=_stripe_get(coupon, "percent_off"),
+        amount_off=_stripe_get(coupon, "amount_off"),
+        currency=_stripe_get(coupon, "currency"),
+        duration=_stripe_get(coupon, "duration"),
         times_redeemed=times_redeemed,
         max_redemptions=max_redemptions,
-        created_at=_timestamp_to_datetime(item.get("created")),
+        created_at=_timestamp_to_datetime(_stripe_get(item, "created")),
     )
 
 
@@ -445,17 +464,17 @@ def list_admin_coupons(
             if starting_after:
                 params["starting_after"] = starting_after
             page = stripe.PromotionCode.list(**params)
-            data = page.get("data") or []
+            data = _stripe_get(page, "data") or []
             for item in data:
-                code = str(item.get("code") or "").upper()
+                code = str(_stripe_get(item, "code") or "").upper()
                 if clean_prefix and not code.startswith(clean_prefix):
                     continue
                 collected.append(_coupon_payload_from_promotion_code(item))
                 if len(collected) >= limit:
                     break
-            has_more = bool(page.get("has_more")) and bool(data)
+            has_more = bool(_stripe_get(page, "has_more")) and bool(data)
             if data:
-                starting_after = data[-1]["id"]
+                starting_after = _stripe_get(data[-1], "id")
             else:
                 break
     except stripe.error.StripeError as exc:
