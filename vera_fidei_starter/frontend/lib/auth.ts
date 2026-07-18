@@ -213,11 +213,13 @@ export async function getRelatorio() {
   return res.json()
 }
 
-export async function createCheckoutSession(plan: string): Promise<{ url: string }> {
+export async function createCheckoutSession(plan: string, couponCode?: string): Promise<{ url: string }> {
+  const body: Record<string, string> = { plan }
+  if (couponCode?.trim()) body.coupon_code = couponCode.trim().toUpperCase()
   const res = await fetch(`${BASE}/billing/checkout`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ plan }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw await readError(res, 'Erro ao iniciar assinatura')
   return res.json()

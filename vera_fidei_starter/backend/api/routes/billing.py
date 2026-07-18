@@ -43,6 +43,7 @@ PLAN_AMOUNTS_CENTS = {
 
 class CheckoutRequest(BaseModel):
     plan: str = Field(..., min_length=3, max_length=30)
+    coupon_code: str | None = Field(default=None, max_length=50)
 
 
 class BillingUrlResponse(BaseModel):
@@ -77,6 +78,12 @@ def _stripe_ready_for_plan(plan: str) -> bool:
         and settings.stripe_secret_key
         and getattr(settings, PLAN_PRICE_SETTINGS.get(plan, ""), "")
     )
+
+
+def _resolve_promotion_code(code: str) -> str | None:
+    results = stripe.PromotionCode.list(code=code.strip().upper(), active=True, limit=1)
+    items = (results.get("data") or [])
+    return items[0]["id"] if items else None
 
 
 def _configure_stripe() -> None:
@@ -273,10 +280,21 @@ def create_checkout_session(
             "line_items": [{"price": price_id, "quantity": 1}],
             "success_url": f"{_site_url()}/perfil?assinatura=sucesso",
             "cancel_url": f"{_site_url()}/planos?assinatura=cancelada",
-            "allow_promotion_codes": True,
             "metadata": {"user_id": str(user.id), "plan": plan},
             "subscription_data": {"metadata": {"user_id": str(user.id), "plan": plan}},
         }
+
+        raw_coupon = (payload.coupon_code or "").strip()
+        if raw_coupon:
+            promo_id = _resolve_promotion_code(raw_coupon)
+            if not promo_id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Cupom inválido ou já utilizado.",
+                )
+            session_args["discounts"] = [{"promotion_code": promo_id}]
+        else:
+            session_args["allow_promotion_codes"] = True
         payment_methods = _payment_method_types()
         if payment_methods:
             session_args["payment_method_types"] = payment_methods

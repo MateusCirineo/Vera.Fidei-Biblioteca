@@ -35,6 +35,7 @@ backend/chroma_fresh_smoke/
 *.bak
 *.bak-*
 backend/rclone/
+coupons/
 
 # PDFs (sincronizar manualmente via rsync no servidor)
 backend/pdfs/

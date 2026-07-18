@@ -117,6 +117,8 @@ export default function PlanosPage() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [busyPlan, setBusyPlan] = useState('')
   const [billingError, setBillingError] = useState('')
+  const [couponCode, setCouponCode] = useState('')
+  const [couponError, setCouponError] = useState('')
 
   useEffect(() => {
     getUser().then(setUser).catch(() => setUser(null))
@@ -133,12 +135,18 @@ export default function PlanosPage() {
 
   async function handleSubscribe(plan: string) {
     setBillingError('')
+    setCouponError('')
     setBusyPlan(plan)
     try {
-      const { url } = await createCheckoutSession(plan)
+      const { url } = await createCheckoutSession(plan, couponCode || undefined)
       window.location.assign(url)
     } catch (err: unknown) {
-      setBillingError(err instanceof Error ? err.message : 'Erro ao iniciar assinatura.')
+      const msg = err instanceof Error ? err.message : 'Erro ao iniciar assinatura.'
+      if (msg.toLowerCase().includes('cupom')) {
+        setCouponError(msg)
+      } else {
+        setBillingError(msg)
+      }
       setBusyPlan('')
     }
   }
@@ -215,6 +223,29 @@ export default function PlanosPage() {
       {billingError && (
         <div className="mt-5 rounded-lg border border-vermelho/40 bg-vermelho/10 p-3 text-sm text-vermelho">
           {billingError}
+        </div>
+      )}
+
+      {user && !isOwner(user) && (
+        <div className="mt-5 flex flex-col gap-1.5 sm:flex-row sm:items-center">
+          <div className="flex max-w-sm flex-1 gap-2">
+            <input
+              type="text"
+              value={couponCode}
+              onChange={(e) => {
+                setCouponCode(e.target.value.toUpperCase())
+                setCouponError('')
+              }}
+              placeholder="Cupom de desconto (opcional)"
+              maxLength={50}
+              className="h-9 flex-1 rounded border border-fundo-borda bg-fundo-card px-3 text-sm text-texto placeholder:text-texto-terciario outline-none focus:border-dourado"
+            />
+          </div>
+          {couponError ? (
+            <p className="text-xs text-vermelho">{couponError}</p>
+          ) : (
+            <p className="text-xs text-texto-terciario">Será aplicado ao plano selecionado abaixo.</p>
+          )}
         </div>
       )}
 
