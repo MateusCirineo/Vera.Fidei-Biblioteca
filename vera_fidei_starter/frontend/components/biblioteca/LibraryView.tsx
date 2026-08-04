@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import type {
   Book,
   LibraryStructure,
-  PatristicTradition,
+  PatristicShelf,
   DocumentType,
   PopeDocumentEntry,
   DocumentosLibrary,
@@ -16,19 +17,37 @@ import AutoresSection from './AutoresSection'
 import DocumentosSection from './DocumentosSection'
 import SantosObrasSection from './SantosObrasSection'
 import BookCard from './BookCard'
+import { searchAcervo, searchBible, getPdfUrl } from '@/lib/api'
+import type { AcervoSearchResult } from '@/lib/types'
 
 function languageParts(language: string | null): string[] {
   return (language ?? '')
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+e\s+/g, '+')
     .split(/[+/;,|]/)
     .map(part => part.trim())
     .filter(Boolean)
 }
 
-function patristicTraditionsFor(book: Book): PatristicTradition[] {
+function isPatrologiaOrientalis(book: Book): boolean {
+  if ((book.collection ?? '').trim().toUpperCase() === 'PO') return true
+
+  const identity = [book.collection, book.title, book.canonical_title]
+    .filter(Boolean)
+    .join(' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  return identity.includes('patrologia orientalis') || identity.includes('patristica orientalis')
+}
+
+function patristicShelvesFor(book: Book): PatristicShelf[] {
   const parts = languageParts(book.language)
   const isBilingualGreekPortuguese = parts.includes('grc') && parts.includes('pt')
+  const isEnglishEdition = parts.some(part => ['en', 'eng', 'english', 'ingles'].includes(part))
   const isDidaque = [book.collection, book.title, book.canonical_title]
     .filter(Boolean)
     .join(' ')
@@ -37,11 +56,22 @@ function patristicTraditionsFor(book: Book): PatristicTradition[] {
     .toLowerCase()
     .includes('didaque')
 
+  // Volumes PO permanecem sempre na Patrística Oriental, independentemente
+  // dos vários idiomas presentes na edição.
+  if (isPatrologiaOrientalis(book)) {
+    return ['oriental']
+  }
+
+  // Edições integralmente em inglês têm uma estante própria e exclusiva.
+  if (isEnglishEdition) {
+    return ['inglesa']
+  }
+
   if (isDidaque && isBilingualGreekPortuguese) {
     return ['grega', 'portuguesa']
   }
 
-  return [(book.patristic_tradition ?? 'latina') as PatristicTradition]
+  return [book.patristic_tradition ?? 'latina']
 }
 
 const OFFICIAL_DOCUMENT_TYPES: DocumentType[] = [
@@ -118,6 +148,7 @@ function organizeLibrary(books: Book[]): LibraryStructure {
     grega: [],
     oriental: [],
     latina: [],
+    inglesa: [],
     portuguesa: [],
   }
 
@@ -141,8 +172,8 @@ function organizeLibrary(books: Book[]): LibraryStructure {
         nonPapalMap[dt]!.push(book)
       }
     } else {
-      for (const trad of patristicTraditionsFor(book)) {
-        patristica[trad].push(book)
+      for (const shelf of patristicShelvesFor(book)) {
+        patristica[shelf].push(book)
       }
 
       addAuthorWork(autorMap, book)
@@ -255,6 +286,54 @@ export default function LibraryView({
   const [scope, setScope] = useState<SourceScope>('todos')
   const [sortMode, setSortMode] = useState<SortMode>('catalogo')
 
+  // ── Busca no conteúdo do acervo ──
+  type SearchMode = 'catalogo' | 'conteudo' | 'biblia'
+  const [searchMode, setSearchMode] = useState<SearchMode>('catalogo')
+  const [contentQuery, setContentQuery] = useState('')
+  const [bibleQuery, setBibleQuery] = useState('')
+  const [acervoResults, setAcervoResults] = useState<AcervoSearchResult[]>([])
+  const [acervoLoading, setAcervoLoading] = useState(false)
+  const [acervoError, setAcervoError] = useState('')
+  const [lastAcervoQuery, setLastAcervoQuery] = useState('')
+  const contentInputRef = useRef<HTMLInputElement>(null)
+  const bibleInputRef = useRef<HTMLInputElement>(null)
+
+  const runContentSearch = useCallback(async (q: string) => {
+    const trimmed = q.trim()
+    if (!trimmed || trimmed.length < 2) return
+    setAcervoLoading(true)
+    setAcervoError('')
+    setAcervoResults([])
+    setLastAcervoQuery(trimmed)
+    try {
+      const res = await searchAcervo(trimmed, { limit: 20 })
+      setAcervoResults(res.results)
+      if (res.results.length === 0) setAcervoError('Nenhum trecho encontrado para essa busca.')
+    } catch {
+      setAcervoError('Erro ao buscar no acervo. Verifique sua conexão.')
+    } finally {
+      setAcervoLoading(false)
+    }
+  }, [])
+
+  const runBibleSearch = useCallback(async (ref: string) => {
+    const trimmed = ref.trim()
+    if (!trimmed) return
+    setAcervoLoading(true)
+    setAcervoError('')
+    setAcervoResults([])
+    setLastAcervoQuery(trimmed)
+    try {
+      const res = await searchBible(trimmed, 20)
+      setAcervoResults(res.results)
+      if (res.results.length === 0) setAcervoError('Nenhum trecho dos Padres encontrado para essa referência.')
+    } catch {
+      setAcervoError('Erro ao buscar. Verifique o formato da referência.')
+    } finally {
+      setAcervoLoading(false)
+    }
+  }, [])
+
   const visibleBooks = sortBooks(filterBooks(books, query, scope), sortMode)
   const library = organizeLibrary(visibleBooks)
   const hasFocusedCatalog = query.trim().length > 0 || scope !== 'todos'
@@ -287,7 +366,7 @@ export default function LibraryView({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               { label: 'obras', value: books.length, tone: 'text-texto' },
               { label: 'primárias', value: primaryCount, tone: 'text-dourado' },
@@ -298,7 +377,7 @@ export default function LibraryView({
                 <p className={`font-mono text-sm font-semibold ${stat.tone}`}>
                   {stat.value.toLocaleString('pt-BR')}
                 </p>
-                <p className="mt-0.5 text-xs text-texto-terciario">
+                <p className="mt-0.5 text-[10px] leading-tight text-texto-terciario">
                   {stat.label}
                 </p>
               </div>
@@ -378,7 +457,246 @@ export default function LibraryView({
         </div>
       </section>
 
-      {hasFocusedCatalog && (
+      {/* ── Seletor de modo de busca ── */}
+      <div className="flex gap-1 rounded-lg border border-fundo-borda bg-fundo-card p-1">
+        {([
+          { id: 'catalogo' as const, label: 'Catálogo', desc: 'Navegar obras' },
+          { id: 'conteudo' as const, label: 'Busca no conteúdo', desc: 'Trechos dos Padres' },
+          { id: 'biblia' as const, label: 'Catena Patrum', desc: 'Por versículo bíblico' },
+        ]).map(mode => (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => {
+              setSearchMode(mode.id)
+              setAcervoResults([])
+              setAcervoError('')
+            }}
+            className={`flex-1 rounded-md px-2 py-2 text-xs font-medium leading-tight transition-colors ${
+              searchMode === mode.id
+                ? 'bg-dourado/15 text-dourado'
+                : 'text-texto-terciario hover:text-texto-secundario'
+            }`}
+          >
+            <span className="block">{mode.label}</span>
+            <span className="mt-0.5 block text-[10px] opacity-70">{mode.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Busca no conteúdo do acervo ── */}
+      {searchMode === 'conteudo' && (
+        <section className="space-y-3">
+          <div className="rounded-lg border border-fundo-borda bg-fundo-card/80 p-3">
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="acervo-search">
+              Busca semântica no acervo
+            </label>
+            <p className="mb-2 text-xs text-texto-terciario">
+              Digite um tema, palavra ou frase para encontrar trechos dos Padres e documentos indexados.
+            </p>
+            <div className="flex gap-2">
+              <input
+                ref={contentInputRef}
+                id="acervo-search"
+                type="search"
+                value={contentQuery}
+                onChange={e => setContentQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && runContentSearch(contentQuery)}
+                placeholder="Ex: eucaristia, batismo, Trindade, ressurreição…"
+                className="flex-1 rounded-lg border border-fundo-borda bg-fundo px-3 py-2 text-sm text-texto outline-none transition-colors placeholder:text-texto-terciario focus:border-dourado/50"
+                style={{ fontSize: '16px' }}
+              />
+              <button
+                type="button"
+                onClick={() => runContentSearch(contentQuery)}
+                disabled={acervoLoading || contentQuery.trim().length < 2}
+                className="rounded-lg border border-dourado/40 bg-dourado/10 px-4 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado/20 disabled:opacity-40"
+              >
+                {acervoLoading ? 'Buscando…' : 'Buscar'}
+              </button>
+            </div>
+          </div>
+
+          {acervoLoading && (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-texto-terciario">
+              <span className="animate-pulse">Buscando nos trechos do acervo…</span>
+            </div>
+          )}
+
+          {!acervoLoading && acervoError && (
+            <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
+              <p className="text-sm text-texto-terciario">{acervoError}</p>
+            </div>
+          )}
+
+          {!acervoLoading && acervoResults.length > 0 && (
+            <>
+              <p className="text-xs text-texto-terciario">
+                {acervoResults.length} trechos encontrados para <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
+              </p>
+              <div className="space-y-3">
+                {acervoResults.map(hit => (
+                  <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        {hit.author && (
+                          <p className="text-xs font-semibold text-dourado">{hit.author}</p>
+                        )}
+                        {hit.work_title && (
+                          <p className="text-xs text-texto-secundario">{hit.work_title}</p>
+                        )}
+                        <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-texto-terciario">
+                          {hit.edition_label && <span>{hit.edition_label}</span>}
+                          {hit.collection && <span>{hit.collection}</span>}
+                          {hit.volume != null && <span>vol. {hit.volume}</span>}
+                          {hit.chapter_or_section && <span>{hit.chapter_or_section}</span>}
+                          {hit.pdf_page != null && <span>p. {hit.pdf_page}</span>}
+                          {hit.language && <span className="italic">{hit.language}</span>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {hit.book_file_id != null && (
+                          <Link
+                            href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
+                            className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
+                          >
+                            Abrir PDF
+                          </Link>
+                        )}
+                        {hit.book_id != null && (
+                          <Link
+                            href={`/biblioteca/${hit.book_id}`}
+                            className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
+                          >
+                            Ver obra
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                    <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
+                      {hit.text}
+                    </blockquote>
+                    {hit.translation_text && (
+                      <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed text-texto-secundario italic">
+                        {hit.translation_text}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* ── Catena Patrum (busca por referência bíblica) ── */}
+      {searchMode === 'biblia' && (
+        <section className="space-y-3">
+          <div className="rounded-lg border border-fundo-borda bg-fundo-card/80 p-3">
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="bible-search">
+              Catena Patrum
+            </label>
+            <p className="mb-2 text-xs text-texto-terciario">
+              O que os Padres disseram sobre este versículo? Digite uma referência bíblica.
+            </p>
+            <div className="flex gap-2">
+              <input
+                ref={bibleInputRef}
+                id="bible-search"
+                type="search"
+                value={bibleQuery}
+                onChange={e => setBibleQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && runBibleSearch(bibleQuery)}
+                placeholder="Ex: Jo 6,53 · Mt 16,18 · Rm 6,3 · Gn 1,1"
+                className="flex-1 rounded-lg border border-fundo-borda bg-fundo px-3 py-2 text-sm text-texto outline-none transition-colors placeholder:text-texto-terciario focus:border-dourado/50"
+                style={{ fontSize: '16px' }}
+              />
+              <button
+                type="button"
+                onClick={() => runBibleSearch(bibleQuery)}
+                disabled={acervoLoading || bibleQuery.trim().length < 3}
+                className="rounded-lg border border-dourado/40 bg-dourado/10 px-4 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado/20 disabled:opacity-40"
+              >
+                {acervoLoading ? 'Buscando…' : 'Buscar'}
+              </button>
+            </div>
+            <p className="mt-1.5 text-[10px] text-texto-terciario">
+              Formatos aceitos: Jo 6,53 · João 6:53 · Ioh 6,53 · Mt 16,18
+            </p>
+          </div>
+
+          {acervoLoading && (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-texto-terciario">
+              <span className="animate-pulse">Consultando os Padres sobre este versículo…</span>
+            </div>
+          )}
+
+          {!acervoLoading && acervoError && (
+            <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
+              <p className="text-sm text-texto-terciario">{acervoError}</p>
+            </div>
+          )}
+
+          {!acervoLoading && acervoResults.length > 0 && (
+            <>
+              <p className="text-xs text-texto-terciario">
+                {acervoResults.length} trechos patrísticos sobre <span className="font-medium text-texto">{lastAcervoQuery}</span>
+              </p>
+              <div className="space-y-3">
+                {acervoResults.map(hit => (
+                  <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        {hit.author && (
+                          <p className="text-xs font-semibold text-dourado">{hit.author}</p>
+                        )}
+                        {hit.work_title && (
+                          <p className="text-xs text-texto-secundario">{hit.work_title}</p>
+                        )}
+                        <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-texto-terciario">
+                          {hit.edition_label && <span>{hit.edition_label}</span>}
+                          {hit.collection && <span>{hit.collection}</span>}
+                          {hit.volume != null && <span>vol. {hit.volume}</span>}
+                          {hit.chapter_or_section && <span>{hit.chapter_or_section}</span>}
+                          {hit.pdf_page != null && <span>p. {hit.pdf_page}</span>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {hit.book_file_id != null && (
+                          <Link
+                            href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
+                            className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
+                          >
+                            Abrir PDF
+                          </Link>
+                        )}
+                        {hit.book_id != null && (
+                          <Link
+                            href={`/biblioteca/${hit.book_id}`}
+                            className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
+                          >
+                            Ver obra
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                    <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
+                      {hit.text}
+                    </blockquote>
+                    {hit.translation_text && (
+                      <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed text-texto-secundario italic">
+                        {hit.translation_text}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {searchMode === 'catalogo' && hasFocusedCatalog && (
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-3 border-b border-fundo-borda pb-3">
             <div>
@@ -412,7 +730,7 @@ export default function LibraryView({
         </section>
       )}
 
-      {!hasFocusedCatalog && (
+      {searchMode === 'catalogo' && !hasFocusedCatalog && (
         <>
           <div className="flex gap-1 rounded-lg border border-fundo-borda bg-fundo-card p-1">
             {SECTION_TABS.map((tab) => (

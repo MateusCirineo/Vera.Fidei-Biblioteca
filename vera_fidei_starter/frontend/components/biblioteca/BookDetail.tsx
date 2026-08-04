@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import FavoriteButton from '@/components/favorites/FavoriteButton'
+import SaveOfflineButton from '@/components/SaveOfflineButton'
 import { getUser, type UserInfo } from '@/lib/auth'
+import { isBookOffline } from '@/lib/offlineBooks'
 import type { Book } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
 import { publisherForBook, UNKNOWN_PUBLISHER } from '@/lib/publisher'
@@ -40,6 +42,11 @@ function metaValue(value: string | number | null | undefined): string {
 export default function BookDetail({ book }: { book: Book }) {
   const [copied, setCopied] = useState(false)
   const [user, setUser] = useState<UserInfo | null>(null)
+  const [bookIsOffline, setBookIsOffline] = useState(false)
+
+  useEffect(() => {
+    isBookOffline(book.id).then(setBookIsOffline)
+  }, [book.id])
   const hasPdf = (book.files?.length ?? 0) > 0
   const isIndexed = (book.chunk_count ?? 0) > 0
   const canOpenPdf = hasPlan(user?.plan, 'apologeta')
@@ -219,12 +226,23 @@ export default function BookDetail({ book }: { book: Book }) {
                   </div>
                 </div>
                 {canOpenPdf ? (
-                  <Link
-                    href={`/visualizar/${file.id}`}
-                    className="shrink-0 rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
-                  >
-                    Ler PDF
-                  </Link>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <SaveOfflineButton bookId={book.id} title={book.title} />
+                    {bookIsOffline && (
+                      <Link
+                        href={`/offline/${book.id}`}
+                        className="rounded-md border border-dourado/40 bg-dourado/10 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/20"
+                      >
+                        Ler offline
+                      </Link>
+                    )}
+                    <Link
+                      href={`/visualizar/${file.id}`}
+                      className="rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
+                    >
+                      Ler PDF
+                    </Link>
+                  </div>
                 ) : (
                   <Link
                     href={lockedPdfHref}

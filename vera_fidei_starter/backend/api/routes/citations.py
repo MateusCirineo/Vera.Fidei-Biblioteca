@@ -455,3 +455,100 @@ def get_laudo(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/historico/{entry_id}/export-ref")
+def export_academic_ref(
+    entry_id: int,
+    format: str = Query(default="bibtex", pattern="^(bibtex|abnt|ris)$"),
+    current_user: User = Depends(require_min_plan("catequista")),
+) -> StreamingResponse:
+    """Exporta a referência acadêmica de uma verificação em BibTeX, ABNT ou RIS."""
+    with SessionLocal() as db:
+        entry = db.get(VerificationHistory, entry_id)
+        if not entry or entry.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entrada não encontrada.")
+        ref_data = json.loads(entry.reference_json) if entry.reference_json else {}
+
+    author = entry.author or "Autor desconhecido"
+    work = entry.work or "Obra desconhecida"
+    collection = ref_data.get("collection", "")
+    volume = ref_data.get("volume")
+    column = ref_data.get("column_start")
+    edition_label = ref_data.get("edition_label", "")
+    source_label = ref_data.get("source_label", "")
+    pdf_page = ref_data.get("pdf_page")
+    year = ""
+
+    safe_key = "".join(c for c in (author + work)[:30] if c.isalnum())
+
+    if format == "bibtex":
+        lines = [
+            f"@book{{{safe_key},",
+            f"  author    = {{{author}}},",
+            f"  title     = {{{work}}},",
+        ]
+        if edition_label:
+            lines.append(f"  edition   = {{{edition_label}}},")
+        if source_label:
+            lines.append(f"  publisher = {{{source_label}}},")
+        if collection:
+            lines.append(f"  series    = {{{collection}}},")
+        if volume:
+            lines.append(f"  volume    = {{{volume}}},")
+        if column:
+            lines.append(f"  note      = {{Col. {column}}},")
+        if pdf_page:
+            lines.append(f"  pages     = {{{pdf_page}}},")
+        if year:
+            lines.append(f"  year      = {{{year}}},")
+        lines.append("}")
+        content = "\n".join(lines)
+        media = "text/plain"
+        filename = f"ref_{entry_id}.bib"
+
+    elif format == "abnt":
+        parts = [f"{author.upper()}."]
+        parts.append(f" **{work}**.")
+        if edition_label:
+            parts.append(f" {edition_label}.")
+        if source_label:
+            parts.append(f" {source_label}.")
+        if collection and volume:
+            parts.append(f" ({collection}, v. {volume}).")
+        elif collection:
+            parts.append(f" ({collection}).")
+        if column:
+            parts.append(f" Col. {column}.")
+        content = "".join(parts)
+        media = "text/plain"
+        filename = f"ref_{entry_id}_abnt.txt"
+
+    else:  # ris
+        lines = [
+            "TY  - BOOK",
+            f"AU  - {author}",
+            f"TI  - {work}",
+        ]
+        if edition_label:
+            lines.append(f"ET  - {edition_label}")
+        if source_label:
+            lines.append(f"PB  - {source_label}")
+        if collection:
+            lines.append(f"T3  - {collection}")
+        if volume:
+            lines.append(f"VL  - {volume}")
+        if column:
+            lines.append(f"SP  - {column}")
+        if year:
+            lines.append(f"PY  - {year}")
+        lines.append("ER  -")
+        content = "\n".join(lines)
+        media = "application/x-research-info-systems"
+        filename = f"ref_{entry_id}.ris"
+
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

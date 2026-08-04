@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import type { Book, PatristicTradition, LibraryStructure } from '@/lib/types'
+import type { Book, PatristicShelf, LibraryStructure } from '@/lib/types'
 import { normalizePublisherId, publisherForBook, publisherTabsForBooks } from '@/lib/publisher'
 import BookCard from './BookCard'
 
 type TraditionTab = {
-  id: PatristicTradition
+  id: PatristicShelf
   label: string
   description: string
 }
@@ -32,6 +32,11 @@ const TRADITIONS: TraditionTab[] = [
     id: 'latina',
     label: 'Patrística Latina',
     description: 'Fontes primárias latinas, PL e coleções equivalentes',
+  },
+  {
+    id: 'inglesa',
+    label: 'em Inglês',
+    description: 'Traduções e edições patrísticas em inglês',
   },
   {
     id: 'portuguesa',
@@ -89,8 +94,8 @@ interface PatristicaSectionProps {
 }
 
 export default function PatristicaSection({ patristica }: PatristicaSectionProps) {
-  const [active, setActive] = useState<PatristicTradition | null>(null)
-  const [activePublisherTabs, setActivePublisherTabs] = useState<Partial<Record<PatristicTradition, string>>>({})
+  const [active, setActive] = useState<PatristicShelf | null>(null)
+  const [activePublisherTabs, setActivePublisherTabs] = useState<Partial<Record<PatristicShelf, string>>>({})
 
   const allBooks = active ? patristica[active] : []
   const activeMeta = active ? TRADITIONS.find((t) => t.id === active) : null

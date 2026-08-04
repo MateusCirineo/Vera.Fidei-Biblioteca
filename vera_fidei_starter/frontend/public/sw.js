@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vera-fidei-pwa-v10'
+const CACHE_NAME = 'vera-fidei-pwa-v11'
 const APP_SHELL = [
   '/offline.html',
   '/branding/Logo-VF.png',
@@ -49,6 +49,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/visualizar/') ||
     url.pathname.startsWith('/viewer/') ||
+    url.pathname.startsWith('/pdfs/') ||
     url.pathname.endsWith('.pdf') ||
     url.pathname.includes('pdf.worker')
   ) {

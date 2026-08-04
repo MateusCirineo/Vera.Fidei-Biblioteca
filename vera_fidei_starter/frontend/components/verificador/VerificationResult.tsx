@@ -1,8 +1,12 @@
+'use client'
+
 import Link from 'next/link'
+import { useState } from 'react'
 import type { VerifyCitationResponse } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
 import StatusBadge from './StatusBadge'
 import MatchReferenceCard from './MatchReferenceCard'
+import { getAcademicRefUrl } from '@/lib/api'
 
 const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
 
@@ -20,6 +24,31 @@ export default function VerificationResult({
   originalQuery?: string
   userPlan?: string
 }) {
+  const [exportBusy, setExportBusy] = useState<string | null>(null)
+
+  async function downloadRef(format: 'bibtex' | 'abnt' | 'ris') {
+    if (!result.history_id) return
+    setExportBusy(format)
+    try {
+      const url = getAcademicRefUrl(result.history_id, format)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('Erro ao gerar referência')
+      const text = await res.text()
+      const ext = format === 'bibtex' ? 'bib' : format === 'ris' ? 'ris' : 'txt'
+      const mime = format === 'bibtex' ? 'application/x-bibtex' : format === 'ris' ? 'application/x-research-info-systems' : 'text/plain'
+      const blob = new Blob([text], { type: mime })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `referencia_vera_fidei.${ext}`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch {
+      // silent — user can retry
+    } finally {
+      setExportBusy(null)
+    }
+  }
+
   const sourceLabel =
     result.reference?.source_label ||
     result.reference?.edition_label ||
@@ -203,6 +232,54 @@ export default function VerificationResult({
           <p className="text-sm text-texto-secundario leading-relaxed">
             {result.explanation}
           </p>
+        </div>
+      )}
+
+      {/* Exportação acadêmica (plano catequista+) */}
+      {result.status_code !== 'NAO_ENCONTRADA' && result.history_id && hasPlan(userPlan, 'catequista') && (
+        <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+            Exportar referência acadêmica
+          </p>
+          <p className="mt-1 text-xs text-texto-terciario">
+            Gere a citação desta fonte para uso em trabalhos e pesquisas.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {([
+              { fmt: 'bibtex' as const, label: 'BibTeX', desc: '.bib para LaTeX' },
+              { fmt: 'abnt' as const, label: 'ABNT', desc: 'NBR 6023' },
+              { fmt: 'ris' as const, label: 'RIS', desc: 'Zotero / Mendeley' },
+            ]).map(({ fmt, label, desc }) => (
+              <button
+                key={fmt}
+                type="button"
+                onClick={() => downloadRef(fmt)}
+                disabled={exportBusy !== null}
+                className="flex flex-col rounded-lg border border-fundo-borda bg-fundo px-3 py-2 text-left transition-colors hover:border-dourado/40 hover:bg-dourado/5 disabled:opacity-50"
+              >
+                <span className="text-xs font-semibold text-texto">
+                  {exportBusy === fmt ? 'Gerando…' : label}
+                </span>
+                <span className="mt-0.5 text-[10px] text-texto-terciario">{desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Teaser de exportação para quem não tem o plano */}
+      {result.status_code !== 'NAO_ENCONTRADA' && result.history_id && !hasPlan(userPlan, 'catequista') && (
+        <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 flex items-start gap-3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5 text-dourado flex-shrink-0 mt-0.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-texto mb-0.5">Exportação acadêmica (BibTeX · ABNT · RIS)</p>
+            <p className="text-xs text-texto-terciario leading-relaxed">
+              Gere referências para LaTeX, Zotero ou Mendeley no plano{' '}
+              <Link href="/planos" className="text-dourado hover:underline">Catequista</Link>.
+            </p>
+          </div>
         </div>
       )}
     </div>

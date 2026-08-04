@@ -1,14 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
-import type { Book } from '@/lib/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { Book, DailyCitationResponse } from '@/lib/types'
 import type { CalendarSaint, SaintSource, SaintWorkProfile } from '@/lib/roman-calendar'
 import {
   SAINT_WORK_PROFILES,
   normalizeText,
 } from '@/lib/roman-calendar'
 import { formatLanguage } from '@/lib/language'
+import { getDailyCitation, getPdfUrl } from '@/lib/api'
 
 type SantosViewProps = {
   books: Book[]
@@ -116,6 +117,17 @@ export default function SantosView({ books, today, upcoming }: SantosViewProps) 
   const [activeTab, setActiveTab] = useState<TabId>('dia')
   const [selectedSaint, setSelectedSaint] = useState<SaintCatalogEntry | null>(null)
   const [saintQuery, setSaintQuery] = useState('')
+  const [dailyCitation, setDailyCitation] = useState<DailyCitationResponse | null>(null)
+  const [citationLoading, setCitationLoading] = useState(false)
+
+  useEffect(() => {
+    if (!today.name) return
+    setCitationLoading(true)
+    getDailyCitation(today.name)
+      .then(res => setDailyCitation(res.text ? res : null))
+      .catch(() => setDailyCitation(null))
+      .finally(() => setCitationLoading(false))
+  }, [today.name])
 
   const saintCatalog = useMemo<SaintCatalogEntry[]>(
     () =>
@@ -358,6 +370,51 @@ export default function SantosView({ books, today, upcoming }: SantosViewProps) 
                 ))}
               </div>
             </section>
+          )}
+
+          {/* ── Citação do dia do acervo ── */}
+          {(citationLoading || dailyCitation) && (
+            <div className="rounded-lg border border-dourado/25 bg-dourado/5 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+                Citação do dia — do acervo verificado
+              </p>
+              {citationLoading && (
+                <p className="mt-3 animate-pulse text-sm text-texto-terciario">Carregando citação…</p>
+              )}
+              {!citationLoading && dailyCitation && (
+                <>
+                  <blockquote className="mt-3 border-l-2 border-dourado/40 pl-3 font-garamond text-lg italic leading-relaxed text-texto">
+                    {dailyCitation.translation_text ?? dailyCitation.text}
+                  </blockquote>
+                  {dailyCitation.translation_text && dailyCitation.language && dailyCitation.language !== 'pt' && (
+                    <p className="mt-2 border-l-2 border-fundo-borda pl-3 text-xs text-texto-terciario italic">
+                      {dailyCitation.text}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <div>
+                      {dailyCitation.author && (
+                        <p className="text-sm font-medium text-texto">{dailyCitation.author}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 text-xs text-texto-terciario">
+                        {dailyCitation.work_title && <span>{dailyCitation.work_title}</span>}
+                        {dailyCitation.edition_label && <span>{dailyCitation.edition_label}</span>}
+                        {dailyCitation.chapter_or_section && <span>{dailyCitation.chapter_or_section}</span>}
+                        {dailyCitation.pdf_page != null && <span>p. {dailyCitation.pdf_page}</span>}
+                      </div>
+                    </div>
+                    {dailyCitation.book_file_id != null && (
+                      <Link
+                        href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(dailyCitation.book_file_id!))}${dailyCitation.pdf_page ? `&page=${dailyCitation.pdf_page}` : ''}`}
+                        className="ml-auto rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
+                      >
+                        Ver na fonte
+                      </Link>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4">

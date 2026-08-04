@@ -71,6 +71,7 @@ export interface BookFile {
 }
 
 export type PatristicTradition = 'grega' | 'oriental' | 'latina' | 'portuguesa'
+export type PatristicShelf = PatristicTradition | 'inglesa'
 export type LibrarySection = 'patristica' | 'documentos'
 export type DocumentType =
   | 'concilio'
@@ -183,8 +184,50 @@ export interface DocumentosLibrary {
 }
 
 export interface LibraryStructure {
-  patristica: Record<PatristicTradition, Book[]>
+  patristica: Record<PatristicShelf, Book[]>
   obras_por_autor: AuthorEntry[]
   obras_santos: AuthorEntry[]
   documentos: DocumentosLibrary
+}
+
+// ─── Busca no acervo ──────────────────────────────────────────────────────────
+
+export interface AcervoSearchResult {
+  chunk_id: number
+  text: string
+  author: string | null
+  work_title: string | null
+  pdf_page: number | null
+  chapter_or_section: string | null
+  collection: string | null
+  volume: number | null
+  edition_label: string | null
+  language: string | null
+  translation_text: string | null
+  relevance_score: number
+  book_id: number | null
+  book_file_id: number | null
+}
+
+export interface AcervoSearchResponse {
+  results: AcervoSearchResult[]
+  total: number
+  query: string
+}
+
+// ─── Citação do dia ───────────────────────────────────────────────────────────
+
+export interface DailyCitationResponse {
+  chunk_id: number | null
+  text: string | null
+  author: string | null
+  work_title: string | null
+  pdf_page: number | null
+  chapter_or_section: string | null
+  edition_label: string | null
+  language: string | null
+  translation_text: string | null
+  book_id: number | null
+  book_file_id: number | null
+  day_of_year: number
 }

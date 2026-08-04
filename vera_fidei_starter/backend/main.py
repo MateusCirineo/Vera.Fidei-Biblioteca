@@ -19,6 +19,7 @@ from api.routes.citations import router as citations_router
 from api.routes.favorites import router as favorites_router
 from api.routes.institutions import router as institutions_router
 from api.routes.pdfs import router as pdfs_router
+from api.routes.search import router as search_router
 from core.auth import require_api_key
 from models.database import init_db
 
@@ -86,6 +87,12 @@ app.include_router(
 )
 app.include_router(billing_router, prefix="/billing", tags=["Billing"])
 app.include_router(api_v1_router, prefix="/v1", tags=["API Publica"])
+app.include_router(
+    search_router,
+    prefix="/search",
+    tags=["Search"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @app.on_event("startup")

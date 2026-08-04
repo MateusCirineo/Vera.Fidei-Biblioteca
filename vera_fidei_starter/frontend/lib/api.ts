@@ -8,6 +8,8 @@ import type {
   FavoritePayload,
   VerificationUsage,
   VerifyCitationResponse,
+  AcervoSearchResponse,
+  DailyCitationResponse,
 } from './types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
@@ -227,4 +229,35 @@ export async function getAdminCoupons(prefix = 'COLEGIO'): Promise<AdminCouponsR
   })
   if (!res.ok) throw await readApiError(res, 'Erro ao carregar cupons')
   return res.json()
+}
+
+// ─── Busca no acervo ──────────────────────────────────────────────────────────
+
+export async function searchAcervo(
+  q: string,
+  options: { limit?: number; author?: string } = {},
+): Promise<AcervoSearchResponse> {
+  const params = new URLSearchParams({ q, limit: String(options.limit ?? 20) })
+  if (options.author) params.set('author', options.author)
+  const res = await fetch(`${BASE}/search/chunks?${params}`, { headers: authHeaders() })
+  if (!res.ok) throw await readApiError(res, 'Erro na busca do acervo')
+  return res.json()
+}
+
+export async function searchBible(ref: string, limit = 20): Promise<AcervoSearchResponse> {
+  const params = new URLSearchParams({ ref, limit: String(limit) })
+  const res = await fetch(`${BASE}/search/bible?${params}`, { headers: authHeaders() })
+  if (!res.ok) throw await readApiError(res, 'Erro na busca bíblica')
+  return res.json()
+}
+
+export async function getDailyCitation(author: string): Promise<DailyCitationResponse> {
+  const params = new URLSearchParams({ author })
+  const res = await fetch(`${BASE}/search/daily-citation?${params}`, { headers: authHeaders() })
+  if (!res.ok) throw await readApiError(res, 'Erro ao carregar citação do dia')
+  return res.json()
+}
+
+export function getAcademicRefUrl(historyId: number, format: 'bibtex' | 'abnt' | 'ris'): string {
+  return `${BASE}/citations/historico/${historyId}/export-ref?format=${format}`
 }
