@@ -17,7 +17,7 @@ import AutoresSection from './AutoresSection'
 import DocumentosSection from './DocumentosSection'
 import SantosObrasSection from './SantosObrasSection'
 import BookCard from './BookCard'
-import { searchAcervo, searchBible, getPdfUrl } from '@/lib/api'
+import { searchAcervo, searchBible, getCccCommentary, getPdfUrl } from '@/lib/api'
 import type { AcervoSearchResult } from '@/lib/types'
 
 function languageParts(language: string | null): string[] {
@@ -287,7 +287,7 @@ export default function LibraryView({
   const [sortMode, setSortMode] = useState<SortMode>('catalogo')
 
   // ── Busca no conteúdo do acervo ──
-  type SearchMode = 'catalogo' | 'conteudo' | 'biblia'
+  type SearchMode = 'catalogo' | 'conteudo' | 'biblia' | 'catecismo'
   const [searchMode, setSearchMode] = useState<SearchMode>('catalogo')
   const [contentQuery, setContentQuery] = useState('')
   const [bibleQuery, setBibleQuery] = useState('')
@@ -297,6 +297,14 @@ export default function LibraryView({
   const [lastAcervoQuery, setLastAcervoQuery] = useState('')
   const contentInputRef = useRef<HTMLInputElement>(null)
   const bibleInputRef = useRef<HTMLInputElement>(null)
+  // ── Catecismo ──
+  const [cccInput, setCccInput] = useState('')
+  const [cccResults, setCccResults] = useState<AcervoSearchResult[]>([])
+  const [cccLoading, setCccLoading] = useState(false)
+  const [cccError, setCccError] = useState('')
+  const [cccSectionTitle, setCccSectionTitle] = useState('')
+  const [cccThemes, setCccThemes] = useState<string[]>([])
+  const [lastCccArticle, setLastCccArticle] = useState<number | null>(null)
 
   const runContentSearch = useCallback(async (q: string) => {
     const trimmed = q.trim()
@@ -331,6 +339,31 @@ export default function LibraryView({
       setAcervoError('Erro ao buscar. Verifique o formato da referência.')
     } finally {
       setAcervoLoading(false)
+    }
+  }, [])
+
+  const runCccSearch = useCallback(async (raw: string) => {
+    const n = parseInt(raw.trim(), 10)
+    if (!n || n < 1 || n > 2865) {
+      setCccError('Digite um número de artigo válido entre 1 e 2865.')
+      return
+    }
+    setCccLoading(true)
+    setCccError('')
+    setCccResults([])
+    setCccSectionTitle('')
+    setCccThemes([])
+    setLastCccArticle(n)
+    try {
+      const res = await getCccCommentary(n, 12)
+      setCccResults(res.results)
+      setCccSectionTitle(res.section_title)
+      setCccThemes(res.themes.slice(0, 6))
+      if (res.results.length === 0) setCccError('Nenhum trecho patrístico encontrado para esse artigo ainda.')
+    } catch {
+      setCccError('Erro ao buscar. Tente novamente.')
+    } finally {
+      setCccLoading(false)
     }
   }, [])
 
@@ -463,6 +496,7 @@ export default function LibraryView({
           { id: 'catalogo' as const, label: 'Catálogo', desc: 'Navegar obras' },
           { id: 'conteudo' as const, label: 'Busca no conteúdo', desc: 'Trechos dos Padres' },
           { id: 'biblia' as const, label: 'Catena Patrum', desc: 'Por versículo bíblico' },
+          { id: 'catecismo' as const, label: 'Catecismo', desc: 'Por artigo do CCC' },
         ]).map(mode => (
           <button
             key={mode.id}
@@ -644,6 +678,132 @@ export default function LibraryView({
               </p>
               <div className="space-y-3">
                 {acervoResults.map(hit => (
+                  <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        {hit.author && (
+                          <p className="text-xs font-semibold text-dourado">{hit.author}</p>
+                        )}
+                        {hit.work_title && (
+                          <p className="text-xs text-texto-secundario">{hit.work_title}</p>
+                        )}
+                        <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-texto-terciario">
+                          {hit.edition_label && <span>{hit.edition_label}</span>}
+                          {hit.collection && <span>{hit.collection}</span>}
+                          {hit.volume != null && <span>vol. {hit.volume}</span>}
+                          {hit.chapter_or_section && <span>{hit.chapter_or_section}</span>}
+                          {hit.pdf_page != null && <span>p. {hit.pdf_page}</span>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {hit.book_file_id != null && (
+                          <Link
+                            href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
+                            className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
+                          >
+                            Abrir PDF
+                          </Link>
+                        )}
+                        {hit.book_id != null && (
+                          <Link
+                            href={`/biblioteca/${hit.book_id}`}
+                            className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
+                          >
+                            Ver obra
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                    <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
+                      {hit.text}
+                    </blockquote>
+                    {hit.translation_text && (
+                      <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed text-texto-secundario italic">
+                        {hit.translation_text}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* ── Comentário patrístico por artigo do Catecismo ── */}
+      {searchMode === 'catecismo' && (
+        <section className="space-y-3">
+          <div className="rounded-lg border border-fundo-borda bg-fundo-card/80 p-3">
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="ccc-search">
+              Comentário patrístico do Catecismo
+            </label>
+            <p className="mb-2 text-xs text-texto-terciario">
+              Digite o número de um artigo do CCC (1–2865) para ver o que os Padres disseram sobre essa doutrina.
+            </p>
+            <div className="flex gap-2">
+              <input
+                id="ccc-search"
+                type="number"
+                min={1}
+                max={2865}
+                value={cccInput}
+                onChange={e => setCccInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && runCccSearch(cccInput)}
+                placeholder="Ex: 1324  (Eucaristia)  ·  460  (Encarnação)  ·  2759  (Pai-Nosso)"
+                className="flex-1 rounded-lg border border-fundo-borda bg-fundo px-3 py-2 text-sm text-texto outline-none transition-colors placeholder:text-texto-terciario focus:border-dourado/50"
+                style={{ fontSize: '16px' }}
+              />
+              <button
+                type="button"
+                onClick={() => runCccSearch(cccInput)}
+                disabled={cccLoading || !cccInput.trim()}
+                className="rounded-lg border border-dourado/40 bg-dourado/10 px-4 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado/20 disabled:opacity-40"
+              >
+                {cccLoading ? 'Buscando…' : 'Buscar'}
+              </button>
+            </div>
+            <p className="mt-1.5 text-[10px] text-texto-terciario">
+              Exemplos: 233 (Trindade) · 460 (Encarnação) · 1324 (Eucaristia) · 1422 (Confissão) · 2558 (Oração)
+            </p>
+          </div>
+
+          {cccLoading && (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-texto-terciario">
+              <span className="animate-pulse">Consultando os Padres sobre este artigo…</span>
+            </div>
+          )}
+
+          {!cccLoading && cccError && (
+            <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
+              <p className="text-sm text-texto-terciario">{cccError}</p>
+            </div>
+          )}
+
+          {!cccLoading && cccSectionTitle && (
+            <div className="rounded-lg border border-dourado/20 bg-dourado/5 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
+                Artigo {lastCccArticle} do CCC
+              </p>
+              <p className="mt-1 text-sm font-medium text-texto">{cccSectionTitle}</p>
+              {cccThemes.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {cccThemes.map(t => (
+                    <span key={t} className="rounded-full border border-dourado/20 bg-dourado/5 px-2 py-0.5 text-[10px] text-dourado/80">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!cccLoading && cccResults.length > 0 && (
+            <>
+              <p className="text-xs text-texto-terciario">
+                {cccResults.length} trechos patrísticos para o artigo <span className="font-medium text-texto">{lastCccArticle}</span>
+              </p>
+              <div className="space-y-3">
+                {cccResults.map(hit => (
                   <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>

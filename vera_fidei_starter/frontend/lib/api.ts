@@ -9,6 +9,7 @@ import type {
   VerificationUsage,
   VerifyCitationResponse,
   AcervoSearchResponse,
+  CccCommentaryResponse,
   DailyCitationResponse,
 } from './types'
 
@@ -260,4 +261,11 @@ export async function getDailyCitation(author: string): Promise<DailyCitationRes
 
 export function getAcademicRefUrl(historyId: number, format: 'bibtex' | 'abnt' | 'ris'): string {
   return `${BASE}/citations/historico/${historyId}/export-ref?format=${format}`
+}
+
+export async function getCccCommentary(article: number, limit = 12): Promise<CccCommentaryResponse> {
+  const params = new URLSearchParams({ article: String(article), limit: String(limit) })
+  const res = await fetch(`${BASE}/search/ccc-commentary?${params}`, { headers: authHeaders() })
+  if (!res.ok) throw await readApiError(res, 'Erro ao buscar comentário patrístico')
+  return res.json()
 }

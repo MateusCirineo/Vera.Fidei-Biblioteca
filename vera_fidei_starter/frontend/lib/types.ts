@@ -215,6 +215,16 @@ export interface AcervoSearchResponse {
   query: string
 }
 
+// ─── Comentário patrístico por artigo do CCC ─────────────────────────────────
+
+export interface CccCommentaryResponse {
+  article: number
+  section_title: string
+  themes: string[]
+  results: AcervoSearchResult[]
+  total: number
+}
+
 // ─── Citação do dia ───────────────────────────────────────────────────────────
 
 export interface DailyCitationResponse {

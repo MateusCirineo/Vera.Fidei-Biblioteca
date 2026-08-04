@@ -4,10 +4,11 @@ import datetime
 import re
 import unicodedata
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from core.auth import require_api_key
+from data.ccc_structure import find_ccc_section
 from models.database import Book, Chunk, SessionLocal, Translation
 from search.text_search import TextSearchClient
 
@@ -427,4 +428,41 @@ def book_chunks_offline(
         language=book.language or None,
         chunks=result_chunks,
         total_chunks=len(result_chunks),
+    )
+
+
+# ─── Endpoint 5: comentário patrístico por artigo do Catecismo ───────────────
+
+class CccCommentaryResponse(BaseModel):
+    article: int
+    section_title: str
+    themes: list[str]
+    results: list[AcervoResult]
+    total: int
+
+
+@router.get("/ccc-commentary", response_model=CccCommentaryResponse)
+def ccc_commentary(
+    article: int = Query(..., ge=1, le=2865, description="Número do artigo do CCC (1–2865)"),
+    limit: int = Query(default=12, ge=1, le=30),
+):
+    """
+    Retorna trechos patrísticos do acervo relacionados a um artigo do Catecismo da Igreja Católica.
+    Usa os temas teológicos da seção do artigo para buscar no Elasticsearch.
+    """
+    section = find_ccc_section(article)
+    if not section:
+        raise HTTPException(status_code=404, detail=f"Artigo {article} não encontrado na estrutura do Catecismo.")
+
+    # Combina os principais temas como query de busca
+    themes_query = " ".join(section["themes"][:6])
+    hits = _client().search_acervo(query=themes_query, limit=limit)
+    results = _enrich_with_db(hits)
+
+    return CccCommentaryResponse(
+        article=article,
+        section_title=section["title"],
+        themes=section["themes"],
+        results=results,
+        total=len(results),
     )

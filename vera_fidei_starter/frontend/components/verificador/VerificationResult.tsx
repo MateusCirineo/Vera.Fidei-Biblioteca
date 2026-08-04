@@ -7,6 +7,7 @@ import { formatLanguage } from '@/lib/language'
 import StatusBadge from './StatusBadge'
 import MatchReferenceCard from './MatchReferenceCard'
 import { getAcademicRefUrl } from '@/lib/api'
+import { authBearerHeaders } from '@/lib/auth'
 
 const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
 
@@ -31,17 +32,19 @@ export default function VerificationResult({
     setExportBusy(format)
     try {
       const url = getAcademicRefUrl(result.history_id, format)
-      const res = await fetch(url)
+      const res = await fetch(url, { headers: authBearerHeaders() })
       if (!res.ok) throw new Error('Erro ao gerar referência')
       const text = await res.text()
       const ext = format === 'bibtex' ? 'bib' : format === 'ris' ? 'ris' : 'txt'
-      const mime = format === 'bibtex' ? 'application/x-bibtex' : format === 'ris' ? 'application/x-research-info-systems' : 'text/plain'
-      const blob = new Blob([text], { type: mime })
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
+      a.href = objectUrl
       a.download = `referencia_vera_fidei.${ext}`
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(a.href)
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1500)
     } catch {
       // silent — user can retry
     } finally {
