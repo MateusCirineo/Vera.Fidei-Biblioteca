@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import datetime
 import re
+import time
 import unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from core.auth import require_api_key
+from core.deps import get_current_user, get_optional_user
+from core.plans import search_daily_limit_for_plan
 from data.ccc_structure import find_ccc_section
-from models.database import Book, Chunk, SessionLocal, Translation
+from models.database import Book, Chunk, SearchUsage, SessionLocal, Translation
 from search.text_search import TextSearchClient
 
 router = APIRouter()
 
 _text_client: TextSearchClient | None = None
+
+# Cache of patristic book IDs (refreshed every hour)
+_patristic_ids_cache: list[int] = []
+_patristic_ids_ts: float = 0.0
+_PATRISTIC_CACHE_TTL = 3600.0
 
 
 def _client() -> TextSearchClient:
@@ -24,12 +32,37 @@ def _client() -> TextSearchClient:
     return _text_client
 
 
+def _get_patristic_book_ids() -> list[int]:
+    """Return IDs of patristic books that are NOT in PL/PG/PO collection.
+    (PL/PG/PO are already guaranteed by the collection filter in ES.)
+    Covers Paulus Portuguese editions, English ANF/NPNF, and similar."""
+    global _patristic_ids_cache, _patristic_ids_ts
+    if time.time() - _patristic_ids_ts < _PATRISTIC_CACHE_TTL:
+        return _patristic_ids_cache
+    try:
+        with SessionLocal() as db:
+            from sqlalchemy import or_, not_
+            rows = db.query(Book.id).filter(
+                or_(
+                    Book.library_section == "patristica",
+                    Book.patristic_tradition.isnot(None),
+                ),
+                not_(Book.collection.in_(["PL", "PG", "PO"])),
+            ).all()
+        _patristic_ids_cache = [r.id for r in rows]
+        _patristic_ids_ts = time.time()
+    except Exception:
+        pass
+    return _patristic_ids_cache
+
+
 # ─── Modelos de resposta ──────────────────────────────────────────────────────
 
 class AcervoResult(BaseModel):
     chunk_id: int
     text: str
     author: str | None
+    chunk_author: str | None
     work_title: str | None
     pdf_page: int | None
     chapter_or_section: str | None
@@ -41,12 +74,21 @@ class AcervoResult(BaseModel):
     relevance_score: float
     book_id: int | None
     book_file_id: int | None
+    library_section: str | None
+    patristic_tradition: str | None
 
 
 class AcervoSearchResponse(BaseModel):
     results: list[AcervoResult]
     total: int
     query: str
+
+
+class SearchUsageResponse(BaseModel):
+    plan: str
+    limit: int | None
+    used: int
+    remaining: int | None
 
 
 class DailyCitationResponse(BaseModel):
@@ -67,17 +109,28 @@ class DailyCitationResponse(BaseModel):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _enrich_with_db(hits: list) -> list[AcervoResult]:
-    """Add book_id / book_file_id from Postgres given a list of AcervoSearchHit."""
+    """Add book_id / book_file_id / chunk_author / library_section / patristic_tradition from Postgres."""
     if not hits:
         return []
     chunk_ids = [h.chunk_id for h in hits]
     with SessionLocal() as db:
         rows = (
-            db.query(Chunk.id, Chunk.book_id, Chunk.book_file_id)
+            db.query(Chunk.id, Chunk.book_id, Chunk.book_file_id, Chunk.chunk_author,
+                     Book.library_section, Book.patristic_tradition)
+            .join(Book, Chunk.book_id == Book.id, isouter=True)
             .filter(Chunk.id.in_(chunk_ids))
             .all()
         )
-    meta = {r.id: {"book_id": r.book_id, "book_file_id": r.book_file_id} for r in rows}
+    meta = {
+        r.id: {
+            "book_id": r.book_id,
+            "book_file_id": r.book_file_id,
+            "chunk_author": r.chunk_author,
+            "library_section": r.library_section,
+            "patristic_tradition": r.patristic_tradition,
+        }
+        for r in rows
+    }
     results = []
     for hit in hits:
         m = meta.get(hit.chunk_id, {})
@@ -85,6 +138,7 @@ def _enrich_with_db(hits: list) -> list[AcervoResult]:
             chunk_id=hit.chunk_id,
             text=(hit.text or "")[:700],
             author=hit.author or None,
+            chunk_author=m.get("chunk_author") or None,
             work_title=hit.work_title or None,
             pdf_page=hit.pdf_page,
             chapter_or_section=hit.chapter_or_section or None,
@@ -96,6 +150,8 @@ def _enrich_with_db(hits: list) -> list[AcervoResult]:
             relevance_score=round(hit.score, 3),
             book_id=m.get("book_id"),
             book_file_id=m.get("book_file_id"),
+            library_section=m.get("library_section"),
+            patristic_tradition=m.get("patristic_tradition"),
         ))
     return results
 
@@ -106,16 +162,73 @@ def _norm(text: str) -> str:
     return text.lower().strip()
 
 
+def _check_and_increment_quota(user: "object", skip: bool = False) -> None:
+    """Check daily search quota and increment counter. Raises 429 if exceeded."""
+    if skip:
+        return
+    limit = search_daily_limit_for_plan(getattr(user, "plan", None))
+    today = datetime.date.today()
+    with SessionLocal() as db:
+        usage = db.query(SearchUsage).filter(
+            SearchUsage.user_id == user.id,
+            SearchUsage.usage_date == today,
+        ).first()
+        if usage is None:
+            usage = SearchUsage(user_id=user.id, usage_date=today, count=0)
+            db.add(usage)
+            db.flush()
+        if limit is not None and usage.count >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": f"Limite diário de {limit} buscas atingido. Renova à meia-noite.",
+                    "code": "QUOTA_EXCEEDED",
+                    "plan": user.plan,
+                    "limit": limit,
+                    "used": usage.count,
+                },
+            )
+        usage.count += 1
+        db.commit()
+
+
+# ─── Endpoint: uso diário de busca ───────────────────────────────────────────
+
+@router.get("/usage", response_model=SearchUsageResponse)
+def get_search_usage(user=Depends(get_current_user)):
+    """Retorna o uso diário de buscas do usuário autenticado."""
+    limit = search_daily_limit_for_plan(user.plan)
+    today = datetime.date.today()
+    with SessionLocal() as db:
+        usage = db.query(SearchUsage).filter(
+            SearchUsage.user_id == user.id,
+            SearchUsage.usage_date == today,
+        ).first()
+        count = usage.count if usage else 0
+    remaining = (limit - count) if limit is not None else None
+    return SearchUsageResponse(plan=user.plan, limit=limit, used=count, remaining=remaining)
+
+
 # ─── Endpoint 1: busca no conteúdo do acervo ─────────────────────────────────
 
 @router.get("/chunks", response_model=AcervoSearchResponse)
 def search_chunks(
     q: str = Query(..., min_length=2, max_length=300, description="Termo ou frase a buscar"),
-    limit: int = Query(default=20, ge=1, le=50),
+    limit: int = Query(default=50, ge=1, le=500),
     author: str = Query(default="", description="Filtrar por autor (keyword exato do ES)"),
+    collection: str = Query(default="", description="'patristica' para filtrar apenas PL/PG/PO"),
+    user=Depends(get_optional_user),
 ):
     """Busca semântica/textual dentro dos trechos indexados do acervo."""
-    hits = _client().search_acervo(query=q, limit=limit, author_filter=author)
+    if user is None:
+        raise HTTPException(status_code=401, detail="LOGIN_REQUIRED")
+    # Patristic sub-queries (collection='patristica') are internal and don't consume quota
+    _check_and_increment_quota(user, skip=(collection == "patristica"))
+    patristic_ids = _get_patristic_book_ids()
+    hits = _client().search_acervo(
+        query=q, limit=limit, author_filter=author,
+        collection_filter=collection, patristic_book_ids=patristic_ids,
+    )
     results = _enrich_with_db(hits)
     return AcervoSearchResponse(results=results, total=len(results), query=q)
 
@@ -303,11 +416,15 @@ def _bible_search_variants(ref: str) -> list[str]:
 def catena_patrum(
     ref: str = Query(..., min_length=3, max_length=80, description="Referência bíblica, ex: Jo 6,53 ou Mt 5,3"),
     limit: int = Query(default=20, ge=1, le=50),
+    user=Depends(get_optional_user),
 ):
     """
     Catena Patrum: busca o que os Padres da Igreja escreveram sobre um versículo bíblico.
     Busca as variantes da referência no texto e tradução dos chunks indexados.
     """
+    if user is None:
+        raise HTTPException(status_code=401, detail="LOGIN_REQUIRED")
+    _check_and_increment_quota(user)
     variants = _bible_search_variants(ref)
     if not variants:
         return AcervoSearchResponse(results=[], total=0, query=ref)
@@ -445,11 +562,15 @@ class CccCommentaryResponse(BaseModel):
 def ccc_commentary(
     article: int = Query(..., ge=1, le=2865, description="Número do artigo do CCC (1–2865)"),
     limit: int = Query(default=12, ge=1, le=30),
+    user=Depends(get_optional_user),
 ):
     """
     Retorna trechos patrísticos do acervo relacionados a um artigo do Catecismo da Igreja Católica.
     Usa os temas teológicos da seção do artigo para buscar no Elasticsearch.
     """
+    if user is None:
+        raise HTTPException(status_code=401, detail="LOGIN_REQUIRED")
+    _check_and_increment_quota(user)
     section = find_ccc_section(article)
     if not section:
         raise HTTPException(status_code=404, detail=f"Artigo {article} não encontrado na estrutura do Catecismo.")

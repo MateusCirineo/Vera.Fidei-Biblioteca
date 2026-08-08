@@ -1,9 +1,125 @@
+import unicodedata
 from dataclasses import dataclass, field
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from core.config import settings
 
 ES_INDEX = "vera_fidei_chunks"
+
+# Portuguese → Latin/Greek theological term expansion
+_THEO_LATIN: dict[str, list[str]] = {
+    "eucaristia": ["eucharistia", "eucharistiam", "eucharistiae"],
+    "batismo": ["baptismus", "baptisma", "baptismum", "baptismi"],
+    "batizar": ["baptizare", "baptizo"],
+    "trindade": ["trinitas", "trinitatis", "trinitate"],
+    "graca": ["gratia", "gratiam", "gratiae"],
+    "pecado": ["peccatum", "peccati", "peccata", "peccatorum"],
+    "salvacao": ["salus", "salutis", "salvatio", "salvationis"],
+    "ressurreicao": ["resurrectio", "resurrectionis", "resurrectione"],
+    "encarnacao": ["incarnatio", "incarnationis", "incarnatione"],
+    "paixao": ["passio", "passionis", "passione"],
+    "fe": ["fides", "fidei", "fidem"],
+    "caridade": ["caritas", "caritatis", "caritatem"],
+    "esperanca": ["spes", "spei", "spem"],
+    "oracao": ["oratio", "orationis", "orationem"],
+    "alma": ["anima", "animae", "animam"],
+    "corpo": ["corpus", "corporis", "corpore"],
+    "sangue": ["sanguis", "sanguinis", "sanguine"],
+    "igreja": ["ecclesia", "ecclesiae", "ecclesiam"],
+    "sacerdote": ["sacerdos", "sacerdotis", "presbyteros", "presbyter"],
+    "sacerdocio": ["sacerdotium", "sacerdotii"],
+    "missa": ["missa", "missae"],
+    "confirmacao": ["confirmatio", "confirmationis"],
+    "penitencia": ["poenitentia", "poenitentiam", "paenitentia"],
+    "matrimonio": ["matrimonium", "matrimonii"],
+    "virgem": ["virgo", "virginis", "virginem"],
+    "misericordia": ["misericordia", "misericordiam", "misericordiae"],
+    "humildade": ["humilitas", "humilitatis", "humilitatem"],
+    "contemplacao": ["contemplatio", "contemplationis"],
+    "ascensao": ["ascensio", "ascensionis"],
+    "pentecostes": ["pentecoste", "pentecostes"],
+    "redencao": ["redemptio", "redemptionis"],
+    "unção": ["unctio", "unctionis"],
+    "martir": ["martyr", "martyris", "martyrem", "martyres"],
+    "virgindade": ["virginitas", "virginitatis"],
+    "celibato": ["caelibatus", "coelibatus"],
+    "profecia": ["prophetia", "prophetiae"],
+    "revelacao": ["revelatio", "revelationis"],
+    "tradicao": ["traditio", "traditionis"],
+    "escritura": ["scriptura", "scripturae", "scripturam"],
+    "biblia": ["biblia", "scriptura sacra"],
+    "apostolo": ["apostolus", "apostoli", "apostolum", "apostolos"],
+    "bispo": ["episcopus", "episcopi", "episcopum", "episkopos"],
+    "diacono": ["diaconus", "diaconi", "diaconum"],
+    "monge": ["monachus", "monachi"],
+    "deserto": ["desertum", "eremos"],
+    "jejum": ["ieiunium", "ieiunii", "ieiunia"],
+    "esmola": ["eleemosyna", "eleemosynae"],
+    "pobreza": ["paupertas", "paupertatis"],
+    "obediencia": ["oboedientia", "obedientia"],
+    "castidade": ["castitas", "castitatis"],
+    "oleo": ["oleum", "olei"],
+    "crisma": ["chrisma", "chrismatis"],
+    "absolvicao": ["absolutio", "absolutionis"],
+    "indulgencia": ["indulgentia", "indulgentiae"],
+    "purgatorio": ["purgatorium", "purgatorii"],
+    "paraiso": ["paradisus", "paradisi"],
+    "inferno": ["infernus", "inferni", "infernum"],
+    "anjo": ["angelus", "angeli", "angelum", "angelos"],
+    "demonio": ["daemon", "daemonis", "diabolus"],
+    "diabo": ["diabolus", "diaboli"],
+    "tentacao": ["tentatio", "tentationis"],
+    "oracão dominical": ["oratio dominica", "pater noster"],
+    "pai nosso": ["pater noster"],
+    "ave maria": ["ave maria", "salutatio angelica"],
+    "credo": ["symbolum", "credo", "symbolum fidei"],
+    "palavra": ["verbum", "verbi"],
+    "luz": ["lux", "lucis"],
+    "verdade": ["veritas", "veritatis"],
+    "vida": ["vita", "vitae"],
+    "caminho": ["via", "viae"],
+    "ressuscitado": ["resurrexit", "resurgens"],
+    # Nomes próprios com declinações latinas diferentes do nominativo
+    "maria": ["mariam", "mariae", "virgine maria", "beata virgo", "sancta maria"],
+    "virgem maria": ["virgo maria", "beata virgo maria", "virginis mariae"],
+    "mae de deus": ["dei genitrix", "theotokos", "mater dei", "mater domini"],
+    "imaculada": ["immaculata", "immaculatae", "immaculatam", "sine labe concepta"],
+    "assuncao": ["assumptio", "assumptionis", "assumptionem"],
+    "anunciacao": ["annuntiatio", "annuntiationis"],
+    "natividade": ["nativitas", "nativitatis", "nativitatem"],
+    "jesus": ["iesum", "iesu", "iesus", "christe", "christum", "christi"],
+    "cristo": ["christus", "christi", "christum", "christe"],
+    "espirito santo": ["spiritus sanctus", "spiritus sancti", "spiritu sancto"],
+    "deus pai": ["deus pater", "dei patris", "deum patrem"],
+    "filho de deus": ["filius dei", "filii dei", "filium dei"],
+    "cruz": ["crux", "crucis", "crucem", "cruce"],
+    "morte": ["mors", "mortis", "mortem"],
+    "morte de cristo": ["mors christi", "passio christi", "passione christi"],
+    "amore": ["amor", "amoris", "amorem", "caritas"],
+    "verdadeiro corpo": ["verum corpus", "vere corpus"],
+    "presença real": ["praesentia realis", "vere et realiter"],
+}
+
+
+def _strip_accents(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in normalized if not unicodedata.combining(c))
+
+
+def expand_theological_query(query: str) -> str:
+    """Expand a Portuguese theological query with Latin/Greek equivalents for Elasticsearch."""
+    q = _strip_accents(query)
+    extra: list[str] = []
+    for pt_term, latin_terms in _THEO_LATIN.items():
+        if pt_term in q:
+            extra.extend(latin_terms)
+    if extra:
+        # Deduplicate and append to original query
+        seen = set(query.lower().split())
+        new_terms = [t for t in extra if t not in seen]
+        if new_terms:
+            return query + " " + " ".join(dict.fromkeys(new_terms))
+    return query
 
 
 @dataclass
@@ -100,47 +216,35 @@ class TextSearchClient:
             ))
         return hits
 
-    def search_acervo(
+    def _build_acervo_es_body(
         self,
-        query: str,
-        limit: int = 20,
-        author_filter: str = "",
-        query_language: str = "unknown",
-    ) -> list[AcervoSearchHit]:
-        if not query.strip():
-            return []
-
-        _ORIGINAL_LANGS = {"la", "grc", "el", "he"}
-        _TRANSLATION_LANGS = {"pt", "es", "fr", "it", "en", "de"}
-        query_langs = set((query_language or "unknown").split("+"))
-
-        if query_langs & _TRANSLATION_LANGS:
-            fields = ["translation_text^2", "text"]
-        elif query_langs & _ORIGINAL_LANGS:
-            fields = ["text^2", "translation_text"]
-        else:
-            fields = ["text^1.2", "translation_text^1.2"]
-
-        must: list = [{"multi_match": {"query": query, "fields": fields, "type": "best_fields"}}]
-        should: list = [{"match": {"author": author_filter}}] if author_filter else []
-        filter_clauses: list = [{"term": {"author": author_filter}}] if author_filter else []
-
-        body: dict = {
+        expanded_query: str,
+        fields: list[str],
+        author_filter: str,
+        collection_filter: str,
+        limit: int,
+    ) -> dict:
+        must: list = [{"multi_match": {"query": expanded_query, "fields": fields, "type": "best_fields"}}]
+        should: list = []
+        if author_filter:
+            should.append({"match": {"author": author_filter}})
+        filter_clauses: list = []
+        if author_filter:
+            filter_clauses.append({"term": {"author": author_filter}})
+        if collection_filter == "patristica":
+            filter_clauses.append({"terms": {"collection": ["PL", "PG", "PO", "PT"]}})
+        return {
             "query": {
                 "bool": {
                     "must": must,
-                    "should": should,
+                    **({"should": should} if should else {}),
                     **({"filter": filter_clauses} if filter_clauses else {}),
                 }
             },
             "size": limit,
         }
 
-        try:
-            resp = self.es.search(index=ES_INDEX, body=body)
-        except Exception:
-            return []
-
+    def _parse_acervo_response(self, resp: dict) -> list[AcervoSearchHit]:
         hits = []
         for hit in resp["hits"]["hits"]:
             src = hit["_source"]
@@ -159,6 +263,87 @@ class TextSearchClient:
                 translation_text=src.get("translation_text"),
             ))
         return hits
+
+    def search_acervo(
+        self,
+        query: str,
+        limit: int = 20,
+        author_filter: str = "",
+        query_language: str = "unknown",
+        collection_filter: str = "",
+        patristic_book_ids: list[int] | None = None,
+    ) -> list[AcervoSearchHit]:
+        if not query.strip():
+            return []
+
+        _ORIGINAL_LANGS = {"la", "grc", "el", "he"}
+        _TRANSLATION_LANGS = {"pt", "es", "fr", "it", "en", "de"}
+        query_langs = set((query_language or "unknown").split("+"))
+
+        if query_langs & _TRANSLATION_LANGS:
+            fields = ["translation_text^2", "text"]
+        elif query_langs & _ORIGINAL_LANGS:
+            fields = ["text^2", "translation_text"]
+        else:
+            fields = ["text^1.2", "translation_text^1.2"]
+
+        expanded = expand_theological_query(query)
+
+        # Reserve fixed slots to guarantee patristic sources appear in every search.
+        # PL/PG/PO: Latin/Greek originals; PT: Paulus Portuguese translations.
+        # Only applies to general searches (not when already filtered to patristica or by author).
+        do_pat_guarantee = collection_filter != "patristica" and not author_filter
+        plpgpo_quota = 15 if do_pat_guarantee else 0
+        pt_quota = 25 if do_pat_guarantee else 0
+        pat_quota = plpgpo_quota + pt_quota
+        main_limit = max(1, limit - pat_quota)
+
+        try:
+            main_body = self._build_acervo_es_body(expanded, fields, author_filter, collection_filter, main_limit)
+            resp = self.es.search(index=ES_INDEX, body=main_body)
+            results = self._parse_acervo_response(resp)
+        except Exception:
+            return []
+
+        seen_ids = {h.chunk_id for h in results}
+
+        def _add_guaranteed(hits: list[AcervoSearchHit]) -> None:
+            for h in hits:
+                if h.chunk_id not in seen_ids:
+                    results.append(h)
+                    seen_ids.add(h.chunk_id)
+
+        # Guaranteed PL/PG/PO: Latin/Greek/Oriental originals always appear
+        if plpgpo_quota > 0:
+            try:
+                plpgpo_body = self._build_acervo_es_body(expanded, fields, "", "patristica", plpgpo_quota)
+                _add_guaranteed(self._parse_acervo_response(self.es.search(index=ES_INDEX, body=plpgpo_body)))
+            except Exception:
+                pass
+
+        # Guaranteed PT: Paulus Portuguese editions always appear.
+        # Uses collection='PT' keyword filter and searches the ORIGINAL query (not expanded Latin),
+        # because PT books have Portuguese text — expanded Latin terms don't match their content.
+        if pt_quota > 0:
+            try:
+                pt_body = {
+                    "query": {
+                        "bool": {
+                            "must": [{"multi_match": {
+                                "query": query,  # original Portuguese query, not expanded
+                                "fields": ["text^2", "translation_text"],
+                                "type": "best_fields",
+                            }}],
+                            "filter": [{"terms": {"collection": ["PT"]}}],
+                        }
+                    },
+                    "size": pt_quota,
+                }
+                _add_guaranteed(self._parse_acervo_response(self.es.search(index=ES_INDEX, body=pt_body)))
+            except Exception:
+                pass
+
+        return results[:limit]
 
     def author_chunks(self, author: str, limit: int = 500) -> list[AcervoSearchHit]:
         """Return chunks indexed under a specific author keyword (for daily citation)."""

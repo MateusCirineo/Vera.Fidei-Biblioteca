@@ -7,7 +7,7 @@ import UserMenu from '@/components/nav/UserMenu'
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isFullscreenViewer = pathname.startsWith('/viewer/pdf')
+  const isFullscreenViewer = pathname.startsWith('/viewer/pdf') || pathname.startsWith('/visualizar')
 
   if (isFullscreenViewer) {
     return <main className="min-h-dvh bg-zinc-950">{children}</main>

@@ -11,6 +11,7 @@ import type {
   AcervoSearchResponse,
   CccCommentaryResponse,
   DailyCitationResponse,
+  SearchUsageInfo,
 } from './types'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
@@ -236,19 +237,28 @@ export async function getAdminCoupons(prefix = 'COLEGIO'): Promise<AdminCouponsR
 
 export async function searchAcervo(
   q: string,
-  options: { limit?: number; author?: string } = {},
+  options: { limit?: number; author?: string; collection?: string } = {},
 ): Promise<AcervoSearchResponse> {
-  const params = new URLSearchParams({ q, limit: String(options.limit ?? 20) })
+  const params = new URLSearchParams({ q, limit: String(options.limit ?? 50) })
   if (options.author) params.set('author', options.author)
-  const res = await fetch(`${BASE}/search/chunks?${params}`, { headers: authHeaders() })
+  if (options.collection) params.set('collection', options.collection)
+  const res = await fetch(`${BASE}/search/chunks?${params}`, { headers: authBearerHeaders() })
   if (!res.ok) throw await readApiError(res, 'Erro na busca do acervo')
   return res.json()
 }
 
 export async function searchBible(ref: string, limit = 20): Promise<AcervoSearchResponse> {
   const params = new URLSearchParams({ ref, limit: String(limit) })
-  const res = await fetch(`${BASE}/search/bible?${params}`, { headers: authHeaders() })
+  const res = await fetch(`${BASE}/search/bible?${params}`, { headers: authBearerHeaders() })
   if (!res.ok) throw await readApiError(res, 'Erro na busca bíblica')
+  return res.json()
+}
+
+export async function getSearchUsage(): Promise<SearchUsageInfo> {
+  const res = await fetch(`${BASE}/search/usage`, {
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao carregar uso de busca')
   return res.json()
 }
 
@@ -265,7 +275,7 @@ export function getAcademicRefUrl(historyId: number, format: 'bibtex' | 'abnt' |
 
 export async function getCccCommentary(article: number, limit = 12): Promise<CccCommentaryResponse> {
   const params = new URLSearchParams({ article: String(article), limit: String(limit) })
-  const res = await fetch(`${BASE}/search/ccc-commentary?${params}`, { headers: authHeaders() })
+  const res = await fetch(`${BASE}/search/ccc-commentary?${params}`, { headers: authBearerHeaders() })
   if (!res.ok) throw await readApiError(res, 'Erro ao buscar comentário patrístico')
   return res.json()
 }

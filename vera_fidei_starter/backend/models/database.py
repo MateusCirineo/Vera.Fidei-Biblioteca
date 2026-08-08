@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime, UniqueConstraint
+from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime, Date, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
 import json
@@ -27,6 +27,7 @@ class User(Base):
     billing_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     billing_current_period_end: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     billing_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
     verifications: Mapped[list["VerificationHistory"]] = relationship(
@@ -139,6 +140,44 @@ class ApiKey(Base):
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     last_used_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship()
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    user: Mapped["User"] = relationship()
+
+
+class EmailVerificationToken(Base):
+    __tablename__ = "email_verification_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+    user: Mapped["User"] = relationship()
+
+
+class SearchUsage(Base):
+    __tablename__ = "search_usage"
+    __table_args__ = (
+        UniqueConstraint("user_id", "usage_date", name="uq_search_usage_user_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    usage_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    count: Mapped[int] = mapped_column(Integer, default=0)
 
     user: Mapped["User"] = relationship()
 
@@ -316,6 +355,20 @@ def _migrate_add_library_columns() -> None:
         "CREATE TABLE IF NOT EXISTS api_keys (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, key_hash VARCHAR(64) NOT NULL, label VARCHAR(100), is_active BOOLEAN DEFAULT TRUE, usage_count INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), last_used_at TIMESTAMP)",
         "CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)",
         "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
+        # Coluna de verificação de e-mail
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
+        "UPDATE users SET email_verified = TRUE WHERE lower(email) = 'mateuscirineo@gmail.com'",
+        # Tabela de tokens de redefinição de senha
+        "CREATE TABLE IF NOT EXISTS password_reset_tokens (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash VARCHAR(64) UNIQUE NOT NULL, expires_at TIMESTAMP NOT NULL, used BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_prt_token_hash ON password_reset_tokens(token_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_prt_user_id ON password_reset_tokens(user_id)",
+        # Tabela de tokens de verificação de e-mail
+        "CREATE TABLE IF NOT EXISTS email_verification_tokens (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, token_hash VARCHAR(64) UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_evt_token_hash ON email_verification_tokens(token_hash)",
+        # Tabela de uso de busca diária
+        "CREATE TABLE IF NOT EXISTS search_usage (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, usage_date DATE NOT NULL, count INTEGER DEFAULT 0)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_search_usage_user_date ON search_usage(user_id, usage_date)",
+        "CREATE INDEX IF NOT EXISTS idx_search_usage_date ON search_usage(usage_date)",
     ]
     with engine.begin() as conn:
         for sql in migrations:

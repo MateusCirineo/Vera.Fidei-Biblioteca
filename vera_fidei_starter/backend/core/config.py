@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     site_url: str = "https://verafidei.oialfred.com"
     usage_reset_timezone: str = "America/Sao_Paulo"
 
+    # E-mail (Resend)
+    resend_api_key: str = ""
+    email_from: str = "Vera.Fidei <noreply@verafidei.oialfred.com>"
+    support_email: str = "vera.fidei661@gmail.com"
+
     # Billing
     billing_provider: str = "stripe"
     billing_recipient_name: str = ""

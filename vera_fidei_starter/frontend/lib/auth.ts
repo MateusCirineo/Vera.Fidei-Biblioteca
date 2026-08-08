@@ -68,6 +68,39 @@ export function logout(): void {
   clearToken()
 }
 
+export async function forgotPassword(email: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao solicitar redefinição de senha')
+}
+
+export async function resetPassword(token: string, password: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao redefinir senha')
+}
+
+export async function verifyEmail(token: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/verify-email/${encodeURIComponent(token)}`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao verificar e-mail')
+}
+
+export async function resendVerification(): Promise<void> {
+  const res = await fetch(`${BASE}/auth/resend-verification`, {
+    method: 'POST',
+    headers: authBearerHeaders(),
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao reenviar verificação')
+}
+
 export async function getUser(): Promise<UserInfo | null> {
   const token = getToken()
   if (!token) return null

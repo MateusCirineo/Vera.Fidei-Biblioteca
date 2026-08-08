@@ -196,6 +196,7 @@ export interface AcervoSearchResult {
   chunk_id: number
   text: string
   author: string | null
+  chunk_author: string | null
   work_title: string | null
   pdf_page: number | null
   chapter_or_section: string | null
@@ -207,6 +208,8 @@ export interface AcervoSearchResult {
   relevance_score: number
   book_id: number | null
   book_file_id: number | null
+  library_section: string | null
+  patristic_tradition: string | null
 }
 
 export interface AcervoSearchResponse {
@@ -223,6 +226,15 @@ export interface CccCommentaryResponse {
   themes: string[]
   results: AcervoSearchResult[]
   total: number
+}
+
+// ─── Uso diário de busca ──────────────────────────────────────────────────────
+
+export interface SearchUsageInfo {
+  plan: string
+  limit: number | null
+  used: number
+  remaining: number | null
 }
 
 // ─── Citação do dia ───────────────────────────────────────────────────────────

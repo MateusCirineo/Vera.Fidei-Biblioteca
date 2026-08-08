@@ -17,8 +17,164 @@ import AutoresSection from './AutoresSection'
 import DocumentosSection from './DocumentosSection'
 import SantosObrasSection from './SantosObrasSection'
 import BookCard from './BookCard'
-import { searchAcervo, searchBible, getCccCommentary, getPdfUrl } from '@/lib/api'
-import type { AcervoSearchResult } from '@/lib/types'
+import { searchAcervo, searchBible, getCccCommentary, getPdfUrl, ApiError, getSearchUsage } from '@/lib/api'
+import { getToken } from '@/lib/auth'
+import type { AcervoSearchResult, SearchUsageInfo } from '@/lib/types'
+
+function cleanChunkText(text: string): string {
+  return text
+    .replace(/(\.\s*){4,}/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+type ResultCategory = 'patristica' | 'catecismo' | 'liturgia' | 'documentos' | 'santos' | 'outros'
+
+const CATEGORY_LABELS: Record<ResultCategory, string> = {
+  patristica: 'Patrística',
+  catecismo: 'Catecismo e Compêndios',
+  liturgia: 'Liturgia e Missal',
+  documentos: 'Documentos da Igreja',
+  santos: 'Obras dos Santos',
+  outros: 'Outras fontes',
+}
+
+const CATEGORY_SHORT: Record<ResultCategory, string> = {
+  patristica: 'Patrística',
+  catecismo: 'Catecismo',
+  liturgia: 'Liturgia',
+  documentos: 'Documentos',
+  santos: 'Santos',
+  outros: 'Outros',
+}
+
+function normStr(s: string | null | undefined): string {
+  return (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+function categorizeResult(hit: AcervoSearchResult): ResultCategory {
+  const col = (hit.collection ?? '').trim().toUpperCase()
+  const title = normStr(hit.work_title)
+  const author = normStr(hit.author)
+  const chunkAuthor = normStr(hit.chunk_author)
+
+  // Primary: library_section or patristic_tradition from database
+  // (covers ALL patristic works: PL/PG/PO + Paulus PT + English editions)
+  if (hit.library_section === 'patristica') return 'patristica'
+  if (hit.patristic_tradition) return 'patristica'
+
+  // Fallback: Patrologia collection codes (PL/PG/PO = Latin/Greek/Oriental originals; PT = Paulus Portuguese)
+  if (['PL', 'PG', 'PO', 'PT'].includes(col)) return 'patristica'
+
+  if (
+    title.includes('catecismo') || title.includes('catechism') ||
+    title.includes('compendio') || title.includes('catequese')
+  ) return 'catecismo'
+  if (
+    title.includes('missal') || title.includes('breviario') ||
+    title.includes('ritual') || title.includes('liturgia')
+  ) return 'liturgia'
+  if (
+    title.includes('enciclica') || title.includes('constituicao apostolica') ||
+    title.includes('concilio') || title.includes('decreto') ||
+    title.includes('exortacao apostolica') || title.includes('carta apostolica') ||
+    title.includes('motu proprio')
+  ) return 'documentos'
+  // chunk_author takes precedence over book-level author for saint classification
+  const effectiveAuthor = chunkAuthor || author
+  if (/\b(santo|santa|sao|beato|beata)\b/.test(effectiveAuthor)) return 'santos'
+  return 'outros'
+}
+
+function groupByCategory(results: AcervoSearchResult[]): Array<{ category: ResultCategory; hits: AcervoSearchResult[] }> {
+  const groups = new Map<ResultCategory, AcervoSearchResult[]>()
+  for (const hit of results) {
+    const cat = categorizeResult(hit)
+    if (!groups.has(cat)) groups.set(cat, [])
+    groups.get(cat)!.push(hit)
+  }
+  const order: ResultCategory[] = ['patristica', 'catecismo', 'liturgia', 'documentos', 'santos', 'outros']
+  return order.filter(cat => groups.has(cat)).map(cat => ({ category: cat, hits: groups.get(cat)! }))
+}
+
+function SearchResultCard({ hit, query }: { hit: AcervoSearchResult; query: string }) {
+  const text = cleanChunkText(hit.text)
+
+  function highlight(str: string) {
+    const q = query.trim()
+    if (!q) return str
+    try {
+      const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const parts = str.split(new RegExp(`(${esc})`, 'gi'))
+      return (
+        <>
+          {parts.map((p, i) =>
+            p.toLowerCase() === q.toLowerCase()
+              ? <mark key={i} className="rounded-sm bg-dourado/25 px-0.5 not-italic font-semibold text-dourado">{p}</mark>
+              : p
+          )}
+        </>
+      )
+    } catch {
+      return str
+    }
+  }
+
+  const displayAuthor = hit.chunk_author || hit.author
+
+  return (
+    <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          {displayAuthor && (
+            <p className="text-xs font-semibold text-dourado">{displayAuthor}</p>
+          )}
+          {hit.work_title && (
+            <p className="text-xs text-texto-secundario">{hit.work_title}</p>
+          )}
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-texto-terciario">
+            {hit.collection && (
+              <span className="rounded border border-dourado/20 bg-dourado/8 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-dourado/80">
+                {hit.collection}
+              </span>
+            )}
+            {hit.edition_label && <span>{hit.edition_label}</span>}
+            {hit.volume != null && <span>vol. {hit.volume}</span>}
+            {hit.chapter_or_section && <span className="max-w-[160px] truncate" title={hit.chapter_or_section}>{hit.chapter_or_section}</span>}
+            {hit.pdf_page != null && <span className="font-medium text-texto-secundario">p. {hit.pdf_page}</span>}
+            {hit.language && <span className="italic">{hit.language}</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {hit.book_file_id != null && (
+            <Link
+              href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
+              className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
+            >
+              Abrir PDF
+            </Link>
+          )}
+          {hit.book_id != null && (
+            <Link
+              href={`/biblioteca/${hit.book_id}`}
+              className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
+            >
+              Ver obra
+            </Link>
+          )}
+        </div>
+      </div>
+      <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
+        {highlight(text)}
+      </blockquote>
+      {hit.translation_text && (
+        <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed italic text-texto-secundario">
+          {highlight(hit.translation_text)}
+        </p>
+      )}
+    </div>
+  )
+}
 
 function languageParts(language: string | null): string[] {
   return (language ?? '')
@@ -274,6 +430,67 @@ function sortBooks(books: Book[], sortMode: SortMode): Book[] {
   return sorted
 }
 
+function SearchLoginPrompt({ mode }: { mode: string }) {
+  return (
+    <div className="rounded-lg border border-fundo-borda bg-fundo-card p-8 text-center space-y-3">
+      <p className="text-sm font-medium text-texto">{mode} requer uma conta</p>
+      <p className="text-xs text-texto-terciario">
+        Faça login para pesquisar nos trechos dos Padres e documentos do acervo.
+      </p>
+      <Link
+        href="/login"
+        className="inline-block rounded-lg border border-dourado/40 bg-dourado/10 px-5 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado/20"
+      >
+        Entrar na conta
+      </Link>
+    </div>
+  )
+}
+
+function SearchQuotaPrompt({ usage }: { usage: SearchUsageInfo | null }) {
+  const limitStr = usage?.limit != null ? String(usage.limit) : '—'
+  const usedStr = usage?.used != null ? String(usage.used) : '—'
+  return (
+    <div className="rounded-lg border border-fundo-borda bg-fundo-card p-8 text-center space-y-3">
+      <p className="text-sm font-medium text-texto">Limite diário de buscas atingido</p>
+      <p className="text-xs text-texto-terciario">
+        {usage?.limit != null
+          ? `Você usou ${usedStr} de ${limitStr} buscas hoje.`
+          : 'Limite diário atingido.'}{' '}
+        Renova automaticamente à meia-noite.
+      </p>
+      <Link
+        href="/planos"
+        className="inline-block rounded-lg border border-dourado/40 bg-dourado/10 px-5 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado/20"
+      >
+        Ver planos e aumentar limite →
+      </Link>
+    </div>
+  )
+}
+
+function SearchUsageBadge({ usage }: { usage: SearchUsageInfo | null }) {
+  if (!usage) return null
+  if (usage.limit === null) {
+    return (
+      <span className="text-[10px] text-texto-terciario">Buscas ilimitadas</span>
+    )
+  }
+  const pct = Math.min(100, Math.round((usage.used / usage.limit) * 100))
+  const isAlmost = pct >= 80
+  return (
+    <span className={`flex items-center gap-1.5 text-[10px] ${isAlmost ? 'text-vermelho/70' : 'text-texto-terciario'}`}>
+      <span className="inline-block h-1 w-16 rounded-full bg-fundo-borda overflow-hidden">
+        <span
+          className={`block h-full rounded-full ${isAlmost ? 'bg-vermelho/60' : 'bg-dourado/60'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      {usage.used}/{usage.limit} hoje
+    </span>
+  )
+}
+
 export default function LibraryView({
   books,
   catalog,
@@ -292,9 +509,11 @@ export default function LibraryView({
   const [contentQuery, setContentQuery] = useState('')
   const [bibleQuery, setBibleQuery] = useState('')
   const [acervoResults, setAcervoResults] = useState<AcervoSearchResult[]>([])
+  const [patristicResults, setPatristicResults] = useState<AcervoSearchResult[]>([])
   const [acervoLoading, setAcervoLoading] = useState(false)
   const [acervoError, setAcervoError] = useState('')
   const [lastAcervoQuery, setLastAcervoQuery] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<ResultCategory | null>(null)
   const contentInputRef = useRef<HTMLInputElement>(null)
   const bibleInputRef = useRef<HTMLInputElement>(null)
   // ── Catecismo ──
@@ -305,6 +524,20 @@ export default function LibraryView({
   const [cccSectionTitle, setCccSectionTitle] = useState('')
   const [cccThemes, setCccThemes] = useState<string[]>([])
   const [lastCccArticle, setLastCccArticle] = useState<number | null>(null)
+  // ── Quota de busca ──
+  const [searchUsage, setSearchUsage] = useState<SearchUsageInfo | null>(null)
+
+  const isLoggedIn = !!getToken()
+
+  const loadSearchUsage = useCallback(async () => {
+    if (!getToken()) return
+    try {
+      const usage = await getSearchUsage()
+      setSearchUsage(usage)
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const runContentSearch = useCallback(async (q: string) => {
     const trimmed = q.trim()
@@ -312,17 +545,45 @@ export default function LibraryView({
     setAcervoLoading(true)
     setAcervoError('')
     setAcervoResults([])
+    setPatristicResults([])
     setLastAcervoQuery(trimmed)
+    setCategoryFilter(null)
     try {
-      const res = await searchAcervo(trimmed, { limit: 20 })
-      setAcervoResults(res.results)
-      if (res.results.length === 0) setAcervoError('Nenhum trecho encontrado para essa busca.')
-    } catch {
-      setAcervoError('Erro ao buscar no acervo. Verifique sua conexão.')
+      // Run two searches in parallel:
+      // 1) General (limit=50) for all categories — counts 1 quota unit
+      // 2) Dedicated patristic (limit=500) — no quota consumed (collection='patristica')
+      const [generalRes, patRes] = await Promise.all([
+        searchAcervo(trimmed, { limit: 50 }),
+        searchAcervo(trimmed, { limit: 500, collection: 'patristica' }),
+      ])
+      setAcervoResults(generalRes.results)
+      // Sort patristic by author → work → sequential position for grouped reading
+      const sorted = [...patRes.results].sort((a, b) => {
+        const da = ((a.chunk_author || a.author) ?? '').toLowerCase()
+        const db = ((b.chunk_author || b.author) ?? '').toLowerCase()
+        if (da !== db) return da.localeCompare(db, 'pt')
+        const wa = (a.work_title ?? '').toLowerCase()
+        const wb = (b.work_title ?? '').toLowerCase()
+        if (wa !== wb) return wa.localeCompare(wb, 'pt')
+        return a.chunk_id - b.chunk_id
+      })
+      setPatristicResults(sorted)
+      if (generalRes.results.length === 0 && patRes.results.length === 0) {
+        setAcervoError('Nenhum trecho encontrado para essa busca.')
+      }
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAcervoError('LOGIN_REQUIRED')
+      } else if (err instanceof ApiError && err.status === 429) {
+        setAcervoError('QUOTA_EXCEEDED')
+      } else {
+        setAcervoError('Erro ao buscar no acervo. Verifique sua conexão.')
+      }
     } finally {
       setAcervoLoading(false)
+      void loadSearchUsage()
     }
-  }, [])
+  }, [loadSearchUsage])
 
   const runBibleSearch = useCallback(async (ref: string) => {
     const trimmed = ref.trim()
@@ -335,12 +596,19 @@ export default function LibraryView({
       const res = await searchBible(trimmed, 20)
       setAcervoResults(res.results)
       if (res.results.length === 0) setAcervoError('Nenhum trecho dos Padres encontrado para essa referência.')
-    } catch {
-      setAcervoError('Erro ao buscar. Verifique o formato da referência.')
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAcervoError('LOGIN_REQUIRED')
+      } else if (err instanceof ApiError && err.status === 429) {
+        setAcervoError('QUOTA_EXCEEDED')
+      } else {
+        setAcervoError('Erro ao buscar. Verifique o formato da referência.')
+      }
     } finally {
       setAcervoLoading(false)
+      void loadSearchUsage()
     }
-  }, [])
+  }, [loadSearchUsage])
 
   const runCccSearch = useCallback(async (raw: string) => {
     const n = parseInt(raw.trim(), 10)
@@ -360,12 +628,19 @@ export default function LibraryView({
       setCccSectionTitle(res.section_title)
       setCccThemes(res.themes.slice(0, 6))
       if (res.results.length === 0) setCccError('Nenhum trecho patrístico encontrado para esse artigo ainda.')
-    } catch {
-      setCccError('Erro ao buscar. Tente novamente.')
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        setCccError('LOGIN_REQUIRED')
+      } else if (err instanceof ApiError && err.status === 429) {
+        setCccError('QUOTA_EXCEEDED')
+      } else {
+        setCccError('Erro ao buscar. Tente novamente.')
+      }
     } finally {
       setCccLoading(false)
+      void loadSearchUsage()
     }
-  }, [])
+  }, [loadSearchUsage])
 
   const visibleBooks = sortBooks(filterBooks(books, query, scope), sortMode)
   const library = organizeLibrary(visibleBooks)
@@ -504,7 +779,9 @@ export default function LibraryView({
             onClick={() => {
               setSearchMode(mode.id)
               setAcervoResults([])
+              setPatristicResults([])
               setAcervoError('')
+              if (mode.id !== 'catalogo') void loadSearchUsage()
             }}
             className={`flex-1 rounded-md px-2 py-2 text-xs font-medium leading-tight transition-colors ${
               searchMode === mode.id
@@ -521,10 +798,16 @@ export default function LibraryView({
       {/* ── Busca no conteúdo do acervo ── */}
       {searchMode === 'conteudo' && (
         <section className="space-y-3">
+          {!isLoggedIn ? (
+            <SearchLoginPrompt mode="Busca no conteúdo" />
+          ) : (
           <div className="rounded-lg border border-fundo-borda bg-fundo-card/80 p-3">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="acervo-search">
-              Busca semântica no acervo
-            </label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="acervo-search">
+                Busca semântica no acervo
+              </label>
+              <SearchUsageBadge usage={searchUsage} />
+            </div>
             <p className="mb-2 text-xs text-texto-terciario">
               Digite um tema, palavra ou frase para encontrar trechos dos Padres e documentos indexados.
             </p>
@@ -550,86 +833,193 @@ export default function LibraryView({
               </button>
             </div>
           </div>
+          )}
 
-          {acervoLoading && (
+          {isLoggedIn && acervoLoading && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-texto-terciario">
               <span className="animate-pulse">Buscando nos trechos do acervo…</span>
             </div>
           )}
 
-          {!acervoLoading && acervoError && (
+          {isLoggedIn && !acervoLoading && acervoError === 'QUOTA_EXCEEDED' && (
+            <SearchQuotaPrompt usage={searchUsage} />
+          )}
+
+          {isLoggedIn && !acervoLoading && acervoError && acervoError !== 'LOGIN_REQUIRED' && acervoError !== 'QUOTA_EXCEEDED' && (
             <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
               <p className="text-sm text-texto-terciario">{acervoError}</p>
             </div>
           )}
 
-          {!acervoLoading && acervoResults.length > 0 && (
-            <>
-              <p className="text-xs text-texto-terciario">
-                {acervoResults.length} trechos encontrados para <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
-              </p>
-              <div className="space-y-3">
-                {acervoResults.map(hit => (
-                  <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        {hit.author && (
-                          <p className="text-xs font-semibold text-dourado">{hit.author}</p>
+          {isLoggedIn && !acervoLoading && (acervoResults.length > 0 || patristicResults.length > 0) && (() => {
+            const grouped = groupByCategory(acervoResults)
+            // Patrística pill always reflects the dedicated deep search count
+            const patCount = patristicResults.length
+
+            // Build patristic author groups for the dedicated patristic view
+            const patByAuthor: Array<{ author: string; hits: AcervoSearchResult[] }> = []
+            if (categoryFilter === 'patristica') {
+              const authorMap = new Map<string, AcervoSearchResult[]>()
+              for (const hit of patristicResults) {
+                const key = (hit.chunk_author || hit.author || 'Autor desconhecido').trim()
+                if (!authorMap.has(key)) authorMap.set(key, [])
+                authorMap.get(key)!.push(hit)
+              }
+              for (const [author, hits] of authorMap) {
+                patByAuthor.push({ author, hits })
+              }
+            }
+
+            const activeGroups = categoryFilter && categoryFilter !== 'patristica'
+              ? grouped.filter(g => g.category === categoryFilter)
+              : grouped
+
+            const totalDisplay = acervoResults.length
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-texto-terciario">
+                    {categoryFilter === 'patristica' ? (
+                      <>
+                        <span className="font-medium text-texto">{patCount}</span> trechos patrísticos para{' '}
+                        <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-medium text-texto">{totalDisplay}</span> trechos para{' '}
+                        <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
+                        {patCount > 0 && (
+                          <span className="ml-1 text-dourado/70">
+                            · {patCount} patrísticos disponíveis
+                          </span>
                         )}
-                        {hit.work_title && (
-                          <p className="text-xs text-texto-secundario">{hit.work_title}</p>
-                        )}
-                        <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-texto-terciario">
-                          {hit.edition_label && <span>{hit.edition_label}</span>}
-                          {hit.collection && <span>{hit.collection}</span>}
-                          {hit.volume != null && <span>vol. {hit.volume}</span>}
-                          {hit.chapter_or_section && <span>{hit.chapter_or_section}</span>}
-                          {hit.pdf_page != null && <span>p. {hit.pdf_page}</span>}
-                          {hit.language && <span className="italic">{hit.language}</span>}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        {hit.book_file_id != null && (
-                          <Link
-                            href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
-                            className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
-                          >
-                            Abrir PDF
-                          </Link>
-                        )}
-                        {hit.book_id != null && (
-                          <Link
-                            href={`/biblioteca/${hit.book_id}`}
-                            className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
-                          >
-                            Ver obra
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                    <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
-                      {hit.text}
-                    </blockquote>
-                    {hit.translation_text && (
-                      <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed text-texto-secundario italic">
-                        {hit.translation_text}
-                      </p>
+                      </>
                     )}
+                  </p>
+                </div>
+
+                {/* Filter pills */}
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryFilter(null)}
+                    className={`rounded-full border px-3 py-1 text-[10px] font-semibold transition-colors ${
+                      categoryFilter === null
+                        ? 'border-dourado bg-dourado/15 text-dourado'
+                        : 'border-fundo-borda text-texto-terciario hover:border-dourado/30 hover:text-texto'
+                    }`}
+                  >
+                    Tudo · {totalDisplay}
+                  </button>
+                  {(Object.keys(CATEGORY_SHORT) as ResultCategory[]).map(cat => {
+                    const count = cat === 'patristica'
+                      ? patCount
+                      : (grouped.find(g => g.category === cat)?.hits.length ?? 0)
+                    const active = categoryFilter === cat
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        disabled={count === 0}
+                        onClick={() => count > 0 && setCategoryFilter(c => c === cat ? null : cat)}
+                        className={`rounded-full border px-3 py-1 text-[10px] font-semibold transition-colors ${
+                          active
+                            ? 'border-dourado bg-dourado/15 text-dourado'
+                            : count > 0
+                              ? 'border-fundo-borda text-texto-terciario hover:border-dourado/30 hover:text-texto'
+                              : 'cursor-not-allowed border-fundo-borda/30 text-texto-terciario/30'
+                        }`}
+                      >
+                        {CATEGORY_SHORT[cat]} · {count}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Results */}
+                {categoryFilter === 'patristica' ? (
+                  // Dedicated patristic view: all results grouped by Church Father
+                  <div className="space-y-8">
+                    {patByAuthor.map(({ author, hits: authorHits }) => (
+                      <section key={author}>
+                        <div className="mb-3 flex items-center gap-3">
+                          <div className="h-px flex-1 bg-fundo-borda" />
+                          <span className="flex items-center gap-2 rounded-full border border-dourado/30 bg-dourado/8 px-3 py-1 text-[10px] font-bold text-dourado">
+                            {author}
+                            <span className="rounded-full bg-dourado/15 px-1.5 py-0.5 text-[9px]">
+                              {authorHits.length} {authorHits.length === 1 ? 'trecho' : 'trechos'}
+                            </span>
+                          </span>
+                          <div className="h-px flex-1 bg-fundo-borda" />
+                        </div>
+                        <div className="space-y-3">
+                          {authorHits.map(hit => (
+                            <SearchResultCard key={hit.chunk_id} hit={hit} query={lastAcervoQuery} />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
                   </div>
-                ))}
+                ) : categoryFilter ? (
+                  // Other category filter from general search
+                  <div className="space-y-3">
+                    {(activeGroups[0]?.hits ?? []).map(hit => (
+                      <SearchResultCard key={hit.chunk_id} hit={hit} query={lastAcervoQuery} />
+                    ))}
+                  </div>
+                ) : (
+                  // No filter: grouped general results
+                  <div className="space-y-6">
+                    {activeGroups.map(({ category, hits }) => (
+                      <section key={category}>
+                        <div className="mb-3 flex items-center gap-3">
+                          <div className="h-px flex-1 bg-fundo-borda" />
+                          <span className="flex items-center gap-2 rounded-full border border-fundo-borda bg-fundo-card px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-texto-terciario">
+                            {CATEGORY_LABELS[category]}
+                            <span className="rounded-full bg-dourado/10 px-1.5 py-0.5 text-[9px] font-bold text-dourado">
+                              {category === 'patristica' ? patCount : hits.length}
+                            </span>
+                          </span>
+                          <div className="h-px flex-1 bg-fundo-borda" />
+                        </div>
+                        <div className="space-y-3">
+                          {hits.map(hit => (
+                            <SearchResultCard key={hit.chunk_id} hit={hit} query={lastAcervoQuery} />
+                          ))}
+                          {category === 'patristica' && patCount > hits.length && (
+                            <button
+                              type="button"
+                              onClick={() => setCategoryFilter('patristica')}
+                              className="w-full rounded-lg border border-dourado/30 py-2.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
+                            >
+                              Ver todos os {patCount} trechos patrísticos →
+                            </button>
+                          )}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            )
+          })()}
         </section>
       )}
 
       {/* ── Catena Patrum (busca por referência bíblica) ── */}
       {searchMode === 'biblia' && (
         <section className="space-y-3">
+          {!isLoggedIn ? (
+            <SearchLoginPrompt mode="Catena Patrum" />
+          ) : (
           <div className="rounded-lg border border-fundo-borda bg-fundo-card/80 p-3">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="bible-search">
-              Catena Patrum
-            </label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="bible-search">
+                Catena Patrum
+              </label>
+              <SearchUsageBadge usage={searchUsage} />
+            </div>
             <p className="mb-2 text-xs text-texto-terciario">
               O que os Padres disseram sobre este versículo? Digite uma referência bíblica.
             </p>
@@ -658,74 +1048,34 @@ export default function LibraryView({
               Formatos aceitos: Jo 6,53 · João 6:53 · Ioh 6,53 · Mt 16,18
             </p>
           </div>
+          )}
 
-          {acervoLoading && (
+          {isLoggedIn && acervoLoading && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-texto-terciario">
               <span className="animate-pulse">Consultando os Padres sobre este versículo…</span>
             </div>
           )}
 
-          {!acervoLoading && acervoError && (
+          {isLoggedIn && !acervoLoading && acervoError === 'QUOTA_EXCEEDED' && (
+            <SearchQuotaPrompt usage={searchUsage} />
+          )}
+
+          {isLoggedIn && !acervoLoading && acervoError && acervoError !== 'LOGIN_REQUIRED' && acervoError !== 'QUOTA_EXCEEDED' && (
             <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
               <p className="text-sm text-texto-terciario">{acervoError}</p>
             </div>
           )}
 
-          {!acervoLoading && acervoResults.length > 0 && (
-            <>
+          {isLoggedIn && !acervoLoading && acervoResults.length > 0 && (
+            <div className="space-y-3">
               <p className="text-xs text-texto-terciario">
-                {acervoResults.length} trechos patrísticos sobre <span className="font-medium text-texto">{lastAcervoQuery}</span>
+                <span className="font-medium text-texto">{acervoResults.length}</span> trechos patrísticos sobre{' '}
+                <span className="font-medium text-texto">{lastAcervoQuery}</span>
               </p>
-              <div className="space-y-3">
-                {acervoResults.map(hit => (
-                  <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        {hit.author && (
-                          <p className="text-xs font-semibold text-dourado">{hit.author}</p>
-                        )}
-                        {hit.work_title && (
-                          <p className="text-xs text-texto-secundario">{hit.work_title}</p>
-                        )}
-                        <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-texto-terciario">
-                          {hit.edition_label && <span>{hit.edition_label}</span>}
-                          {hit.collection && <span>{hit.collection}</span>}
-                          {hit.volume != null && <span>vol. {hit.volume}</span>}
-                          {hit.chapter_or_section && <span>{hit.chapter_or_section}</span>}
-                          {hit.pdf_page != null && <span>p. {hit.pdf_page}</span>}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        {hit.book_file_id != null && (
-                          <Link
-                            href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
-                            className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
-                          >
-                            Abrir PDF
-                          </Link>
-                        )}
-                        {hit.book_id != null && (
-                          <Link
-                            href={`/biblioteca/${hit.book_id}`}
-                            className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
-                          >
-                            Ver obra
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                    <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
-                      {hit.text}
-                    </blockquote>
-                    {hit.translation_text && (
-                      <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed text-texto-secundario italic">
-                        {hit.translation_text}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
+              {acervoResults.map(hit => (
+                <SearchResultCard key={hit.chunk_id} hit={hit} query={lastAcervoQuery} />
+              ))}
+            </div>
           )}
         </section>
       )}
@@ -733,10 +1083,16 @@ export default function LibraryView({
       {/* ── Comentário patrístico por artigo do Catecismo ── */}
       {searchMode === 'catecismo' && (
         <section className="space-y-3">
+          {!isLoggedIn ? (
+            <SearchLoginPrompt mode="Catecismo" />
+          ) : (
           <div className="rounded-lg border border-fundo-borda bg-fundo-card/80 p-3">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="ccc-search">
-              Comentário patrístico do Catecismo
-            </label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-dourado" htmlFor="ccc-search">
+                Comentário patrístico do Catecismo
+              </label>
+              <SearchUsageBadge usage={searchUsage} />
+            </div>
             <p className="mb-2 text-xs text-texto-terciario">
               Digite o número de um artigo do CCC (1–2865) para ver o que os Padres disseram sobre essa doutrina.
             </p>
@@ -766,20 +1122,25 @@ export default function LibraryView({
               Exemplos: 233 (Trindade) · 460 (Encarnação) · 1324 (Eucaristia) · 1422 (Confissão) · 2558 (Oração)
             </p>
           </div>
+          )}
 
-          {cccLoading && (
+          {isLoggedIn && cccLoading && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-texto-terciario">
               <span className="animate-pulse">Consultando os Padres sobre este artigo…</span>
             </div>
           )}
 
-          {!cccLoading && cccError && (
+          {isLoggedIn && !cccLoading && cccError === 'QUOTA_EXCEEDED' && (
+            <SearchQuotaPrompt usage={searchUsage} />
+          )}
+
+          {isLoggedIn && !cccLoading && cccError && cccError !== 'LOGIN_REQUIRED' && cccError !== 'QUOTA_EXCEEDED' && (
             <div className="rounded-lg border border-fundo-borda bg-fundo-card p-6 text-center">
               <p className="text-sm text-texto-terciario">{cccError}</p>
             </div>
           )}
 
-          {!cccLoading && cccSectionTitle && (
+          {isLoggedIn && !cccLoading && cccSectionTitle && (
             <div className="rounded-lg border border-dourado/20 bg-dourado/5 px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
                 Artigo {lastCccArticle} do CCC
@@ -797,61 +1158,16 @@ export default function LibraryView({
             </div>
           )}
 
-          {!cccLoading && cccResults.length > 0 && (
-            <>
+          {isLoggedIn && !cccLoading && cccResults.length > 0 && (
+            <div className="space-y-3">
               <p className="text-xs text-texto-terciario">
-                {cccResults.length} trechos patrísticos para o artigo <span className="font-medium text-texto">{lastCccArticle}</span>
+                <span className="font-medium text-texto">{cccResults.length}</span> trechos para o artigo{' '}
+                <span className="font-medium text-texto">{lastCccArticle}</span>
               </p>
-              <div className="space-y-3">
-                {cccResults.map(hit => (
-                  <div key={hit.chunk_id} className="rounded-lg border border-fundo-borda bg-fundo-card p-4 space-y-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        {hit.author && (
-                          <p className="text-xs font-semibold text-dourado">{hit.author}</p>
-                        )}
-                        {hit.work_title && (
-                          <p className="text-xs text-texto-secundario">{hit.work_title}</p>
-                        )}
-                        <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-texto-terciario">
-                          {hit.edition_label && <span>{hit.edition_label}</span>}
-                          {hit.collection && <span>{hit.collection}</span>}
-                          {hit.volume != null && <span>vol. {hit.volume}</span>}
-                          {hit.chapter_or_section && <span>{hit.chapter_or_section}</span>}
-                          {hit.pdf_page != null && <span>p. {hit.pdf_page}</span>}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        {hit.book_file_id != null && (
-                          <Link
-                            href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(hit.book_file_id!))}${hit.pdf_page ? `&page=${hit.pdf_page}` : ''}`}
-                            className="rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
-                          >
-                            Abrir PDF
-                          </Link>
-                        )}
-                        {hit.book_id != null && (
-                          <Link
-                            href={`/biblioteca/${hit.book_id}`}
-                            className="rounded border border-fundo-borda px-2 py-1 text-[10px] text-texto-terciario transition-colors hover:border-dourado/30 hover:text-texto"
-                          >
-                            Ver obra
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                    <blockquote className="border-l-2 border-dourado/30 pl-3 text-sm leading-relaxed text-texto">
-                      {hit.text}
-                    </blockquote>
-                    {hit.translation_text && (
-                      <p className="border-l-2 border-fundo-borda pl-3 text-xs leading-relaxed text-texto-secundario italic">
-                        {hit.translation_text}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
+              {cccResults.map(hit => (
+                <SearchResultCard key={hit.chunk_id} hit={hit} query="" />
+              ))}
+            </div>
           )}
         </section>
       )}

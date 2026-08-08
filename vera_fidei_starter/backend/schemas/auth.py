@@ -16,6 +16,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10)
+    password: str = Field(..., min_length=6)
+
+
+class ContactRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=200)
+    email: EmailStr
+    subject: str = Field(..., min_length=2, max_length=200)
+    message: str = Field(..., min_length=10, max_length=4000)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -27,6 +43,7 @@ class UserResponse(BaseModel):
     email: str
     plan: str
     is_active: bool
+    email_verified: bool = False
     billing_provider: str | None = None
     billing_status: str | None = None
     billing_current_period_end: datetime.datetime | None = None

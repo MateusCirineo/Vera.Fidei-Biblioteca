@@ -112,19 +112,23 @@ export default function ApresentacaoPage() {
         <p className="text-sm text-texto-secundario leading-relaxed max-w-sm mx-auto">
           Além disso, integra um mecanismo de verificação de citações que confronta textos atribuídos aos Padres da Igreja com os documentos originais, auxiliando na identificação de erros, distorções ou citações fora de contexto — especialmente útil em estudos teológicos, debates e produção de conteúdo.
         </p>
-        <Link
-          href="/biblioteca"
-          className="inline-flex items-center gap-2 rounded-lg bg-vinho px-5 py-2.5 text-sm font-semibold text-texto transition-colors hover:bg-vinho-claro"
-        >
-          Explorar biblioteca
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path
-              fillRule="evenodd"
-              d="M3 10a.75.75 0 0 1 .75-.75h10.638L10.23 5.29a.75.75 0 1 1 1.04-1.08l5.5 5.25a.75.75 0 0 1 0 1.08l-5.5 5.25a.75.75 0 1 1-1.04-1.08l4.158-3.96H3.75A.75.75 0 0 1 3 10Z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </Link>
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          <Link
+            href="/cadastro"
+            className="inline-flex items-center gap-2 rounded-lg bg-dourado px-6 py-3 text-sm font-semibold text-fundo transition-colors hover:bg-dourado-claro"
+          >
+            Criar conta grátis
+            <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path fillRule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.638L10.23 5.29a.75.75 0 1 1 1.04-1.08l5.5 5.25a.75.75 0 0 1 0 1.08l-5.5 5.25a.75.75 0 1 1-1.04-1.08l4.158-3.96H3.75A.75.75 0 0 1 3 10Z" clipRule="evenodd" />
+            </svg>
+          </Link>
+          <Link
+            href="/login"
+            className="rounded-lg border border-fundo-borda px-6 py-3 text-sm font-medium text-texto-secundario transition-colors hover:border-dourado/40 hover:text-dourado"
+          >
+            Já tenho conta — Entrar
+          </Link>
+        </div>
         <PwaInstallButton />
       </section>
 
@@ -230,6 +234,49 @@ export default function ApresentacaoPage() {
         <p className="text-sm text-texto-secundario leading-relaxed">
           Cada obra pode conter múltiplas edições, traduções e arquivos digitais, sempre vinculados entre si, permitindo consulta precisa e acesso direto ao trecho correspondente dentro do documento original.
         </p>
+      </section>
+
+      <div className="border-t border-fundo-borda" />
+
+      {/* Planos resumidos */}
+      <section className="space-y-4">
+        <h2 className="font-garamond text-2xl font-medium text-texto">
+          Planos
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            { nome: 'Fiel', preco: 'Grátis', desc: '10 verificações/mês · 5 buscas/dia na Biblioteca' },
+            { nome: 'Catequista', preco: 'R$ 9,90/mês', desc: '25 verificações/mês · 20 buscas/dia · Laudos em PDF' },
+            { nome: 'Apologeta', preco: 'R$ 29,99/mês', desc: '50 verificações/mês · 50 buscas/dia · Exportação Excel', destaque: true },
+            { nome: 'Patrístico', preco: 'R$ 59,99/mês', desc: '100 verificações/mês · 100 buscas/dia · Painel institucional' },
+            { nome: 'Magistério', preco: 'R$ 99,99/mês', desc: 'Tudo ilimitado · API dedicada · Integrações externas' },
+          ].map(({ nome, preco, desc, destaque }) => (
+            <div
+              key={nome}
+              className={`rounded-lg border p-4 ${destaque ? 'border-dourado/40 bg-dourado/5' : 'border-fundo-borda bg-fundo-card'}`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <p className={`font-garamond text-lg font-medium ${destaque ? 'text-dourado' : 'text-texto'}`}>{nome}</p>
+                <p className="text-sm font-semibold text-dourado">{preco}</p>
+              </div>
+              <p className="mt-1 text-xs text-texto-terciario">{desc}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-col items-center gap-3 pt-2 sm:flex-row sm:justify-center">
+          <Link
+            href="/cadastro"
+            className="rounded-lg bg-dourado px-6 py-3 text-sm font-semibold text-fundo transition-colors hover:bg-dourado-claro"
+          >
+            Começar com o plano Fiel — grátis
+          </Link>
+          <Link
+            href="/planos"
+            className="text-xs text-texto-terciario underline-offset-2 hover:text-dourado hover:underline"
+          >
+            Ver todos os planos e recursos
+          </Link>
+        </div>
       </section>
     </div>
   )

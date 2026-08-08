@@ -26,6 +26,13 @@ PLAN_HISTORY_LIMITS = {
     "patristico": None,
     "magisterio": None,
 }
+PLAN_SEARCH_DAILY_LIMITS = {
+    "fiel": 5,
+    "catequista": 20,
+    "apologeta": 50,
+    "patristico": 100,
+    "magisterio": None,
+}
 PLAN_FEATURES = {
     "fiel": {
         "basic_verification",
@@ -132,6 +139,10 @@ def has_feature(plan: str | None, feature: str) -> bool:
 
 def history_limit_for_plan(plan: str | None) -> int | None:
     return PLAN_HISTORY_LIMITS.get(normalized_plan(plan))
+
+
+def search_daily_limit_for_plan(plan: str | None) -> int | None:
+    return PLAN_SEARCH_DAILY_LIMITS.get(normalized_plan(plan))
 
 
 def ensure_owner_access(user) -> bool:
