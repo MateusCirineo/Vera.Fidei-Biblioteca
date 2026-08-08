@@ -393,11 +393,16 @@ _AUGUSTINE_COR_INQUIETUM_ANCHORS: tuple[str, ...] = (
     "cor nostrum inquietum est",
     "nosso coracao e inquieto",
     "nosso coracao esta inquieto",
+    "inquieto esta o nosso coracao",
     "coracao inquieto ate que repousa",
     "coracao inquieto ate que repouse",
     "inquieto ate que repouse em ti",
     "inquieto ate que repousa em ti",
     "fecisti nos domine ad te et inquietum",
+    # Patrística Vol. 10 exact wording (phrasing used in the indexed edition)
+    "enquanto nao repousa em ti",
+    "fizeste-nos para ti e inquieto esta",
+    "fizeste nos para ti e inquieto",
 )
 
 
