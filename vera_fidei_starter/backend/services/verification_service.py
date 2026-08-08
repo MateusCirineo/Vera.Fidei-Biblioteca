@@ -377,6 +377,29 @@ _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS: tuple[str, ...] = (
     "o amor nao e excitado por algo completamente desconhecido",
 )
 
+# "Ama et fac quod vis" — Agostinho, In Epistulam Ioannis ad Parthos, Tractatus VII, 8
+_AUGUSTINE_AMA_FAC_ANCHORS: tuple[str, ...] = (
+    "ama et fac quod vis",
+    "dilige et quod vis fac",
+    "ama e faz o que queres",
+    "ama e faz o que quiseres",
+    "amai e fazei o que quiserdes",
+    "diliges et quod vis fac",
+)
+
+# "Cor nostrum inquietum est" — Agostinho, Confissões I, 1
+_AUGUSTINE_COR_INQUIETUM_ANCHORS: tuple[str, ...] = (
+    "inquietum est cor nostrum",
+    "cor nostrum inquietum est",
+    "nosso coracao e inquieto",
+    "nosso coracao esta inquieto",
+    "coracao inquieto ate que repousa",
+    "coracao inquieto ate que repouse",
+    "inquieto ate que repouse em ti",
+    "inquieto ate que repousa em ti",
+    "fecisti nos domine ad te et inquietum",
+)
+
 
 def _known_conceptual_paraphrase_score(
     query: str,
@@ -388,8 +411,10 @@ def _known_conceptual_paraphrase_score(
     Reconhece máximas curtas que são resumos tradicionais de uma tese real,
     sem relaxar o verificador inteiro para qualquer proximidade temática.
 
-    Caso coberto: "não se ama aquilo que não se conhece" como resumo do
-    argumento de Santo Agostinho em De Trinitate/A Trindade, Livro X.
+    Casos cobertos (todos atribuídos a Santo Agostinho de Hipona):
+      1. "não se ama aquilo que não se conhece" — De Trinitate, Livro X
+      2. "Ama et fac quod vis" — In Epistulam Ioannis, Tractatus VII, 8
+      3. "Cor nostrum inquietum est" — Confissões I, 1
     """
     if not query or not evidence_text:
         return 0.0
@@ -405,21 +430,38 @@ def _known_conceptual_paraphrase_score(
         return 0.0
 
     q_norm = _normalize_for_search(query)
+    source = _normalize_for_search(evidence_text)
+
+    # ── Padrão 1: "não se ama o que não se conhece" ──────────────────────────
     has_love = bool(re.search(r"\b(am(?:a|ar|amos|amem|ou|ei|e)|amor|amado|amada)\b", q_norm))
     has_knowledge = "conhec" in q_norm or "desconhec" in q_norm or "ignor" in q_norm
     has_negation = "nao" in q_norm or "desconhec" in q_norm or "ignor" in q_norm
-    if not (has_love and has_knowledge and has_negation):
-        return 0.0
+    if has_love and has_knowledge and has_negation:
+        if any(anchor in source for anchor in _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS):
+            return 0.95
+        if "desconhecido" in source and ("ama" in source or "amor" in source) and "conhec" in source:
+            if "trindade" in _normalize_for_search(getattr(book, "title", "") if book else ""):
+                return 0.82
 
-    source = _normalize_for_search(evidence_text)
-    if any(anchor in source for anchor in _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS):
-        return 0.95
+    # ── Padrão 2: "Ama et fac quod vis" ──────────────────────────────────────
+    # Dois verbos obrigatórios (amar + fazer) + complemento de vontade
+    q_has_ama = bool(re.search(r"\b(am[aeo]|dilige|diliges)\b", q_norm))
+    q_has_fac = bool(re.search(r"\b(faz(ei|er)?|fac|faca)\b", q_norm))
+    q_has_vis = bool(re.search(r"\b(queres|quiseres|quiser|vis)\b", q_norm))
+    if q_has_ama and q_has_fac and q_has_vis:
+        if any(anchor in source for anchor in _AUGUSTINE_AMA_FAC_ANCHORS):
+            return 0.95
+        # Obra não indexada mas autor correto e padrão inequívoco: paráfrase conhecida
+        return 0.88
 
-    # Fallback ainda conservador: exige o vocabulário central da tese no mesmo
-    # trecho e a obra/capítulo falando explicitamente de amor e desconhecimento.
-    if "desconhecido" in source and ("ama" in source or "amor" in source) and "conhec" in source:
-        if "trindade" in _normalize_for_search(getattr(book, "title", "") if book else ""):
-            return 0.82
+    # ── Padrão 3: "Cor nostrum inquietum est donec requiescat in te" ──────────
+    q_has_cor = bool(re.search(r"\b(coracao|cor\b|inquieto|inquietum)\b", q_norm))
+    q_has_repouso = bool(re.search(r"\b(repous[ae]|requiescat|sossego|descanso)\b", q_norm))
+    if q_has_cor and q_has_repouso:
+        if any(anchor in source for anchor in _AUGUSTINE_COR_INQUIETUM_ANCHORS):
+            return 0.95
+        # Frase de abertura das Confissões: inequivocamente agostiniana
+        return 0.90
 
     return 0.0
 
@@ -433,13 +475,28 @@ def _extract_known_conceptual_excerpt(
     if _known_conceptual_paraphrase_score(query, attributed_to, book, evidence_text) < 0.80:
         return None
 
+    q_norm = _normalize_for_search(query)
     sentences = re.split(r'(?<=[.!?])\s+|\n', evidence_text)
     if not sentences:
         return None
 
+    # Choose anchor set based on detected pattern
+    q_has_ama = bool(re.search(r"\b(am[aeo]|dilige)\b", q_norm))
+    q_has_fac = bool(re.search(r"\b(faz(ei|er)?|fac|faca)\b", q_norm))
+    q_has_vis = bool(re.search(r"\b(queres|quiseres|quiser|vis)\b", q_norm))
+    q_has_cor = bool(re.search(r"\b(coracao|cor\b|inquieto|inquietum)\b", q_norm))
+    q_has_repouso = bool(re.search(r"\b(repous[ae]|requiescat|sossego)\b", q_norm))
+
+    if q_has_ama and q_has_fac and q_has_vis:
+        anchors = _AUGUSTINE_AMA_FAC_ANCHORS
+    elif q_has_cor and q_has_repouso:
+        anchors = _AUGUSTINE_COR_INQUIETUM_ANCHORS
+    else:
+        anchors = _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS
+
     for index, sentence in enumerate(sentences):
         normalized = _normalize_for_search(sentence)
-        if any(anchor in normalized for anchor in _AUGUSTINE_LOVE_KNOWLEDGE_ANCHORS):
+        if any(anchor in normalized for anchor in anchors):
             start = max(0, index - 1)
             end = min(len(sentences), index + 3)
             excerpt = " ".join(part.strip() for part in sentences[start:end] if part.strip())
