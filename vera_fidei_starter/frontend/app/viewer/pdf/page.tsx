@@ -396,7 +396,32 @@ function PdfViewerInner() {
 
       const lib = await import('pdfjs-dist')
       lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-      const doc = await lib.getDocument(fileUrl).promise
+
+      // Use range requests so pdfjs starts rendering before the full PDF downloads.
+      // disableStream:false + rangeChunkSize lets pdfjs fetch only the pages
+      // visible in the viewport rather than downloading the whole file up front.
+      const loadTask = lib.getDocument({
+        url: fileUrl,
+        rangeChunkSize: 65536,
+        disableRange: false,
+        disableStream: false,
+      })
+
+      const LOAD_TIMEOUT_MS = 120_000
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('O PDF demorou muito para carregar. Tente novamente em alguns segundos.')),
+          LOAD_TIMEOUT_MS,
+        )
+      })
+
+      let doc: Awaited<typeof loadTask.promise>
+      try {
+        doc = await Promise.race([loadTask.promise, timeoutPromise])
+      } finally {
+        if (timeoutId !== null) clearTimeout(timeoutId)
+      }
       if (cancelled) return
 
       // Calcula escala automática pela largura da tela (mobile) ou fixa (desktop)
@@ -404,6 +429,9 @@ function PdfViewerInner() {
       const baseVp = firstPage.getViewport({ scale: 1 })
       const firstMetric = { width: baseVp.width, height: baseVp.height }
       const autoScale = isMobile ? window.innerWidth / baseVp.width : 1.5
+
+      // Seed all pages with the first page dimensions. Metrics are updated lazily
+      // when each page renders — avoids blocking page 1 with 200+ getPage() calls.
       const initialMetrics = Array.from({ length: doc.numPages }, () => firstMetric)
 
       setScale(autoScale)
@@ -415,17 +443,8 @@ function PdfViewerInner() {
       setPdfDoc(doc)
       setNumPages(doc.numPages)
       setLoading(false)
-
-      const metrics: PageMetric[] = [firstMetric]
-      for (let pageNum = 2; pageNum <= doc.numPages; pageNum += 1) {
-        if (cancelled) return
-        const page = await doc.getPage(pageNum)
-        const viewport = page.getViewport({ scale: 1 })
-        metrics[pageNum - 1] = { width: viewport.width, height: viewport.height }
-      }
-      if (!cancelled) setPageMetrics(metrics)
     }
-    load().catch((e) => { if (!cancelled) { setError(e.message); setLoading(false) } })
+    load().catch((e) => { if (!cancelled) { setError(e?.message ?? 'Erro ao carregar PDF.'); setLoading(false) } })
     return () => { cancelled = true }
   }, [fileUrl, isMobile])
 
@@ -699,12 +718,26 @@ function PdfViewerInner() {
       )}
 
       {loading && (
-        <div className="flex items-center gap-2 px-4 py-3 text-sm text-zinc-400">
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          Carregando PDF…
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
+          <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
+          <div>
+            <p className="text-sm text-zinc-300 font-medium">Carregando PDF…</p>
+            <p className="mt-1 text-xs text-zinc-500">PDFs grandes podem levar alguns segundos na primeira abertura.</p>
+          </div>
         </div>
       )}
-      {error && <div className="px-4 py-3 text-sm text-red-400">{error}</div>}
+      {error && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-sm text-red-400">{error}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded border border-zinc-700 px-4 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* ── Scroll contínuo de páginas ── */}
       <div
