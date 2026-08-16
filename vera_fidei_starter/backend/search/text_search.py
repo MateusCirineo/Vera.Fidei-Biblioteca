@@ -445,25 +445,41 @@ class TextSearchClient:
                 # for unverified_ocr Migne PG/PL/PO chunks where
                 # literal_search_text is absent). One match in either field is
                 # enough to surface the chunk for the fidelity gate downstream.
+                #
+                # For non-ASCII variants (Greek polytonic, Hebrew, etc.),
+                # _strip_accents removes combining marks, producing a token
+                # different from what ES standard analyzer indexes.
+                # ES standard tokenizer preserves accented Unicode letters
+                # verbatim (e.g. "εὐχαριστία" indexes as "εὐχαριστία", not
+                # "ευχαριστια"). We must also search the original accented form
+                # so that Greek/Hebrew texts are found.
+                original_lower = variant.strip().lower()
+                has_non_ascii = folded_variant != original_lower
                 if len(variant_tokens) == 1:
+                    should_clauses = [
+                        {"match": {"literal_search_text": {"query": folded_variant, "operator": "and"}}},
+                        {"match": {"text": {"query": folded_variant, "operator": "and"}}},
+                    ]
+                    if has_non_ascii:
+                        should_clauses += [
+                            {"match": {"literal_search_text": {"query": original_lower, "operator": "and"}}},
+                            {"match": {"text": {"query": original_lower, "operator": "and"}}},
+                        ]
                     query_alternatives.append({
-                        "bool": {
-                            "should": [
-                                {"match": {"literal_search_text": {"query": folded_variant, "operator": "and"}}},
-                                {"match": {"text": {"query": folded_variant, "operator": "and"}}},
-                            ],
-                            "minimum_should_match": 1,
-                        }
+                        "bool": {"should": should_clauses, "minimum_should_match": 1}
                     })
                 else:
+                    should_clauses = [
+                        {"match_phrase": {"literal_search_text": {"query": folded_variant, "slop": 0}}},
+                        {"match_phrase": {"text": {"query": folded_variant, "slop": 1}}},
+                    ]
+                    if has_non_ascii:
+                        should_clauses += [
+                            {"match_phrase": {"literal_search_text": {"query": original_lower, "slop": 0}}},
+                            {"match_phrase": {"text": {"query": original_lower, "slop": 1}}},
+                        ]
                     query_alternatives.append({
-                        "bool": {
-                            "should": [
-                                {"match_phrase": {"literal_search_text": {"query": folded_variant, "slop": 0}}},
-                                {"match_phrase": {"text": {"query": folded_variant, "slop": 1}}},
-                            ],
-                            "minimum_should_match": 1,
-                        }
+                        "bool": {"should": should_clauses, "minimum_should_match": 1}
                     })
         else:
             query_alternatives = [{
