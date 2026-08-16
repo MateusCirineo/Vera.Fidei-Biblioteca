@@ -197,6 +197,8 @@ export interface AcervoSearchResult {
   text: string
   author: string | null
   chunk_author: string | null
+  translator: string | null
+  editor: string | null
   work_title: string | null
   pdf_page: number | null
   chapter_or_section: string | null
@@ -215,6 +217,7 @@ export interface AcervoSearchResult {
   source_warning: string | null
   matched_query: string | null
   match_type?: 'literal' | 'semantic'
+  content_role: string | null
 }
 
 export interface AcervoSearchResponse {

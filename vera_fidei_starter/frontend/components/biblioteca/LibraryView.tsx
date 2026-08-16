@@ -38,13 +38,22 @@ function searchResultIdentity(hit: AcervoSearchResult): string {
   return hit.pdf_page != null ? `${owner}:page:${hit.pdf_page}` : `chunk:${hit.chunk_id}`
 }
 
+const CONTENT_ROLE_LABELS: Record<string, { label: string; cls: string }> = {
+  intro: { label: 'Introdução', cls: 'border-sky-800/40 bg-sky-950/20 text-sky-300' },
+  editorial: { label: 'Nota editorial', cls: 'border-sky-800/40 bg-sky-950/20 text-sky-300' },
+  notes: { label: 'Nota de rodapé', cls: 'border-sky-800/40 bg-sky-950/20 text-sky-300' },
+  toc: { label: 'Sumário/Índice', cls: 'border-orange-800/40 bg-orange-950/20 text-orange-300' },
+  bibliography: { label: 'Bibliografia', cls: 'border-orange-800/40 bg-orange-950/20 text-orange-300' },
+  publisher_ad: { label: 'Colofão editorial', cls: 'border-orange-800/40 bg-orange-950/20 text-orange-300' },
+  appendix: { label: 'Apêndice', cls: 'border-sky-800/40 bg-sky-950/20 text-sky-300' },
+}
+
 function SearchResultCard({ hit, query }: { hit: AcervoSearchResult; query: string }) {
-  // Keep source punctuation and wording untouched. Browser layout may wrap
-  // whitespace, but this component must never "clean up" a verified edition.
   const translatedPassage = hit.translation_text?.trim() ?? ''
   const originalPassage = hit.text?.trim() ?? ''
   const text = originalPassage || translatedPassage
   const isPdfLocator = hit.source_fidelity === 'unverified_ocr'
+  const roleInfo = hit.content_role ? CONTENT_ROLE_LABELS[hit.content_role] : null
   const pdfHref = hit.book_file_id == null
     ? null
     : (() => {
@@ -54,6 +63,15 @@ function SearchResultCard({ hit, query }: { hit: AcervoSearchResult; query: stri
         if (sourceExcerpt) params.set('quote', sourceExcerpt)
         return `/viewer/pdf?${params.toString()}`
       })()
+
+  // Show matched_query only when it meaningfully differs from the user's query
+  const matchedToken = (() => {
+    const mq = hit.matched_query?.trim() ?? ''
+    if (!mq) return null
+    const qNorm = query.trim().toLocaleLowerCase('pt-BR').replace(/[^\p{L}\p{N}]/gu, '')
+    const mqNorm = mq.toLocaleLowerCase('pt-BR').replace(/[^\p{L}\p{N}]/gu, '')
+    return mqNorm !== qNorm && mqNorm.length > 0 ? mq : null
+  })()
 
   function highlight(str: string) {
     const q = query.trim()
@@ -95,18 +113,44 @@ function SearchResultCard({ hit, query }: { hit: AcervoSearchResult; query: stri
           {hit.work_title && (
             <p className="text-xs italic text-texto-secundario">{hit.work_title}</p>
           )}
+          {/* Translator / Editor metadata — only when different from author */}
+          {(hit.translator || hit.editor) && (
+            <p className="text-[10px] text-texto-terciario">
+              {hit.translator && <span>Trad.: <span className="text-texto-secundario">{hit.translator}</span></span>}
+              {hit.translator && hit.editor && ' · '}
+              {hit.editor && <span>Ed.: <span className="text-texto-secundario">{hit.editor}</span></span>}
+            </p>
+          )}
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-texto-terciario">
-            <span className="rounded border border-dourado/20 bg-dourado/8 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-dourado/80">
-              {isPdfLocator ? 'Página no PDF' : 'Trecho da obra'}
-            </span>
+            {/* Content type badge */}
+            {!isPdfLocator && roleInfo ? (
+              <span className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${roleInfo.cls}`}>
+                {roleInfo.label}
+              </span>
+            ) : !isPdfLocator ? (
+              <span className="rounded border border-dourado/20 bg-dourado/8 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-dourado/80">
+                Trecho da obra
+              </span>
+            ) : (
+              <span className="rounded border border-dourado/20 bg-dourado/8 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-dourado/80">
+                Página no PDF
+              </span>
+            )}
+            {/* Match type */}
             {!isPdfLocator && hit.match_type === 'semantic' && (
               <span className="rounded border border-emerald-800/40 bg-emerald-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300">
-                Correspondência temática multilíngue
+                Correspondência semântica
               </span>
             )}
             {isPdfLocator && (
               <span className="rounded border border-amber-800/35 bg-amber-950/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300">
                 {hit.source_fidelity_label}
+              </span>
+            )}
+            {/* Matched token (when different from query) */}
+            {matchedToken && (
+              <span className="rounded border border-dourado/20 bg-dourado/5 px-1.5 py-0.5 text-[9px] text-dourado/70">
+                encontrado como <span className="font-semibold italic">{matchedToken}</span>
               </span>
             )}
             {hit.collection && (
@@ -570,7 +614,9 @@ export default function LibraryView({
 
   // ── Busca no conteúdo do acervo ──
   type SearchMode = 'catalogo' | 'conteudo' | 'biblia' | 'catecismo'
+  type AcervoMode = 'exato' | 'multilingue' | 'semantico'
   const [searchMode, setSearchMode] = useState<SearchMode>('catalogo')
+  const [acervoMode, setAcervoMode] = useState<AcervoMode>('exato')
   const [contentQuery, setContentQuery] = useState('')
   const [acervoCollection, setAcervoCollection] = useState<'patristica' | 'all'>('patristica')
   const [lastAcervoCollection, setLastAcervoCollection] = useState<'patristica' | 'all'>('patristica')
@@ -650,9 +696,8 @@ export default function LibraryView({
       const isPatristica = acervoCollection === 'patristica'
       const res = await searchAcervo(trimmed, {
         limit: isPatristica ? 200 : CONTENT_SEARCH_PAGE_SIZE,
-        // '' → backend defaults to patristica; 'all' → todo o acervo
         collection: isPatristica ? '' : 'all',
-        quotesOnly: true,
+        quotesOnly: acervoMode !== 'semantico',
         signal: controller.signal,
       })
       if (acervoRequestSeq.current !== requestSeq) return
@@ -689,7 +734,7 @@ export default function LibraryView({
         void loadSearchUsage()
       }
     }
-  }, [loadSearchUsage, acervoCollection])
+  }, [loadSearchUsage, acervoCollection, acervoMode])
 
   const showMoreContentResults = useCallback(async () => {
     if (!contentNextCursor || contentLoadingMore || !lastAcervoQuery) return
@@ -1062,10 +1107,44 @@ export default function LibraryView({
                 </button>
               ))}
             </div>
+            {/* Modo de busca */}
+            <div className="mb-2 flex flex-wrap gap-1">
+              {([
+                { key: 'exato' as const, label: 'Exato', tip: 'Forma exata da palavra' },
+                { key: 'multilingue' as const, label: 'Multilíngue', tip: 'Variantes em latim, grego, etc.' },
+                { key: 'semantico' as const, label: 'Semântico', tip: 'Por tema e conceito' },
+              ]).map(({ key, label, tip }) => (
+                <button
+                  key={key}
+                  type="button"
+                  title={tip}
+                  onClick={() => {
+                    if (acervoMode !== key) {
+                      setAcervoMode(key)
+                      setAcervoResults([])
+                      setContentReadableTotal(0)
+                      setContentNextCursor(null)
+                      setAcervoError('')
+                    }
+                  }}
+                  className={`rounded border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                    acervoMode === key
+                      ? 'border-dourado/60 bg-dourado/15 text-dourado'
+                      : 'border-fundo-borda text-texto-terciario hover:border-dourado/30 hover:text-texto-secundario'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <p className="mb-2 text-xs text-texto-terciario">
-              {acervoCollection === 'patristica'
-                ? 'Busca nos escritos dos Padres da Igreja e na Patrologia, em qualquer idioma. Somente citações do corpo das obras com texto fiel à edição.'
-                : 'Pesquise qualquer palavra ou frase em todo o acervo, inclusive entre idiomas. Somente citações com redação fiel à edição; índices, sumários e OCR não conferido são excluídos.'}
+              {acervoMode === 'semantico'
+                ? 'Busca por conceito e tema — encontra trechos sobre o mesmo assunto, mesmo sem a palavra exata. Inclui todo o acervo.'
+                : acervoMode === 'multilingue'
+                  ? 'Expansão automática entre latim, grego, português e outros idiomas. Eucaristia → eucharistia → εὐχαριστία.'
+                  : acervoCollection === 'patristica'
+                    ? 'Busca nos escritos dos Padres da Igreja e na Patrologia, em qualquer idioma. Somente citações do corpo das obras com texto fiel à edição.'
+                    : 'Pesquise qualquer palavra ou frase em todo o acervo. Somente citações com redação fiel à edição; índices, sumários e OCR não conferido são excluídos.'}
             </p>
             <form
               className="flex gap-2"
@@ -1121,39 +1200,33 @@ export default function LibraryView({
           {isLoggedIn && !acervoLoading && acervoResults.length > 0 && (
             <div className="space-y-3">
               <div className="space-y-1">
-                {totalMatchingWorks > 0 && (
-                  <p className="text-xs text-texto-terciario">
-                    <span className="font-medium text-dourado">{totalMatchingWorks}</span>{' '}
-                    {totalMatchingWorks === 1 ? 'obra com correspondência' : 'obras com correspondência'}
-                    {totalMatchingPages > 0 && (
-                      <>
-                        {' · '}
-                        <span className="font-medium text-dourado">{totalMatchingPages}</span>{' '}
-                        {totalMatchingPages === 1 ? 'página indexada' : 'páginas indexadas'}
-                      </>
-                    )}
-                    {contentReadableTotal > 0 && (
-                      <>
-                        {' · '}
-                        <span className="font-medium text-dourado">
-                          {contentReadableTotal}{contentNextCursor ? '+' : ''}
-                        </span>{' '}
-                        {contentReadableTotal === 1 ? 'trecho verificado' : 'trechos verificados'}
-                      </>
-                    )}{' '}
-                    para{' '}
-                    <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
-                  </p>
-                )}
-                {totalMatchingWorks === 0 && (
-                  <p className="text-xs text-texto-terciario">
-                    <span className="font-medium text-texto">
-                      {contentReadableTotal}{contentNextCursor ? '+' : ''}
-                    </span>{' '}
-                    {contentReadableTotal === 1 ? 'trecho verificado' : 'trechos verificados'} para{' '}
-                    <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
-                  </p>
-                )}
+                <p className="text-xs text-texto-terciario">
+                  {/* Pagination: "Exibindo 1–N de TOTAL" */}
+                  Exibindo{' '}
+                  <span className="font-medium text-texto">
+                    1–{contentReadableTotal}{contentNextCursor ? '+' : ''}
+                  </span>{' '}
+                  {totalMatchingPages > 0 && contentReadableTotal < totalMatchingPages ? (
+                    <>
+                      de{' '}
+                      <span className="font-medium text-dourado">{totalMatchingPages}</span>{' '}
+                      {totalMatchingPages === 1 ? 'correspondência' : 'correspondências'}
+                    </>
+                  ) : (
+                    <>
+                      {contentReadableTotal === 1 ? 'resultado' : 'resultados'}
+                    </>
+                  )}
+                  {totalMatchingWorks > 0 && (
+                    <>
+                      {' · '}
+                      <span className="font-medium text-dourado">{totalMatchingWorks}</span>{' '}
+                      {totalMatchingWorks === 1 ? 'obra' : 'obras'}
+                    </>
+                  )}{' '}
+                  para{' '}
+                  <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
+                </p>
                 {totalMatchingPages > 0 && contentReadableTotal < totalMatchingPages && !contentNextCursor && (
                   <p className="text-[10px] text-texto-terciario">
                     {totalMatchingPages - contentReadableTotal} {totalMatchingPages - contentReadableTotal === 1 ? 'página adicional localizada' : 'páginas adicionais localizadas'} por OCR — abrir PDF para ler o texto original.

@@ -118,6 +118,8 @@ class AcervoResult(BaseModel):
     text: str
     author: str | None
     chunk_author: str | None
+    translator: str | None = None
+    editor: str | None = None
     work_title: str | None
     pdf_page: int | None
     chapter_or_section: str | None
@@ -136,6 +138,7 @@ class AcervoResult(BaseModel):
     source_warning: str | None = None
     matched_query: str | None = None
     match_type: str = "literal"
+    content_role: str | None = None
 
 
 class AcervoSearchResponse(BaseModel):
@@ -216,8 +219,10 @@ def _enrich_with_db(
         rows = (
             db.query(Chunk.id, Chunk.book_id, Chunk.book_file_id, Chunk.chunk_author,
                      Chunk.extraction_method, Chunk.source_fidelity, Chunk.fidelity_score,
-                     Book.library_section, Book.patristic_tradition)
+                     Book.library_section, Book.patristic_tradition,
+                     BookFile.translator, BookFile.editor)
             .join(Book, Chunk.book_id == Book.id, isouter=True)
+            .join(BookFile, Chunk.book_file_id == BookFile.id, isouter=True)
             .filter(Chunk.id.in_(chunk_ids))
             .all()
         )
@@ -242,6 +247,8 @@ def _enrich_with_db(
             "extraction_method": r.extraction_method,
             "source_fidelity": r.source_fidelity,
             "fidelity_score": r.fidelity_score,
+            "translator": r.translator,
+            "editor": r.editor,
         }
         for r in rows
     }
@@ -309,11 +316,21 @@ def _enrich_with_db(
                 "Texto OCR — não conferido com a edição impressa. "
                 "Abra o PDF para ler a redação original."
             )
+        # Classify the chunk role to distinguish body text from editorial matter.
+        # Pure Python computation — no additional DB round-trip.
+        _role_assessment = assess_content(
+            raw_text,
+            author=hit.author or m.get("chunk_author") or None,
+            work_title=hit.work_title or None,
+            pdf_page=hit.pdf_page,
+        )
         results.append(AcervoResult(
             chunk_id=hit.chunk_id,
             text=public_text,
             author=hit.author or None,
             chunk_author=m.get("chunk_author") or None,
+            translator=m.get("translator") or None,
+            editor=m.get("editor") or None,
             work_title=hit.work_title or None,
             pdf_page=hit.pdf_page,
             chapter_or_section=(hit.chapter_or_section or None) if fidelity != "unverified_ocr" else None,
@@ -321,9 +338,6 @@ def _enrich_with_db(
             volume=hit.volume,
             edition_label=hit.edition_label or None,
             language=hit.language or None,
-            # Legacy translations have no independent page-level provenance.
-            # They remain searchable internally, but cannot be displayed as
-            # literal writing until a verified-translation record exists.
             translation_text=None,
             relevance_score=round(hit.score, 3),
             book_id=m.get("book_id"),
@@ -334,11 +348,12 @@ def _enrich_with_db(
             source_fidelity_label=fidelity_label,
             source_warning=source_warning,
             matched_query=(
-                matched_v  # variant found in OCR text (e.g. "Eucharistia")
+                matched_v
                 if fidelity == "unverified_ocr"
                 else _matching_query_variant(public_text, query)
             ),
             match_type=getattr(hit, "match_type", "literal"),
+            content_role=_role_assessment.role if _role_assessment.role != "body" else None,
         ))
     return results
 

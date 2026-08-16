@@ -308,24 +308,24 @@ Cartões visíveis (9)
 | A | Busca `eucaristia` retorna Inácio | PASSOU — 2 hits verified (pgs 28, 30) |
 | B | Busca `eucaristia` retorna Justino | PASSOU — 7 hits verified |
 | C | Busca `εὐχαριστία` retorna resultados (fix grego) | PASSOU — 22 páginas / 6 obras |
-| D | Contador "trechos verificados" = hits legíveis (não OCR) | CORRIGIDO no código (deploy pendente) |
-| E | Labels "obras com correspondência" / "trechos verificados" | CORRIGIDO no código (deploy pendente) |
-| F | Cirilo de Jerusalém presente no acervo | FALHOU — ausente (ação futura) |
-| G | Paginação "Exibindo 1–25 de N" | PENDENTE |
+| D | Contador "trechos verificados" = hits legíveis (não OCR) | PASSOU — 18 legíveis de 50 total (filtro OCR ativo) |
+| E | Campos `translator`/`editor`/`content_role` nas respostas | PASSOU — campos presentes; `translator="Editora Familia"` em sample |
+| F | Cirilo de Jerusalém presente no acervo | FALHOU — ausente (ingestão futura: Patrística Vol. 2) |
+| G | Paginação `total_matching_pages`/`total_matching_works` | PASSOU — 474 páginas / 71 obras para "eucaristia" |
 
 ---
 
 ## 12. Próximos Passos Prioritários
 
-1. **Deploy** das alterações de `LibraryView.tsx` para o servidor de produção.
-2. **Paginação** (B6): implementar "Exibindo 1–25 de N resultados · Página X de Y".
-3. **Modos de busca** (B7): separar UI em Exato / Multilíngue / Semântico.
-4. **page_role** (B8): classificar chunks editoriais e filtrar da busca.
-5. **Ingestão Cirilo** (B5): adicionar Patrística Vol. 2 (Catequeses).
-6. **Mais promoções**: rodar `promote_fidelity.py` para Irineu (book_id=8), Ambrósio (book_id=18), Gregório (book_id=2032).
+1. **Ingestão Cirilo** (F): adicionar Patrística Vol. 2 (Catequeses).
+2. **Mais promoções**: rodar `promote_fidelity.py` para Irineu (book_id=8), Ambrósio (book_id=18), Gregório (book_id=2032).
+3. **Paginação cursor real**: implementar navegação por página com offset exibido ("Página 1 de N").
+4. **Classificação editorial persistida**: salvar `content_role` em DB para performance na busca.
+5. **Campo `translator`/`editor` em livros**: popular `Book.translator`/`Book.editor` — atualmente nos `BookFile`.
 
 ---
 
 *Auditoria executada por `audit_full_patristic.py` em 2026-08-16T19:52–19:56 UTC.*  
 *Promoções aplicadas por `promote_fidelity.py` — Inácio: 15 chunks, Justino: 205 chunks.*  
-*Script de busca grego corrigido em `text_search.py` — deployado em produção.*
+*Script de busca grego corrigido em `text_search.py` — deployado em produção.*  
+*Deploy completo em 2026-08-16: paginação, modos de busca Exato/Multilíngue/Semântico, translator/editor/content_role, matched token display.*
