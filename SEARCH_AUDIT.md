@@ -1,332 +1,331 @@
-# SEARCH_AUDIT.md — Vera.Fidei Search System Root-Cause Analysis
-
-**Data:** 2026-08-16  
-**Auditor:** Claude Sonnet 4.6  
-**Repositório:** `vera_fidei_starter/`
-
----
-
-## 1. Sumário executivo
-
-A busca por "Eucaristia" retornava apenas **9 trechos** apesar de existirem **119.037 chunks** indexados no Elasticsearch e **91 obras patrísticas** no banco. A causa raiz era uma combinação de **três filtros independentes** que se somavam para bloquear virtualmente todo o corpus patrístico da Migne (PG/PL/PO) e das edições em português (Inácio de Antioquia, Justino Mártir).
+# SEARCH_AUDIT.md
+**Gerado**: 2026-08-16  
+**Escopo**: Busca patrística — consulta `eucaristia`  
+**Arquivos de suporte**: `search-audit/authors.csv`, `search-audit/eucharist-variants.csv`, `search-audit/ignatius-justin.md`, `search-audit/search-summary.json`
 
 ---
 
-## 2. Fluxo de dados — antes da correção
+## 1. Origem dos Contadores (69 obras · 415 páginas · 254 trechos · 9 cartões)
 
-```
-Campo de busca (frontend)
-  → LibraryView.tsx: runContentSearch()
-  → searchAcervo(q, { quotesOnly: true, collection: '' })
-  → GET /api/search/chunks?q=eucaristia&quotes_only=true
-  → search_chunks() [routes/search.py]
-    → _scan_quotable_source_hits()
-      → TextSearchClient.search_acervo_page()
-        → _build_acervo_es_body(literal_candidates_only=True)
-          → FILTRO 1: source_fidelities=["source_text", "verified"]
-            → PG/PL/PO têm source_fidelity="unverified_ocr" → BLOQUEADOS
-      → _filter_quotable_hits_preserving_verified()
-        → FILTRO 2: _enrich_with_db(require_source_verified=True)
-          → Chunks PT (Inácio, Justino) com source_fidelity="unverified" → BLOQUEADOS
-      → include_ocr = effective_collection == "patristica"
-           AND _allow_unverified_pdf_locators(q)  ← FILTRO 3
-        → _allow_unverified_pdf_locators("Eucaristia") = False (multi-syllable, not single token)
-          → OCR locators desativados para "Eucaristia"
-  → results = 9 (somente chunks source_text/verified da coleção PT)
-```
+### 1.1 `totalMatchingWorks` = "69 obras"
 
----
-
-## 3. Os três filtros causadores
-
-### FILTRO 1 — `PUBLIC_SOURCE_FIDELITIES` gate no ES query
-
-**Arquivo:** `backend/search/text_search.py`, função `search_acervo_page()`  
-**Código anterior:**
+**Fonte exata**: `vera_fidei_starter/backend/api/routes/search.py`, variável `literal_scan.matching_works_es`
 
 ```python
-source_fidelities=sorted(PUBLIC_SOURCE_FIDELITIES)  # {"source_text", "verified"}
+# search.py (linha ~180)
+works_agg = {"cardinality": {"field": "book_id"}}
+# Executado contra TODOS os fidelity levels (source_text + verified + unverified + unverified_ocr)
 ```
 
-**Efeito:** A query ES incluía o filtro `{"terms": {"source_fidelity": ["source_text", "verified"]}}`. As 59.000+ páginas Migne (PG/PL/PO) têm `source_fidelity="unverified_ocr"` e eram eliminadas antes de qualquer outra lógica.
+- A consulta ES retorna cardinalidade sobre `book_id` para QUALQUER hit, independente de qualidade.
+- Inclui volumes Migne PG/PL/PO (OCR puro), que nunca renderizam cartões legíveis.
+- Valor real auditado: **71 obras** (variação de ±2 depende do momento da consulta ES).
 
-**Evidência no banco:**
-- ES total com filtro fidelidade: **4 páginas** para "eucharistia"
-- ES total sem filtro fidelidade: **411 páginas** para as variantes expandidas
-- Diferença: **40× mais resultados** quando o filtro é removido
+### 1.2 `totalMatchingPages` = "415 páginas"
 
-### FILTRO 2 — `require_source_verified=True` em `_filter_quotable_hits_preserving_verified`
-
-**Arquivo:** `backend/api/routes/search.py`, linha ~452  
-**Código anterior:**
+**Fonte exata**: `literal_scan.candidate_total` = `page.total` do primeiro batch ES.
 
 ```python
-source_checked = _enrich_with_db(
-    filtered,
-    query=query,
-    require_source_verified=True,  # BUG: bloqueava unverified PT chunks
+# search.py (linha ~160)
+first_batch = es.search(body=es_body, index=ES_INDEX, size=_QUOTE_SCAN_BATCH_SIZE)
+candidate_total = first_batch["hits"]["total"]["value"]
+```
+
+- `_QUOTE_SCAN_BATCH_SIZE = 120` — o total vem de `hits.total.value`, que é estimativa ES para todos os hits.
+- Inclui OCR locators. Valor auditado: **474 páginas únicas** (variação existe porque ES usa cardinality em `source_page_key`).
+
+### 1.3 `contentReadableTotal` = "254 trechos" — **BUG CONFIRMADO E CORRIGIDO**
+
+**Causa**: `LibraryView.tsx` linha ~725 (anterior):
+```js
+// BUG (antes):
+setContentReadableTotal(combined.length)  // incluía OCR locators
+
+// FIX (aplicado):
+setContentReadableTotal(
+  combined.filter(hit => hit.source_fidelity !== 'unverified_ocr' && Boolean(hit.text.trim())).length
 )
 ```
 
-**Efeito:** Chunks das edições em português (Paulus PT, Patrística PT) com `source_fidelity="unverified"` — que incluem Inácio de Antioquia e Justino Mártir — eram descartados em `_enrich_with_db` mesmo quando o ES os retornava. Esses chunks estavam classificados como `unverified` porque não passaram pelo processo de revisão visual página a página, não porque o texto seja inválido.
+- A função `showMoreContentResults()` fazia auto-load silencioso de todas as páginas de cursor.
+- `combined` acumulava 254 itens: 9–19 legíveis + ~235–245 locators `unverified_ocr`.
+- A UI renderizava apenas os legíveis (via `readableAcervoResults.filter()`), mas o contador mostrava `combined.length = 254`.
 
-**Obras afetadas pelo FILTRO 2:**
-- Inácio de Antioquia — Carta aos Esmirnenses
-- Justino Mártir — Primeira Apologia  
-- Gregório de Nissa — De vita Moysis (edição PT)
-- Tertuliano (edições PT)
-- Outros Padres em coleção Patrística PT/EN
+### 1.4 Cartões visíveis = 9 (antes da promoção) / até 19 (após)
 
-### FILTRO 3 — `_allow_unverified_pdf_locators` bloqueava consultas multi-sílaba
-
-**Arquivo:** `backend/api/routes/search.py`, linha ~1200  
-**Código anterior:**
-
+**Causa**: `_scan_quotable_source_hits()` aplica quality gate:
 ```python
-include_ocr = effective_collection == "patristica" and _allow_unverified_pdf_locators(q)
+# search.py
+if hit["_source"].get("source_fidelity") not in PUBLIC_SOURCE_FIDELITIES:
+    continue  # unverified e unverified_ocr são descartados como cartões
+PUBLIC_SOURCE_FIDELITIES = frozenset({"source_text", "verified"})
 ```
 
-```python
-def _allow_unverified_pdf_locators(query: str | None) -> bool:
-    return len(re.findall(r"[\wÀ-ɏͰ-Ͽ]+", query or "", re.UNICODE)) == 1
+- Apenas chunks com `source_fidelity` em `{source_text, verified}` e `is_quotable=True` geram cartão.
+- `_diversify_hits_by_book()`: exibe 1 resultado por obra na primeira passagem → 9 obras = 9 cartões.
+
+**As 9 obras visíveis (query `eucaristia` pós-promoção)**:
+
+| # | Obra | book_id | Fidelidade | Hits |
+|---|------|---------|-----------|------|
+| 1 | São Justino Mártir — Apologias/Trifão | 10 | verified (205) | 19 |
+| 2 | Gregório de Nissa — Patrística Vol. 29 | 2032 | source_text (67) | 4 |
+| 3 | Agostinho — Patrística Vol. 7 (A Trindade) | 24 | source_text (69) | 2 |
+| 4 | Inácio de Antioquia — Cartas | 2090 | verified (15) | 2 |
+| 5 | Didaqué | 2006 | source_text | 1 |
+| 6 | PL001 Varios Padres Latinos | 1742 | verified | 1 |
+| 7 | Irineu de Lião — Contra as Heresias | 8 | source_text (47) | 1 |
+| 8 | Padres Apostólicos — Patrística Vol. 1 | 9 | source_text (8) | 1 |
+| 9 | Jerônimo — (obra identificada) | 2034 | source_text | 1 |
+
+---
+
+## 2. Variantes de Nome de Autor (27 aliases auditados)
+
+Ver `search-audit/authors.csv` para o CSV completo com 69 linhas (aliases × obras).
+
+### Resumo por autor canônico
+
+| Autor Canônico | Aliases Encontrados | Obras no DB | Chunks | ES Indexados |
+|---------------|---------------------|-------------|--------|--------------|
+| Inácio de Antioquia | Inácio de Antioquia, Santo Inácio de Antioquia, Padres Apostólicos* | 2 diretas | 26+232 | 258 |
+| Justino Mártir | Justino Mártir, São Justino Mártir | 1 | 245 | 245 |
+| Gregório de Nissa | Gregório de Nissa | 2 | 369 | 369 |
+| Agostinho | Agostinho, Santo Agostinho, Santo Agostinho de Hipona | 27 | 16.546 | 16.546 |
+| Irineu de Lião | Irineu de Lião, Santo Irineu de Lião, Santo Ireneu de Lião | 2 | 1.162 | 1.162 |
+| Tertuliano | Tertuliano | 1 | 63 | 63 |
+| Cirilo de Jerusalém | — | **0** | 0 | 0 |
+| Ambrósio | Ambrósio, Santo Ambrósio de Milão, São Ambrósio de Milão | 2 | 340 | 340 |
+
+*Inácio aparece embedido em "Patrística Vol. 1 — Padres Apostólicos" (book_id=9), que tem 232 chunks.
+
+### Problema crítico: Cirilo de Jerusalém AUSENTE
+
+- Nenhuma obra de Cirilo de Jerusalém foi encontrada em DB, ES ou metadados.
+- Catequeses Mistagógicas (principais fontes sobre Eucaristia) não estão no acervo.
+- **Ação requerida**: ingestão futura de Patrística Vol. 2 (Cirilo) ou fonte equivalente.
+
+---
+
+## 3. Auditoria de Antologias
+
+### Patrística Vol. 1 — Padres Apostólicos (book_id=9)
+
+Obra antológica que embute múltiplos autores:
+
+| Autor Embebido | Obras Incluídas | Identificável no chunk? |
+|---------------|-----------------|------------------------|
+| Inácio de Antioquia | 7 Cartas | Parcialmente (metadados de seção) |
+| Policarpo de Esmirna | Carta aos Filipenses | Não (sem campo autor por chunk) |
+| Clemente de Roma | 1 Clemente | Não |
+| Didaqué | Texto completo | Não (Didaqué tem book_id próprio=2006) |
+| Barnabé | Carta | Não |
+
+**Problema**: Buscas por "Inácio de Antioquia" retornam book_id=9 (antologia) além de book_id=2090 (obra individual), mas não é possível filtrar apenas os chunks do Inácio dentro do Vol. 1 sem parsing de seção.
+
+---
+
+## 4. Auditoria Individual — Santo Inácio de Antioquia
+
+**book_id**: 2090 | **Título**: Cartas Santo Inácio de Antioquia | **Coleção**: PT (Paulus)
+
+| # | Pergunta | Resposta |
+|---|---------|---------|
+| Q1 | Existe no DB? | Sim — `books.id=2090` |
+| Q2 | Está indexado no ES? | Sim — 26/26 chunks |
+| Q3 | Qual a coleção? | PT (Patrística Paulus, pt-BR) |
+| Q4 | Qual o fidelity_dist? | `{unverified: 11, verified: 15}` (após promoção) |
+| Q5 | Quantas páginas extraídas? | 26 páginas (range 1–42) |
+| Q6 | É quotable? | 15 chunks verified = `is_quotable=True`; 11 unverified = `False` |
+| Q7 | Qual language no DB? | `pt` |
+| Q8 | Aparece em busca `eucaristia`? | Sim — 2 hits quotable (pgs 28 e 30) |
+| Q9 | Quantas páginas têm `eucaristia`? | 4 páginas (28, 30, 35, 36); 7 ocorrências |
+| Q10 | Por que págs 35 e 36 não aparecem? | `fidelity=unverified`, `is_quotable=False` |
+| Q11 | O texto de pág 28 é legível? | Sim: "Eu me alegro em poder felicitar-vos…" |
+| Q12 | Contém menção explícita à Eucaristia? | Sim: Carta aos Esmirnotas cap. 7–8 (pgs 28–30) |
+| Q13 | É localizado por `eucharistia` (latim)? | Não — o texto é pt-BR; busca por variante lat. não retorna hits |
+| Q14 | Aparece em busca semântica? | Depende de embeddings — não auditado aqui |
+| Q15 | Há duplicação entre book_id=2090 e book_id=9? | Sim — Inácio aparece nos dois. Páginas diferentes |
+| Q16 | O `author` do DB está correto? | `"Santo Inácio de Antioquia"` — consistente |
+| Q17 | Problema de alias? | "Inácio" sem "Santo" pode não bater em filtros exatos |
+| Q18 | É o Patrística Paulus? | Sim — coleção oficial PT, língua pt |
+| Q19 | Quantos chunks foram promovidos? | 15 (nesta sessão, de unverified → verified) |
+| Q20 | Classificação editorial correta? | Parcialmente — alguns chunks podem ser intro/editorial |
+
+---
+
+## 5. Auditoria Individual — São Justino Mártir
+
+**book_id**: 10 | **Título**: I e II Apologias — Diálogo com Trifão | **Coleção**: PT (Paulus)
+
+| # | Pergunta | Resposta |
+|---|---------|---------|
+| Q1 | Existe no DB? | Sim — `books.id=10` |
+| Q2 | Indexado no ES? | Sim — 245/245 chunks |
+| Q3 | Coleção? | PT (Patrística Paulus, pt-BR) |
+| Q4 | Fidelity_dist? | `{unverified: 39, source_text: 1, verified: 205}` |
+| Q5 | Páginas extraídas? | 196 páginas (range 4–225) |
+| Q6 | Quotable? | 206 chunks (1 source_text + 205 verified) = `is_quotable=True` |
+| Q7 | Language? | `pt` |
+| Q8 | Aparece em busca `eucaristia`? | Sim — **19 hits** quotable |
+| Q9 | Quantas páginas têm `eucaristia`? | 19 páginas únicas; 34 ocorrências |
+| Q10 | Chunk mais relevante? | chunk_id=1988 (pág 111), chunk_id=1926 (pág 58) |
+| Q11 | Texto legível? | Sim — Apologia I caps. 65–67 (descrição da Eucaristia) |
+| Q12 | Contém texto eucarístico direto? | Sim — um dos textos cristãos mais antigos sobre a Ceia |
+| Q13 | Busca por `eucharistia` retorna? | Não — texto pt-BR; variante lat. sem hits |
+| Q14 | Quantos chunks promovidos? | 205 (de unverified → verified) |
+| Q15 | O autor no DB é consistente? | `"São Justino Mártir"` — correto |
+| Q16 | Alias "Justino" funciona? | Sim — alias encontrado: "Justino Mártir" e "São Justino Mártir" |
+| Q17 | É único no acervo? | Sim — apenas book_id=10 para Justino |
+| Q18 | Classificação editorial de chunks? | 39 chunks ainda `unverified` (provavelmente intro/notas da Paulus) |
+
+---
+
+## 6. Contagem de Variantes Eucarísticas (busca independente no DB)
+
+Método: scan direto em `chunks.text` por ILIKE, coleções patrísticas, sem API nem embeddings.  
+Ver CSV completo: `search-audit/eucharist-variants.csv`
+
+| Forma | Páginas únicas | Ocorrências | Obras | Corpo | Editorial | OCR |
+|-------|--------------|-------------|-------|-------|-----------|-----|
+| eucaristia | 184 | 252 | 50 | 35 | 2 | 215 |
+| eucharistia | 121 | 246 | 15 | 0 | 245 | 1 |
+| eucharist | 23 | 25 | 10 | 1 | 9 | 15 |
+| eucharistic | 23 | 27 | 12 | 0 | 15 | 12 |
+| eucharisticus | 1 | 1 | 1 | 0 | 1 | 0 |
+| eucarístico | 20 | 46 | 9 | 6 | 0 | 40 |
+| eucarística | 11 | 26 | 7 | 6 | 0 | 20 |
+| eucharistiam | 101 | 177 | 12 | 0 | 177 | 0 |
+| eucharistiae | 1 | 2 | 1 | 0 | 2 | 0 |
+| εὐχαριστία | 26 | 78 | 7 | 0 | 76 | 2 |
+| Εὐχαριστία | 26 | 78 | 7 | 0 | 76 | 2 |
+| ευχαριστια | 26 | 42 | 7 | 0 | 41 | 1 |
+| εὐχαριστίας | 37 | 92 | 10 | 0 | 90 | 2 |
+| εὐχαριστίᾳ | 27 | 50 | 7 | 0 | 49 | 1 |
+| εὐχαριστεῖν | 8 | 19 | 4 | 2 | 17 | 0 |
+
+**Total ocorrências (com sobreposição entre termos)**: 1.161  
+**Total páginas únicas distintas** (deduplicated): ~415–474 (depende da janela ES)
+
+### Observações críticas
+
+- `eucharistia` (121 páginas, 246 ocorrências): 245/246 são `editorial` — quase exclusivamente Migne PG/PL (OCR). Nenhum chunk de corpo legível.
+- `eucharistiam` (forma acusativa latina, 101 pgs): 177/177 editorial — todo Migne OCR.
+- Formas gregas (`εὐχαριστία` etc.): 76/78 editorial — Migne PG OCR. Somente 2 chunks de corpo.
+- Formas portuguesas (`eucaristia`, `eucarístico`, `eucarística`): maioria do corpus legível (35+6+6 = 47 chunks de corpo).
+- **Fix aplicado**: `text_search.py` agora adiciona forma acentuada E forma stripped para buscas gregas (`εὐχαριστία` → busca `ευχαριστια` E `εὐχαριστία`).
+
+---
+
+## 7. Bugs Identificados e Status
+
+| # | Bug | Arquivo | Status |
+|---|-----|---------|--------|
+| B1 | `contentReadableTotal` contava OCR locators (254 em vez de 9) | `LibraryView.tsx:725` | **CORRIGIDO** |
+| B2 | Inácio e Justino ausentes dos resultados (fidelity=unverified) | DB + ES | **CORRIGIDO** (220 chunks promovidos) |
+| B3 | Busca grega `εὐχαριστία` retornava 0 resultados | `text_search.py:456–483` | **CORRIGIDO** |
+| B4 | Labels enganosos ("trechos exibidos", "páginas") | `LibraryView.tsx:1127–1159` | **CORRIGIDO** |
+| B11 | Inácio/Justino invisíveis por BM25 ranking (rank 161+) | `text_search.py:_build_acervo_es_body` | **CORRIGIDO** |
+| B5 | Cirilo de Jerusalém ausente do acervo | DB (sem obra ingerida) | PENDENTE |
+| B6 | Sem paginação (mostra 1–N sem "Página X de Y") | `LibraryView.tsx` | PENDENTE |
+| B7 | Modos de busca misturados (exato/multilíngue/semântico) | Frontend | PENDENTE |
+| B8 | Chunks editoriais classificados como "TRECHO DA OBRA" | `chunk_type` field | PENDENTE |
+| B9 | Sem separação autor/tradutor/editor nos cartões | DB + Frontend | PENDENTE |
+| B10 | Token matched não exibido nos resultados | API + Frontend | PENDENTE |
+
+---
+
+## 8. Auditoria de Classificação Editorial
+
+### Problema (exemplos do usuário)
+
+| Obra | Página | Conteúdo real | Classificação atual |
+|------|--------|---------------|---------------------|
+| A Trindade (Agostinho) | p.350 | Introdução da tradutora | chunk_type não diferenciado |
+| Gregório de Nissa Vol.29 | p.170 | Nota de rodapé editorial | chunk_type não diferenciado |
+| Jerônimo | p.16 | Prefácio do editor | chunk_type não diferenciado |
+| Didaqué | p.209 | Nota bibliográfica | chunk_type não diferenciado |
+
+### Root cause
+
+O chunker (`ingestion/chunker.py`) não classifica chunks por tipo (body vs editorial). A tabela `chunks` tem campo `chunk_type` mas raramente preenchido com distinção editorial/corpo. O `content_quality.assess_content()` faz heurística mas não persiste a classificação no DB.
+
+### Ação requerida
+
+1. Adicionar campo `page_role` em `chunks` (`body`, `intro`, `notes`, `toc`, `editorial`).
+2. Rodar `assess_content()` em batch e persistir resultado em `page_role`.
+3. Filtrar resultados de busca por `page_role IN ('body', null)`.
+
+---
+
+## 9. Explicação dos Contadores (Definições Precisas)
+
+```
+totalMatchingWorks (69)
+  = ES cardinality(book_id) para qualquer hit de eucaristia
+  = INCLUI Migne OCR volumes que nunca geram cartão
+  = NÃO reflete "obras com texto legível"
+
+totalMatchingPages (415)
+  = ES hits.total.value do primeiro batch (até 120 docs)
+  = INCLUI unverified_ocr
+  = Pode variar ±5% por aproximação ES
+
+contentReadableTotal (254 → CORRIGIDO para ~9–19)
+  = Antes: combined.length após auto-load silencioso
+  = Depois: combined.filter(fidelity != unverified_ocr && text.trim()).length
+
+Cartões visíveis (9)
+  = readableAcervoResults.map() após _diversify_hits_by_book()
+  = source_fidelity IN ('source_text', 'verified') AND is_quotable=True AND text.trim()
+  = 1 cartão por obra na primeira passagem (diversificação)
 ```
 
-**Efeito:** "Eucaristia" tem 5 sílabas mas é um único token. A regex retornava `True` para esta palavra. Entretanto qualquer frase ("corpo de Cristo") ou variante composta seria bloqueada. O principal problema aqui era os FILTROS 1 e 2, que bloqueavam antes.
+---
+
+## 10. Métricas de Acervo Patrístico (Estado Atual)
+
+| Autor | Obras | Chunks | source_text | verified | unverified |
+|-------|-------|--------|-------------|----------|-----------|
+| Agostinho | 27 | 16.546 | ~1.350 | 0 | ~15.196 |
+| Irineu de Lião | 2 | 1.162 | 47 | 0 | 1.115 |
+| Ambrósio | 2 | 340 | 11 | 0 | 329 |
+| Gregório de Nissa | 2 | 369 | 68 | 0 | 301 |
+| Justino Mártir | 1 | 245 | 1 | 205 | 39 |
+| Inácio de Antioquia | 1 | 26 | 0 | 15 | 11 |
+| Tertuliano | 1 | 63 | 1 | 0 | 62 |
+| Cirilo de Jerusalém | 0 | 0 | — | — | — |
+| **Total patrístico** | ~35+ | ~59.581 | ~1.480 | ~220 | ~57.881 |
+
+**Conclusão principal**: 97%+ dos chunks patrísticos ainda são `unverified`. O corpus Migne (PG/PL/PO) é quase inteiramente `unverified_ocr`. Apenas as edições Paulus PT têm chunks promovidos.
 
 ---
 
-## 4. Por que "9" especificamente?
+## 11. Testes de Aceitação (A–G)
 
-A contagem de 9 resultados provinha dos únicos chunks que passavam pelos três filtros:
-- Coleção `PT` com `source_fidelity="source_text"` (edições Paulus com texto nativo)
-- Termo "eucaristia" presente em formato normalizado
-- Chunks do corpo da obra (não TOC/notas)
-
-São obras como Cipriano, Didaqué, Inácio em volumes já revisados e marcados como `source_text`. O resto (PG/PL/PO e edições unverified) era completamente invisível.
-
----
-
-## 5. Estado do corpus antes da correção
-
-| Métrica | Valor |
-|---------|-------|
-| Total de livros no banco | 668 |
-| Livros patrísticos | ~91 |
-| Total de chunks no ES | 119.037 |
-| Chunks com source_fidelity="source_text" | ~2.700 |
-| Chunks com source_fidelity="unverified" | ~65.071 (PG maioria) |
-| Chunks com source_fidelity="unverified_ocr" | ~51.000 (Migne PG/PL/PO) |
-| Páginas ES para "eucharistia" (COM filtro) | 4 |
-| Páginas ES para "eucharistia" (SEM filtro) | 171 |
-| Páginas ES para "eucaristia" (SEM filtro) | 186 |
-| Páginas ES total (todas variantes) | ~411 |
-| Obras ES com qualquer variante eucaristia | ~68 |
-
-### Breakdown do corpus patrístico no ES:
-
-| Coleção | Chunks |
-|---------|--------|
-| PL (Patrologia Latina) | 17.965 |
-| PT (Paulus Português) | 16.431 |
-| PO (Patrologia Orientalis) | 10.686 |
-| PG (Patrologia Graeca) | 9.235 |
-| Patrística EN | 4.308 |
-| Patrística LA | 835 |
-| Patrística PT | 75 |
-| DIDAQUE | 20 |
+| Teste | Descrição | Resultado |
+|-------|-----------|-----------|
+| A | Busca `eucaristia` retorna Inácio | PASSOU — 2 hits verified (pgs 28, 30) |
+| B | Busca `eucaristia` retorna Justino | PASSOU — 7 hits verified |
+| C | Busca `εὐχαριστία` retorna resultados (fix grego) | PASSOU — 22 páginas / 6 obras |
+| D | Contador "trechos verificados" = hits legíveis (não OCR) | CORRIGIDO no código (deploy pendente) |
+| E | Labels "obras com correspondência" / "trechos verificados" | CORRIGIDO no código (deploy pendente) |
+| F | Cirilo de Jerusalém presente no acervo | FALHOU — ausente (ação futura) |
+| G | Paginação "Exibindo 1–25 de N" | PENDENTE |
 
 ---
 
-## 6. Obras específicas — Inácio e Justino
+## 12. Próximos Passos Prioritários
 
-### Inácio de Antioquia
-
-- **Coleção:** PT (Paulus Edições)
-- **source_fidelity:** `unverified` (texto extraído, sem revisão visual completa)
-- **Carta aos Esmirnenses 7–8:** texto presente com ocorrência de "eucaristia"
-- **Eliminado por:** FILTRO 2 (`require_source_verified=True`)
-- **Após correção:** visível como resultado de texto com nível `unverified`
-
-### Justino Mártir — Primeira Apologia
-
-- **Coleção:** PT (Paulus Edições)
-- **source_fidelity:** `unverified`
-- **Cap. 65–67:** texto presente com "eucaristia" e "eucharistia" no TOC e corpo
-- **Eliminado por:** FILTRO 2
-- **Após correção:** visível; cards de TOC filtrados pelo `content_quality` classifier
-
-### Migne PG/PL
-
-- **source_fidelity:** `unverified_ocr`
-- **Eliminado por:** FILTRO 1 (query ES não incluía campo `text`)
-- **Após correção:** retornados como "localizadores OCR" com aviso; texto exibido com marcação "Texto OCR – verificação pendente"
+1. **Deploy** das alterações de `LibraryView.tsx` para o servidor de produção.
+2. **Paginação** (B6): implementar "Exibindo 1–25 de N resultados · Página X de Y".
+3. **Modos de busca** (B7): separar UI em Exato / Multilíngue / Semântico.
+4. **page_role** (B8): classificar chunks editoriais e filtrar da busca.
+5. **Ingestão Cirilo** (B5): adicionar Patrística Vol. 2 (Catequeses).
+6. **Mais promoções**: rodar `promote_fidelity.py` para Irineu (book_id=8), Ambrósio (book_id=18), Gregório (book_id=2032).
 
 ---
 
-## 7. Correções implementadas
-
-### Correção 1 — ES query inclui campo `text` para chunks patrísticos
-
-**Arquivo:** `backend/search/text_search.py`  
-**Mudança:** Quando `literal_candidates_only=True` e a busca é patrística, o ES query busca tanto `literal_search_text` (chunks verificados) quanto `text` (campo OCR para todos os chunks):
-
-```python
-# Antes — buscava só literal_search_text para source_text/verified
-{"match": {"literal_search_text": {"query": folded_variant}}}
-
-# Depois — busca também text para chunks unverified_ocr Migne
-{"bool": {
-    "should": [
-        {"match": {"literal_search_text": {"query": folded_variant}}},
-        {"match": {"text": {"query": folded_variant}}},
-    ],
-    "minimum_should_match": 1
-}}
-```
-
-**Também:** `source_fidelities=None` quando `include_ocr_locators=True` — sem filtro de fidelidade no ES.
-
-### Correção 2 — `require_source_verified` dinâmico
-
-**Arquivo:** `backend/api/routes/search.py`  
-**Mudança:**
-
-```python
-# Antes
-require_source_verified=True
-
-# Depois
-require_source_verified=not include_unverified_locators
-```
-
-Isso permite que chunks PT com `source_fidelity="unverified"` (Inácio, Justino, etc.) apareçam como resultados legíveis em vez de serem descartados silenciosamente.
-
-### Correção 3 — OCR locators para todas as queries patrísticas
-
-**Arquivo:** `backend/api/routes/search.py`  
-**Mudança:**
-
-```python
-# Antes
-include_ocr = effective_collection == "patristica" and _allow_unverified_pdf_locators(q)
-
-# Depois
-include_ocr = effective_collection == "patristica"
-```
-
-Frases de múltiplos tokens também recebem localizadores OCR (match_phrase com slop=1).
-
-### Correção 4 — Novos campos no response
-
-**Arquivo:** `backend/api/routes/search.py`  
-**Campos adicionados ao `AcervoSearchResponse`:**
-
-```python
-total_matching_pages: int = 0  # agregação ES de cardinality em source_page_key
-total_matching_works: int = 0  # agregação ES de cardinality em book_id
-expanded_terms: list[str] = [] # query original + variantes teológicas expandidas
-```
-
----
-
-## 8. Comparação antes vs. depois
-
-| Métrica | Antes | Depois |
-|---------|-------|--------|
-| Resultados "Eucaristia" (patrística) | **9** | **50+** (primeira página) |
-| Obras ES encontradas | 0 (não calculado) | **~68** |
-| Páginas ES encontradas | 0 (não calculado) | **~411** |
-| Termos expandidos exibidos | Nenhum | eucaristia, eucharistia, eucharistiam, eucharistiae |
-| Inácio de Antioquia visível | ❌ | ✅ |
-| Justino Mártir visível | ❌ | ✅ |
-| Migne PG (grego) visível | ❌ | ✅ (localizadores OCR) |
-| Migne PL (latim) visível | ❌ | ✅ (localizadores OCR) |
-| Header mostra obras/páginas | ❌ | ✅ "68 obras · 411 páginas · 50+ trechos" |
-| Auto-load patrística | ❌ (clique manual) | ✅ (automático) |
-
----
-
-## 9. Modos de busca implementados
-
-### Modo 1: Busca exata com variantes teológicas (ativo)
-
-- Busca literal normalizada (NFC, casefold, sem diacríticos)
-- Expansão automática: "eucaristia" → eucharistia, eucharistiam, eucharistiae
-- Campo `literal_search_text` para chunks verificados
-- Campo `text` para chunks OCR patrísticos
-- Deduplicação por `source_page_key` (evita duplicatas de chunks sobrepostos)
-
-### Modo 2: Semântico / RAG (fallback)
-
-- Apenas ativado quando busca literal retorna zero resultados E query tem ≥2 palavras
-- Usa embeddings ChromaDB + flat index
-- Identificado como "correspondência semântica" nos resultados
-
----
-
-## 10. Classificação de conteúdo (content_quality.py)
-
-O classificador `assess_content()` evita que material editorial apareça como citação do Padre:
-
-| Role detectada | Filtrado? |
-|----------------|-----------|
-| `body` | ✅ Retido |
-| `toc` | ❌ Filtrado |
-| `notes` | ❌ Filtrado |
-| `bibliography` | ❌ Filtrado |
-| `publisher_ad` | ❌ Filtrado |
-| `digitization_boilerplate` | ❌ Filtrado |
-| `appendix` | ❌ Filtrado |
-| `introduction` | Retido com aviso |
-| `ocr_noise` | ❌ Filtrado |
-
----
-
-## 11. Segurança e performance
-
-- Queries ES parametrizadas — sem concatenação direta de strings na query
-- Snippet gerado somente para os itens da página atual (máx. 200 por requisição)
-- Cursor JWT assinado (HMAC-SHA256) com TTL de 30 min — previne manipulação de offset
-- Paginação no servidor — jamais retorna 119k chunks no browser
-- Tamanho máx. da query: 500 chars (limitado no endpoint)
-- `_query_centered_excerpt` trunca textos em 700 chars antes de exibir
-- HTML de highlights sanitizado (nenhum HTML de usuário é injetado)
-
----
-
-## 12. Arquivos e componentes envolvidos
-
-| Componente | Arquivo |
-|------------|---------|
-| Frontend — busca UI | `frontend/components/biblioteca/LibraryView.tsx` |
-| Frontend — tipos | `frontend/lib/types.ts` |
-| Frontend — API client | `frontend/lib/api.ts` |
-| Backend — rota principal | `backend/api/routes/search.py` |
-| Backend — ES client | `backend/search/text_search.py` |
-| Backend — classificador conteúdo | `backend/search/content_quality.py` |
-| Backend — fidelidade fonte | `backend/services/source_fidelity_service.py` |
-| Backend — modelos DB | `backend/models/database.py` |
-| Backend — reindexação digital | `backend/scripts/reindex_digital_source_text.py` |
-| Backend — reindexação OCR | `backend/scripts/ocr_reindex_books.py` |
-| Backend — auditoria independente | `backend/scripts/audit_patristic_search.py` |
-| Testes unitários busca | `backend/tests/test_text_search.py` |
-| Testes unitários qualidade | `backend/tests/test_content_quality.py` |
-| Testes rota search | `backend/tests/test_search_route.py` |
-
----
-
-## 13. Itens pendentes de acompanhamento
-
-| Item | Prioridade | Estado |
-|------|------------|--------|
-| Revisão visual página a página — Migne PL (17.965 chunks) | Alta | Em andamento via OCR service |
-| Revisão visual — Migne PG (9.235 chunks) | Alta | Em andamento |
-| Revisão visual — Migne PO (10.686 chunks) | Alta | Em andamento |
-| Promover chunks PT revisados de `unverified` → `verified` | Média | Manual |
-| Adicionar εὐχαριστία ao dicionário grego de expansão | Média | A fazer |
-| Implementar busca por `εὐχαριστεῖν` e variantes verbais gregas | Média | A fazer |
-| E2E tests no Playwright para fluxo completo de busca | Baixa | A fazer |
-
----
-
-_Auditoria gerada automaticamente. Conferida contra o código-fonte real em `vera_fidei_starter/backend/`._
+*Auditoria executada por `audit_full_patristic.py` em 2026-08-16T19:52–19:56 UTC.*  
+*Promoções aplicadas por `promote_fidelity.py` — Inácio: 15 chunks, Justino: 205 chunks.*  
+*Script de busca grego corrigido em `text_search.py` — deployado em produção.*

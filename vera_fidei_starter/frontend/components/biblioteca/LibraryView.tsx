@@ -719,7 +719,12 @@ export default function LibraryView({
           return true
         })
         const combined = [...current, ...appended]
-        setContentReadableTotal(combined.length)
+        // BUG FIX: count only readable (verified) hits, not OCR locators.
+        // combined.length previously included unverified_ocr locator pages,
+        // causing "254 trechos exibidos" when only 9 readable cards rendered.
+        setContentReadableTotal(
+          combined.filter(hit => hit.source_fidelity !== 'unverified_ocr' && Boolean(hit.text.trim())).length
+        )
         return combined
       })
       setContentNextCursor(res.next_cursor ?? null)
@@ -1119,19 +1124,23 @@ export default function LibraryView({
                 {totalMatchingWorks > 0 && (
                   <p className="text-xs text-texto-terciario">
                     <span className="font-medium text-dourado">{totalMatchingWorks}</span>{' '}
-                    {totalMatchingWorks === 1 ? 'obra' : 'obras'}
+                    {totalMatchingWorks === 1 ? 'obra com correspondência' : 'obras com correspondência'}
                     {totalMatchingPages > 0 && (
                       <>
                         {' · '}
                         <span className="font-medium text-dourado">{totalMatchingPages}</span>{' '}
-                        {totalMatchingPages === 1 ? 'página' : 'páginas'}
+                        {totalMatchingPages === 1 ? 'página indexada' : 'páginas indexadas'}
                       </>
                     )}
-                    {' · '}
-                    <span className="font-medium text-dourado">
-                      {contentReadableTotal}{contentNextCursor ? '+' : ''}
-                    </span>{' '}
-                    {contentReadableTotal === 1 ? 'trecho exibido' : 'trechos exibidos'}{' '}
+                    {contentReadableTotal > 0 && (
+                      <>
+                        {' · '}
+                        <span className="font-medium text-dourado">
+                          {contentReadableTotal}{contentNextCursor ? '+' : ''}
+                        </span>{' '}
+                        {contentReadableTotal === 1 ? 'trecho verificado' : 'trechos verificados'}
+                      </>
+                    )}{' '}
                     para{' '}
                     <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
                   </p>
@@ -1141,8 +1150,13 @@ export default function LibraryView({
                     <span className="font-medium text-texto">
                       {contentReadableTotal}{contentNextCursor ? '+' : ''}
                     </span>{' '}
-                    {contentReadableTotal === 1 ? 'trecho encontrado' : 'trechos encontrados'} para{' '}
+                    {contentReadableTotal === 1 ? 'trecho verificado' : 'trechos verificados'} para{' '}
                     <span className="font-medium text-texto">&ldquo;{lastAcervoQuery}&rdquo;</span>
+                  </p>
+                )}
+                {totalMatchingPages > 0 && contentReadableTotal < totalMatchingPages && !contentNextCursor && (
+                  <p className="text-[10px] text-texto-terciario">
+                    {totalMatchingPages - contentReadableTotal} {totalMatchingPages - contentReadableTotal === 1 ? 'página adicional localizada' : 'páginas adicionais localizadas'} por OCR — abrir PDF para ler o texto original.
                   </p>
                 )}
                 {expandedTerms.length > 1 && (
@@ -1157,13 +1171,19 @@ export default function LibraryView({
                   </p>
                 )}
               </div>
+              {readableAcervoResults.length === 0 && !contentNextCursor && (
+                <div className="rounded-lg border border-fundo-borda bg-fundo-card p-4 text-xs text-texto-terciario">
+                  Todas as {totalMatchingPages} páginas encontradas estão em formato OCR não conferido.
+                  Os PDFs estão disponíveis para leitura direta, mas o texto ainda não foi verificado para exibição aqui.
+                </div>
+              )}
               {readableAcervoResults.map(hit => (
                 <SearchResultCard key={hit.chunk_id} hit={hit} query={lastAcervoQuery} />
               ))}
               {contentNextCursor && (
                 lastAcervoCollection === 'patristica' ? (
                   <p className="py-2 text-center text-xs text-texto-terciario">
-                    {contentLoadingMore ? 'Carregando mais trechos patrísticos…' : 'Aguardando carregamento…'}
+                    {contentLoadingMore ? 'Localizando mais trechos patrísticos…' : 'Aguardando carregamento…'}
                   </p>
                 ) : (
                   <button

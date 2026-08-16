@@ -1,0 +1,52 @@
+﻿{
+  "generated_at": "2026-08-16T19:56:00.682511+00:00",
+  "query": "eucaristia",
+  "explanation": {
+    "total_matching_pages_415": {
+      "value": 474,
+      "source": "ES cardinality aggregation on source_page_key, ALL fidelity levels",
+      "includes": "source_text, verified, unverified, unverified_ocr",
+      "note": "Counts pages where ANY eucaristia variant matches, before quality gate"
+    },
+    "total_matching_works_69": {
+      "value": 71,
+      "source": "ES cardinality aggregation on book_id, ALL fidelity levels",
+      "note": "Works where any page matches, including Migne PG/PL/PO OCR volumes"
+    },
+    "readable_cards_9": {
+      "value": "9 (pre-promotion) → now based on verified/source_text content",
+      "source": "Frontend filter: source_fidelity !== 'unverified_ocr' && text.trim()",
+      "real_count": 19,
+      "real_works": 9,
+      "note": "Only verified/source_text chunks appear as Trecho da Obra cards"
+    },
+    "false_254_trechos": {
+      "value": 254,
+      "source": "BUG: showMoreContentResults() sets contentReadableTotal(combined.length)",
+      "correct_should_be": "combined.filter(hit => hit.source_fidelity !== 'unverified_ocr' && hit.text.trim()).length",
+      "note": "After auto-loading all OCR locator pages, combined.length includes locators"
+    }
+  },
+  "verified_readable": {
+    "pages": 19,
+    "works": 9
+  },
+  "es_totals": {
+    "candidate_pages": 474,
+    "matching_works": 71
+  },
+  "pagination": {
+    "frontend_limit": 200,
+    "backend_batch_size": 120,
+    "auto_load_behavior": "patristica auto-loads all cursor pages silently",
+    "issue": "No page navigation shown; all results fetched silently; only readable cards rendered"
+  },
+  "definitions": {
+    "totalMatchingWorks": "Works where any page has a matching ES hit (ANY fidelity)",
+    "totalMatchingPages": "Unique pages (source_page_key) with any matching ES hit",
+    "totalOccurrences": "Not directly exposed; counted per-page in DB scan",
+    "returnedItems": "Results returned by API (readable + locators combined)",
+    "readableItems": "Subset of returnedItems with source_fidelity != unverified_ocr",
+    "pageSize": "200 for patristica, 36 for all"
+  }
+}

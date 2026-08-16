@@ -569,14 +569,35 @@ class TextSearchClient:
                     "minimum_should_match": 1,
                 }
             })
-        body = {
-            "query": {
-                "bool": {
-                    "must": must,
-                    **({"should": should} if should else {}),
-                    **({"filter": filter_clauses} if filter_clauses else {}),
+        _inner_bool: dict = {
+            "must": must,
+            **({"should": should} if should else {}),
+            **({"filter": filter_clauses} if filter_clauses else {}),
+        }
+        # When OCR locators are included alongside verified content (literal
+        # candidates with no source_fidelity filter), Migne PG/PL/PO chunks
+        # dominate BM25 scoring due to high term frequency in long OCR texts,
+        # pushing verified translations (Inácio, Justino, etc.) to rank 100+.
+        # A function_score multiplier restores the correct priority: a verified
+        # chunk scoring 7.6 becomes 7.6×25=190, far above an OCR chunk at 13.0.
+        if literal_candidates_only and not source_fidelities:
+            _query_part: dict = {
+                "function_score": {
+                    "query": {"bool": _inner_bool},
+                    "functions": [
+                        {
+                            "filter": {"term": {"is_quotable": True}},
+                            "weight": 25,
+                        }
+                    ],
+                    "score_mode": "sum",
+                    "boost_mode": "multiply",
                 }
-            },
+            }
+        else:
+            _query_part = {"bool": _inner_bool}
+        body = {
+            "query": _query_part,
             "size": limit,
             "from": max(0, offset),
             "min_score": 0.05,
