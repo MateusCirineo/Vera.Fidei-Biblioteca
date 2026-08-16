@@ -210,12 +210,26 @@ export interface AcervoSearchResult {
   book_file_id: number | null
   library_section: string | null
   patristic_tradition: string | null
+  source_fidelity: 'verified_transcription' | 'source_text' | 'unverified_ocr'
+  source_fidelity_label: string
+  source_warning: string | null
+  matched_query: string | null
+  match_type?: 'literal' | 'semantic'
 }
 
 export interface AcervoSearchResponse {
   results: AcervoSearchResult[]
   total: number
   query: string
+  patristic_results?: AcervoSearchResult[]
+  returned?: number
+  readable_total?: number
+  matching_works?: number
+  has_more?: boolean
+  next_cursor?: string | null
+  total_matching_pages?: number
+  total_matching_works?: number
+  expanded_terms?: string[]
 }
 
 // ─── Comentário patrístico por artigo do CCC ─────────────────────────────────
@@ -226,6 +240,71 @@ export interface CccCommentaryResponse {
   themes: string[]
   results: AcervoSearchResult[]
   total: number
+  article_text: string | null
+  source_pages: number[]
+  mode: 'exact_article' | 'source_unavailable'
+  warning: string | null
+}
+
+// ─── Concordância dos Catecismos ─────────────────────────────────────────────
+
+export type CatechismId = 'ccc' | 'compendium' | 'pio_x' | 'youcat' | 'roman'
+
+export interface CatechismSourceRef {
+  book_id: number
+  book_file_id: number | null
+  chunk_ids: number[]
+  pages: number[]
+  edition_label: string | null
+  language: string | null
+}
+
+export interface CatechismPassage {
+  catechism: CatechismId
+  source_title: string
+  source_author: string | null
+  locator: string
+  section_title: string | null
+  text: string
+  source: CatechismSourceRef
+  verification: 'indexed_edition'
+  text_fingerprint: string
+}
+
+export interface CatechismComparisonMatch {
+  kind: 'explicit_cross_reference' | 'thematic'
+  confidence: 'high'
+  evidence_terms: string[]
+}
+
+export interface CatechismComparison {
+  status: 'matched' | 'no_reliable_match' | 'source_unavailable'
+  source: Exclude<CatechismId, 'ccc'>
+  source_title: string
+  message: string | null
+  passage: CatechismPassage | null
+  match: CatechismComparisonMatch | null
+}
+
+export interface CatechismConcordanceNotice {
+  scope: 'anchor' | 'comparisons' | 'patristic'
+  code: string
+  message: string
+}
+
+export interface CatechismConcordanceResponse {
+  query: {
+    kind: 'ccc_paragraph'
+    article: number
+  }
+  anchor: CatechismPassage
+  themes: string[]
+  comparisons: CatechismComparison[]
+  patristic_roots: {
+    results: AcervoSearchResult[]
+    total: number
+  }
+  notices: CatechismConcordanceNotice[]
 }
 
 // ─── Uso diário de busca ──────────────────────────────────────────────────────
@@ -252,4 +331,6 @@ export interface DailyCitationResponse {
   book_id: number | null
   book_file_id: number | null
   day_of_year: number
+  source_fidelity: 'verified_transcription' | 'source_text' | null
+  source_fidelity_label: string | null
 }
