@@ -186,22 +186,28 @@ def run_api_count(query: str, collections: list[str] | None = None) -> dict:
     client = TextSearchClient()
 
     async def _fetch() -> dict:
-        page = await client.search_acervo_page(
+        # search_acervo_page handles include_page_counts internally;
+        # do not pass it as an arg — the method always includes cardinality aggs.
+        # collection_filter is a string scope key ("patristica") not a list;
+        # the route maps "patristica" to PATRISTIC_COLLECTIONS internally.
+        page = client.search_acervo_page(
             query=query,
             offset=0,
             limit=1,
-            collection_filter=collections,
+            collection_filter="patristica",
             source_fidelities=None,
             literal_candidates_only=True,
-            include_page_counts=True,
         )
         return {
             "total_pages": page.total,
             "matching_works": page.matching_works,
         }
 
-    result = asyncio.run(_fetch())
-    return result
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_fetch())
+    finally:
+        loop.close()
 
 
 def compare_counts(independent: dict, api: dict, tolerance_pct: float = 10.0) -> bool:
@@ -254,49 +260,60 @@ def print_full_report(summary: dict) -> None:
 
 
 def check_ignatius_and_justin(collections: list[str]) -> None:
-    """Specifically verify Ignatius of Antioch and Justin Martyr are found."""
+    """Specifically verify Ignatius of Antioch and Justin Martyr are found.
+
+    author and work_title are keyword fields in ES — use wildcard queries,
+    not match/should (match on keyword does exact-string, not token search).
+    """
     es = _es()
     print("\n" + "=" * 60)
     print("PATRISTIC CONTROL — Inácio de Antioquia & Justino Mártir")
     print("=" * 60)
 
-    for author_pattern, work_pattern, term in [
-        ("Inácio", "Esmirnenses", "eucaristia"),
-        ("Ignatius", "Smyrnaeans", "eucharistia"),
-        ("Justino", "Apologia", "eucaristia"),
-        ("Justin", "Apology", "eucharistia"),
-    ]:
+    # (author_wildcard, work_wildcard, term, label)
+    # author/work_title are keyword fields → use wildcard
+    checks = [
+        ("*Padres Apost*", None, "eucaristia",   "Padres Apostólicos (PT — Inácio incluso)"),
+        ("*Ignatius*",     None, "eucharistia",  "Ignatius Antiochenus (PG/PL — Latin/Greek)"),
+        ("*Justino*",      None, "eucaristia",   "São Justino Mártir (PT)"),
+        ("*Justin*",       None, "eucharistia",  "Justin Martyr (EN/PL/PG)"),
+    ]
+    for author_wc, work_wc, term, label in checks:
+        filter_clauses = [{"terms": {"collection": collections}}]
+        if author_wc:
+            filter_clauses.append({"wildcard": {"author": author_wc}})
+        if work_wc:
+            filter_clauses.append({"wildcard": {"work_title": work_wc}})
+
         body = {
             "query": {
                 "bool": {
-                    "must": [{"match": {"text": {"query": term, "operator": "and"}}}],
-                    "filter": [
-                        {"terms": {"collection": collections}},
-                    ],
-                    "should": [
-                        {"match": {"author": author_pattern}},
-                        {"match": {"work_title": work_pattern}},
-                    ],
-                    "minimum_should_match": 1,
+                    "must": [{
+                        "bool": {
+                            "should": [
+                                {"match": {"text": {"query": term, "operator": "and"}}},
+                                {"match": {"literal_search_text": {"query": term, "operator": "and"}}},
+                            ],
+                            "minimum_should_match": 1,
+                        }
+                    }],
+                    "filter": filter_clauses,
                 }
             },
             "_source": ["author", "work_title", "collection", "pdf_page", "source_fidelity"],
             "size": 3,
         }
         resp = es.search(index=ES_INDEX, body=body)
-        total = (resp["hits"]["total"] or {}).get("value", 0)
-        if isinstance(resp["hits"]["total"], int):
-            total = resp["hits"]["total"]
+        raw_total = resp["hits"]["total"]
+        total = raw_total.get("value", 0) if isinstance(raw_total, dict) else int(raw_total or 0)
         hits = resp["hits"]["hits"]
         if total > 0:
             h = hits[0]["_source"]
-            print(f"  ✅  Found {author_pattern}/{work_pattern}: "
-                  f"{h.get('author', '?')} — {h.get('work_title', '?')} "
-                  f"(collection={h.get('collection')}, "
-                  f"fidelity={h.get('source_fidelity')}, "
-                  f"page={h.get('pdf_page')})")
+            print(f"  OK  {label}: {h.get('author', '?')} — {h.get('work_title', '?')[:50]} "
+                  f"(coll={h.get('collection')}, fidelity={h.get('source_fidelity')}, "
+                  f"page={h.get('pdf_page')}, total_hits={total})")
         else:
-            print(f"  ❌  NOT FOUND: author~{author_pattern!r} + work~{work_pattern!r} + term={term!r}")
+            print(f"  NOT FOUND: {label} term={term!r} author_wc={author_wc!r}")
 
 
 def main() -> None:
