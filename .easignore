@@ -1,0 +1,54 @@
+# EAS resolves the Git repository root even though the Expo project lives in
+# vera_fidei_starter/mobile. Exclude every sibling project and all local data
+# so production configuration, PDFs and indexes can never enter a mobile build.
+/.git/
+/.agents/
+/.claude/
+/.codex/
+/.playwright-mcp/
+/.pytest_cache/
+/.tmp_docker_config/
+/codex-playwright-tests/
+/docs/
+/eas-inspect-mobile/
+/LOGO VF/
+/scripts/
+/search-audit/
+/test-results/
+/tmp/
+/tmp_po_previews/
+/venv/
+
+/vera_fidei_starter/.audit_ccc/
+/vera_fidei_starter/.pytest_cache/
+/vera_fidei_starter/__pycache__/
+/vera_fidei_starter/backend/
+/vera_fidei_starter/coupons/
+/vera_fidei_starter/docs/
+/vera_fidei_starter/frontend/
+/vera_fidei_starter/imports/
+/vera_fidei_starter/nginx/
+/vera_fidei_starter/ops/
+/vera_fidei_starter/test-results/
+/vera_fidei_starter/tmp/
+
+**/node_modules/
+**/.expo/
+**/android/
+**/ios/
+**/dist/
+**/web-build/
+**/.env
+**/.env.local
+**/*.apk
+**/*.aab
+**/*.jks
+**/*.p8
+**/*.p12
+**/*.key
+**/*.mobileprovision
+**/*.tsbuildinfo
+**/npm-debug.*
+**/yarn-debug.*
+**/yarn-error.*
+.git/
