@@ -1,27 +1,54 @@
 # Manifesto da release 1.2.0
 
-Este documento é o registro verificável do corte da versão. Um campo
-`PENDENTE` impede que a versão seja tratada como release final reproduzível.
+Este documento registra o corte verificável do Vera.Fidei 1.2.0. A identidade
+canônica é a tag anotada `v1.2.0`; o commit exato é obtido sem ambiguidade por:
 
-## Identidade
+```bash
+git rev-list -n 1 v1.2.0
+```
+
+## Identidade e escopo
 
 | Campo | Valor |
 | --- | --- |
 | Versão | `1.2.0` |
-| Commit da release | `PENDENTE` — preencher após o commit consolidado |
-| Tag assinada/anotada | `PENDENTE` — criar somente após os testes em produção |
-| Commit implantado | `PENDENTE` — deve ser igual ao commit da release |
-| Data da implantação | `PENDENTE` |
-| Digest da imagem backend | `PENDENTE` — registrar `RepoDigest` após o build |
-| Digest da imagem frontend | `PENDENTE` — registrar `RepoDigest` após o build |
+| Tag canônica | `v1.2.0` anotada |
+| Commit da release | commit apontado por `v1.2.0` |
+| Marcador implantado | `/opt/vera_fidei/.deployed_git_commit`, igual ao commit da tag |
+| Data do corte | `2026-08-25`, `America/Sao_Paulo` |
+| Escopo público | API, frontend/PWA e artefatos Android assinados |
+| iOS | código e bundles locais validados; IPA assinado não faz parte deste corte |
 
-As versões declaradas do backend FastAPI, frontend, aplicativo mobile e
-configuração Expo são `1.2.0`.
+O runtime web foi construído e implantado a partir de `1fabfdd`. Os diretórios
+`backend/` e `frontend/` não mudaram entre esse commit e a tag: seus objetos Git
+são, respectivamente, `0d2dd5207715c1d2e96be2e9128a77eaeb1c7838` e
+`84859662b081f1185eb400fd7033fd2250e91ae1`. As mudanças posteriores pertencem
+ao empacotamento móvel, operações e documentação.
 
-## Entradas imutáveis do build
+## Proveniência das mudanças
 
-As imagens-base abaixo foram confirmadas no registry em 2026-08-25 e estão
-fixadas nos Dockerfiles e no Compose por digest:
+| Entrega | Commit |
+| --- | --- |
+| Consolidação funcional e de segurança | `6814b22` |
+| Runtime web e arquivos de implantação com LF | `1fabfdd` |
+| Arquivo mínimo enviado ao EAS | `978da2a` |
+| Identidade visual e empacotamento nativo | `85759f4` |
+| Distribuições mobile `direct` e `reader` | `0d92a5e` |
+| Persistência privada do token do backup externo | `32bc0f7` |
+| Numeração remota e automática dos builds EAS | `f31f060` |
+| Verificação SHA-256 remota e documentação final | commit apontado por `v1.2.0` |
+
+## Imagens do runtime web
+
+As imagens são locais ao servidor e, portanto, a evidência correta é o
+`Image ID`, não um `RepoDigest` de registry:
+
+| Componente | Image ID |
+| --- | --- |
+| Backend | `sha256:68530b2662aa56b026392398c7ba5567301dc4bc6ae3f6c90019fa62d9a89e6e` |
+| Frontend | `sha256:21ade86b61f357bed1caa5a4d2b8dae5a6704c8e6cd77f0f5c4002201acf7fd7` |
+
+As entradas imutáveis usadas pelos Dockerfiles e pelo Compose são:
 
 | Componente | Referência fixada |
 | --- | --- |
@@ -31,72 +58,64 @@ fixadas nos Dockerfiles e no Compose por digest:
 | Elasticsearch | `elasticsearch:8.13.0@sha256:9d1cd1491778aceca4490de7ec9f205c3633a277df15473e1ea507d13a5270c6` |
 | Nginx | `nginx:alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de` |
 
-Os digests de PostgreSQL, Elasticsearch e Nginx correspondem às imagens que já
-estavam em execução na produção durante o corte; isso evita introduzir uma
-atualização implícita de banco ou proxy apenas porque a tag mudou no registry.
-Os pacotes Debian adicionados ao backend são resolvidos no snapshot imutável
-`20260824T000000Z`, o mesmo dia-base informado pela imagem Python. Os índices
-`debian` e `debian-security` desse snapshot e todos os nove pacotes solicitados
-pelo Dockerfile foram confirmados antes do corte.
+Os pacotes Debian usam o snapshot `20260824T000000Z`. O backend instala
+`backend/requirements.lock` com `--require-hashes`; o lock é específico para
+Python 3.11 em Linux x86_64.
 
-Os pacotes do backend são instalados de `backend/requirements.lock` com
-`--require-hashes`. O wheel CPU do PyTorch usa URL direta oficial e SHA-256,
-sem tornar o repositório PyTorch um índice global capaz de sombrear pacotes do
-PyPI. O Dockerfile não atualiza `pip` por uma faixa mutável: usa o instalador
-que já pertence à imagem Python fixada por digest; `setuptools` é então
-instalado na versão e nos hashes definidos pelo próprio lock.
+## Artefatos Android assinados
 
-Comando canônico para atualizar o lock deliberadamente:
+| Artefato | Perfil e modo | Build EAS | Versão | Bytes | SHA-256 |
+| --- | --- | --- | --- | ---: | --- |
+| `vera-fidei-android-direct-v1.2.0-code3.apk` | `preview`, `direct` | `c167eacb-362c-4ba9-a208-397abeadf395` | `1.2.0 (3)` | 84.632.710 | `49c38fba6adda083ca57e5bd6a5481c60307e39a4612033ca0d8f8252f71f048` |
+| `vera-fidei-android-reader-v1.2.0-code4.aab` | `production`, `reader` | `8a3f371f-9834-4f07-9f9e-cada2de37ca8` | `1.2.0 (4)` | 58.888.311 | `16577193749b0a009e73385566f62e9b0c84df49795e208b28adf08e484e19ef` |
 
-```bash
-uv pip compile backend/requirements.txt \
-  --python-version 3.11 \
-  --python-platform x86_64-manylinux_2_28 \
-  --generate-hashes \
-  --emit-index-annotation \
-  --upgrade \
-  --output-file backend/requirements.lock
-```
+O APK passou `zipalign` e validação de assinatura APK v2. O AAB passou
+`bundletool validate` 1.18.3 e `jarsigner`. Ambos usam
+`com.verafidei.app`; a inspeção dos arquivos encontrou zero entradas de
+`.env`, Git, backend, PDFs, rclone ou chaves.
 
-O lock é específico para Python 3.11, Linux x86_64. Uma alteração nele exige
-novo teste de instalação e nova auditoria antes da release.
+O perfil `direct` inclui o gerenciamento de assinatura. O perfil de loja
+`reader` remove checkout, portal e atalhos externos de compra, mantendo
+autenticação, pesquisa, biblioteca, verificador, PDF, perfil, exportação e
+exclusão de conta.
 
-## Evidência do lock Python
+## Evidências executadas em 2026-08-25
 
-Validação executada em 2026-08-25 no WSL2 Ubuntu x86_64, Python 3.11.15 e pip
-26.2.1:
-
-- 109 pacotes instalados com `pip install --require-hashes`;
-- `pip check`: `No broken requirements found`;
-- imports confirmados: FastAPI 0.141.1, PyTorch 2.13.0+cpu, Transformers
-  5.15.1, Sentence Transformers 6.0.0 e Stripe 15.5.1;
-- `pip-audit` no ambiente instalado: nenhuma vulnerabilidade conhecida nos
-  pacotes que constam do PyPI;
-- o `pip-audit` não reconhece a versão local `torch==2.13.0+cpu`; a consulta
-  complementar à API OSV para `PyPI/torch` 2.13.0 retornou zero vulnerabilidades
-  conhecidas na data da validação.
-
-## Portões para finalizar
-
-| Portão | Estado |
+| Portão | Resultado observado |
 | --- | --- |
-| Lock Python instala com hashes no alvo Linux x86_64 | PASSOU |
-| Dependências Python sem vulnerabilidade conhecida | PASSOU em 2026-08-25 |
-| Versões dos componentes alinhadas em 1.2.0 | PASSOU |
-| Imagens-base fixadas por digest | PASSOU |
-| Repositório dos pacotes Debian fixado por snapshot | PASSOU |
-| Suíte completa após a consolidação final | PENDENTE |
-| Builds backend, frontend e mobile a partir do commit final | PENDENTE |
-| Digests das imagens construídas registrados acima | PENDENTE |
-| Implantação do mesmo commit e migrações sem erro | PENDENTE |
-| Smoke test autenticado no navegador e no fluxo mobile | PENDENTE |
-| Webhook Stripe real entregue após a correção | PENDENTE |
-| Auditoria final dos 1.839 PDFs | PENDENTE |
-| Backup pré-implantação e restauração verificável | PENDENTE |
+| Backend | 279 coletados; 276 aprovados, 3 ignorados, 0 falhas |
+| Auditoria Python | 0 vulnerabilidades no lock; OSV `torch 2.13.0`: 0; Bandit: 0 médio/alto |
+| Frontend | lint e build aprovados; 31 páginas geradas; 0 vulnerabilidades de produção |
+| Mobile | typecheck, lint, 12/12 testes, auditoria 0 e Expo Doctor 21/21 |
+| Bundles locais | Android `direct`/`reader` e iOS `direct`/`reader` exportados com sucesso |
+| Produção | backend saudável; frontend, Nginx, PostgreSQL e Elasticsearch em execução sem reinício inesperado |
+| Segurança pública | HTTPS, HSTS, CSP sem `unsafe-eval`; documentação interna da API retorna 404 |
+| PWA | manifest, service worker e quatro ícones retornam 200 |
+| Stripe | evento real `customer.subscription.updated` entregue em modo live com HTTP 200; 0 eventos antigos pendentes |
+| PDFs | 1.839 de 1.839 caminhos resolvidos; 0 ausentes e 0 referências redundantes |
+| PDF grande | PG001 com 211.280.137 bytes respondeu HTTP 206 com somente 65.536 bytes |
+| Backup local | dump de 115.214.446 bytes com SHA e catálogo válidos |
+| Restauração | 632 obras, 117.337 trechos e 11 usuários restaurados em banco temporário |
+| Backup externo | upload cifrado, re-download e SHA-256 remoto aprovados às `2026-08-25T07:44:37Z` |
+| Monitoramento | timers de backup local/externo, reconciliação e monitor ativos; disco em 40% |
 
-## Fechamento
+A instalação limpa do lock Linux incluiu 109 pacotes e passou `pip check`. O
+`.venv` histórico do computador de desenvolvimento contém pacotes extras do
+Chroma que não pertencem ao lock; ele não é usado na imagem nem constitui uma
+dependência da release.
 
-Antes da tag, substituir todos os campos `PENDENTE` por valores observados,
-confirmar que o commit implantado é idêntico ao commit da release e anexar ao
-registro operacional as saídas dos testes. Não editar o manifesto depois da
-tag; qualquer correção posterior exige uma nova versão.
+## Limites declarados
+
+- Existem 37.783 trechos de OCR das coleções PG/PL/PO ainda sem revisão humana
+  palavra por palavra. Eles permanecem bloqueados como transcrição literal e
+  só podem fornecer localização no PDF; a revisão editorial continua depois
+  do lançamento.
+- A integração autenticada da PWA/API foi testada, mas a instalação dos
+  artefatos em um aparelho físico não pôde ser executada neste ambiente. O APK
+  e o AAB foram validados e assinados, sem substituir esse smoke físico.
+- Publicação em Google Play ou App Store depende das contas, metadados e
+  revisão externa das lojas. Esta release não contém um IPA assinado.
+
+Esses limites não são apresentados como trabalho já concluído. Eles delimitam
+o que pode ser anunciado: a PWA/API 1.2.0 e os artefatos Android aqui
+identificados, sem alegar revisão integral do OCR ou aprovação prévia das lojas.

@@ -55,9 +55,16 @@ encrypted_name="${archive_name}.age"
 encrypted_file="$stage_dir/$encrypted_name"
 encrypted_checksum="$stage_dir/${encrypted_name}.sha256"
 temporary_file="$stage_dir/.${encrypted_name}.tmp"
+remote_copy="$stage_dir/.${encrypted_name}.remote-copy"
+remote_checksum_copy="$stage_dir/.${encrypted_name}.remote-checksum"
 
 cleanup() {
-    rm -f -- "$temporary_file" "$encrypted_file" "$encrypted_checksum"
+    rm -f -- \
+        "$temporary_file" \
+        "$encrypted_file" \
+        "$encrypted_checksum" \
+        "$remote_copy" \
+        "$remote_checksum_copy"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -74,6 +81,21 @@ rclone check "$stage_dir" "$remote_dir" \
     --include "$encrypted_name" \
     --include "${encrypted_name}.sha256" \
     --one-way --size-only
+
+# Rebaixa exatamente os dois objetos enviados e valida o conteúdo cifrado pelo
+# SHA-256. Isso detecta corrupção remota mesmo quando o provedor não oferece um
+# algoritmo de hash compatível ao `rclone check`.
+rclone copyto "$remote_dir/$encrypted_name" "$remote_copy" \
+    --retries 4 --low-level-retries 10
+rclone copyto "$remote_dir/${encrypted_name}.sha256" "$remote_checksum_copy" \
+    --retries 4 --low-level-retries 10
+remote_expected_checksum="$(awk 'NF {print $1; exit}' "$remote_checksum_copy")"
+remote_actual_checksum="$(sha256sum "$remote_copy" | awk '{print $1}')"
+if [[ ! "$remote_expected_checksum" =~ ^[0-9a-fA-F]{64}$ ]] || \
+        [[ "${remote_expected_checksum,,}" != "${remote_actual_checksum,,}" ]]; then
+    echo "Remote encrypted backup checksum verification failed: $remote_dir/$encrypted_name" >&2
+    exit 1
+fi
 
 printf '%s %s\n' "$(date --iso-8601=seconds)" "$encrypted_name" > "$success_marker"
 chmod 0600 "$success_marker"

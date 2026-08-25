@@ -1,16 +1,22 @@
-# Vera.fidei — Starter alinhado ao planejamento
+# Vera.Fidei
 
-Este starter implementa a base do MVP do **Verificador de Citações Teológicas** conforme o documento do projeto:
+O Vera.Fidei é uma plataforma de pesquisa patrística e verificação de citações,
+entregue como PWA, API e aplicativo Expo. O acervo preserva edição, tradutor,
+página e ligação ao PDF; OCR não conferido falha fechado e não é apresentado
+como transcrição literal.
 
-- FastAPI no backend
-- PostgreSQL via SQLAlchemy
-- endpoint `POST /verify-citation`
-- estrutura para OCR / ingestão / busca / sistema de confiança
-- suporte a metadados Migne (`colecao`, `volume`, `coluna`, `pagina_pdf`, `offsets`)
-- tratamento de múltiplas versões da mesma obra
-- LLM apenas como explicador (stub, não decide)
+## Componentes
 
-## Rodar
+- `backend/`: API FastAPI, PostgreSQL, Elasticsearch, ingestão, pesquisa,
+  verificador, autenticação e cobrança;
+- `frontend/`: PWA Next.js;
+- `mobile/`: aplicativo Expo/React Native;
+- `nginx/`: proxy e entrega parcial de PDFs;
+- `ops/`: backup, restauração, reconciliação Stripe e monitoramento.
+
+## Desenvolvimento local
+
+Backend:
 
 ```bash
 cd backend
@@ -18,6 +24,22 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn main:app --reload
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Mobile:
+
+```bash
+cd mobile
+npm ci
+npx expo start
 ```
 
 `requirements.txt` é a entrada editável para desenvolvimento. A imagem de
@@ -32,3 +54,45 @@ python -m pip install --require-hashes -r requirements.lock
 
 O comando de regeneração e os portões obrigatórios da entrega estão em
 `RELEASE_MANIFEST.md`.
+
+## Produção e reprodução da release
+
+Parta da tag anotada da versão e crie os arquivos de ambiente apenas no
+servidor. Eles não pertencem ao Git:
+
+```bash
+git checkout v1.2.0
+cp deployment.env.example .env
+# configurar .env e backend/.env.production com os valores reais
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
+```
+
+Os testes obrigatórios, IDs imutáveis das imagens e builds móveis estão em
+`RELEASE_MANIFEST.md`. Para voltar à versão anterior, extraia o código da tag
+anterior sem apagar diretórios de dados e reconstrua somente os serviços
+alterados. Restaure banco apenas pelo procedimento controlado de recuperação,
+quando uma migração realmente exigir isso. Nunca sobrescreva `.env`, `backend/pdfs`,
+`backend/chroma_db`, `backend/model_cache` ou os volumes PostgreSQL e
+Elasticsearch durante implantação ou rollback.
+
+## Aplicativo móvel
+
+O projeto Expo fica em `mobile/` e possui dois perfis de distribuição
+deliberadamente diferentes:
+
+- `preview`: APK de distribuição direta, com gerenciamento de assinatura pelo
+  Stripe;
+- `production`: AAB em modo leitor, sem checkout, portal de cobrança ou links
+  externos de compra dentro do aplicativo.
+
+O modo de produção falha fechado como `reader`. Apenas o valor explícito
+`EXPO_PUBLIC_DISTRIBUTION_MODE=direct` habilita a cobrança externa. Os dois
+perfis usam versionamento remoto do EAS e incremento automático do
+`versionCode`.
+
+Antes de um build remoto, execute `npm run typecheck`, `npm run lint`,
+`npm test`, `npm audit --omit=dev` e `npx expo-doctor`. O arquivo enviado ao
+EAS deve ser inspecionado para confirmar que não contém `.env`, PDFs, dados do
+backend, credenciais ou o histórico Git.

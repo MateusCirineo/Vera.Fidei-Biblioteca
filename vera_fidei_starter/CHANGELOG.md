@@ -10,6 +10,10 @@ da respectiva versão.
 
 - Aplicativo Expo com autenticação, perfil, pesquisa paginada, biblioteca,
   verificador, planos, santos e orações.
+- Distribuições Android separadas: APK direto com assinatura e AAB leitor para
+  lojas, sem checkout ou atalhos externos de compra dentro do aplicativo.
+- Exportação dos dados pessoais e exclusão de conta diretamente no aplicativo
+  móvel, além de identidade visual oficial para ícone, splash e ícone adaptável.
 - Métricas administrativas de contas, assinaturas e acessos com acesso restrito
   ao proprietário.
 - Rotinas de backup local e externo, teste de restauração e monitoramento de
@@ -24,6 +28,10 @@ da respectiva versão.
 - Fluxos de cobrança passaram a reconciliar o estado atual da assinatura e a
   processar eventos Stripe de forma idempotente.
 - Componentes backend, frontend, PWA e mobile foram alinhados na versão 1.2.0.
+- Builds móveis passaram a usar numeração remota e incremento automático do
+  EAS; o arquivo de envio foi reduzido ao código e aos recursos necessários.
+- O backup externo passou a renovar o token do Google Drive em uma cópia
+  privada e gravável da configuração, preservando a configuração original.
 - Dependências Python de produção foram congeladas com hashes para Linux x86_64
   e as imagens-base do ambiente Docker foram fixadas por digest; pacotes Debian
   do backend passaram a usar um snapshot datado.

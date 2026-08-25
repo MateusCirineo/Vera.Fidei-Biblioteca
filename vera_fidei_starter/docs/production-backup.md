@@ -37,6 +37,9 @@ Depois do backup local, `vera-fidei-db-offsite.timer` criptografa o dump com
 SHA-256 para `vera_drive:vera-fidei/backups/postgres-encrypted`. A chave privada
 não existe no servidor: ela permanece no computador do proprietário.
 
+O serviço só atualiza seu marcador de sucesso depois de baixar novamente o
+arquivo cifrado e o checksum enviados e confirmar o SHA-256 do conteúdo remoto.
+
 ```sh
 systemctl status vera-fidei-db-offsite.timer
 systemctl list-timers vera-fidei-db-offsite.timer

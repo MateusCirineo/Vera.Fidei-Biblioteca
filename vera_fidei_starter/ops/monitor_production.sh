@@ -117,8 +117,8 @@ if ((${#failures[@]} > 0)); then
     exit 1
 fi
 
-printf 'OK %s site, containers, disco e backups local/externo saudáveis\n' "$(date --iso-8601=seconds)"
+printf 'OK %s site, containers, disco, backups local/externo e reconciliador Stripe saudáveis\n' "$(date --iso-8601=seconds)"
 if [[ "$previous_status" == "fail" ]]; then
-    send_email "[Vera.Fidei] Produção recuperada" "Site, containers, disco e backups local/externo voltaram ao estado saudável."
+    send_email "[Vera.Fidei] Produção recuperada" "Site, containers, disco, backups local/externo e reconciliador Stripe voltaram ao estado saudável."
 fi
 printf 'ok\n' > "$status_file"
