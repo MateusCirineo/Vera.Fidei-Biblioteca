@@ -5,7 +5,12 @@ import { WebView } from 'react-native-webview'
 
 import { useAuth } from '../auth/AuthContext'
 import { syncBillingSubscription } from '../lib/api'
-import { API_BASE, WEB_BASE } from '../lib/runtime-config'
+import {
+  allowsAccountWeb,
+  allowsExternalBilling,
+  isReaderPdfNavigationAllowed,
+} from '../lib/distribution-policy'
+import { API_BASE, DISTRIBUTION_MODE, WEB_BASE } from '../lib/runtime-config'
 import { readSecureToken } from '../lib/secure-token'
 import { colors } from '../lib/theme'
 import {
@@ -54,6 +59,7 @@ export default function PdfWebViewScreen({ route, navigation }: { route: any; na
 
   const redirect = useMemo(() => {
     try {
+      if (isAccount && !allowsAccountWeb(DISTRIBUTION_MODE, destination)) return null
       return isAccount
         ? buildMobileAccountRedirect(String(destination))
         : buildMobileWebRedirect(fileId, page)
@@ -223,8 +229,15 @@ export default function PdfWebViewScreen({ route, navigation }: { route: any; na
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
         onShouldStartLoadWithRequest={request => {
-          if (isTrustedWebNavigation(request.url, WEB_BASE)) return true
-          if (isAccount && isTrustedStripeNavigation(request.url)) {
+          const trustedNavigation = DISTRIBUTION_MODE === 'reader' && !isAccount
+            ? isReaderPdfNavigationAllowed(request.url, WEB_BASE)
+            : isTrustedWebNavigation(request.url, WEB_BASE)
+          if (trustedNavigation) return true
+          if (
+            isAccount
+            && allowsExternalBilling(DISTRIBUTION_MODE)
+            && isTrustedStripeNavigation(request.url)
+          ) {
             if (request.isTopFrame !== false && !billingFlowRef.current) {
               billingFlowRef.current = new URL(request.url).hostname === 'checkout.stripe.com'
                 ? 'checkout'
@@ -255,7 +268,13 @@ export default function PdfWebViewScreen({ route, navigation }: { route: any; na
             setError('Sua sessão expirou. Entre novamente.')
             void logout()
           } else if (statusCode === 403) {
-            setError(isAccount ? 'Sua conta não tem acesso a esta página.' : 'O PDF completo requer o plano Apologeta ou superior.')
+            setError(
+              isAccount
+                ? 'Sua conta não tem acesso a esta página.'
+                : DISTRIBUTION_MODE === 'reader'
+                  ? 'A leitura do PDF digitalizado requer uma assinatura ativa com acesso a este recurso.'
+                  : 'O PDF completo requer o plano Apologeta ou superior.',
+            )
           } else {
             setError(`O visualizador respondeu com erro ${statusCode}.`)
           }

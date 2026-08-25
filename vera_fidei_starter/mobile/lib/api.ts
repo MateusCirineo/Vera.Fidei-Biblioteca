@@ -190,6 +190,26 @@ export async function resendEmailVerification(signal?: AbortSignal): Promise<str
   return response.message
 }
 
+export function exportPersonalData(signal?: AbortSignal): Promise<unknown> {
+  return requestJson('/auth/data-export', {}, { signal, timeoutMs: 35_000 })
+}
+
+export async function deletePersonalAccount(
+  password: string,
+  confirmation: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await requestJson<{ message: string }>(
+    '/auth/account',
+    {
+      method: 'DELETE',
+      body: JSON.stringify({ password, confirmation }),
+    },
+    { signal, timeoutMs: 35_000 },
+  )
+  return response.message
+}
+
 export async function notifyLogout(): Promise<void> {
   try {
     await requestJson('/auth/logout', { method: 'POST' }, { timeoutMs: 5_000 })

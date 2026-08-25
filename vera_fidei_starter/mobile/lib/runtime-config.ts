@@ -1,5 +1,6 @@
 import Constants from 'expo-constants'
 
+import { normalizeDistributionMode } from './distribution-policy'
 import { normalizeBaseUrl } from './url'
 
 const extra = Constants.expoConfig?.extra ?? {}
@@ -11,3 +12,5 @@ export const API_BASE = normalizeBaseUrl(
 export const WEB_BASE = normalizeBaseUrl(
   typeof extra.webUrl === 'string' ? extra.webUrl : 'https://verafidei.oialfred.com',
 )
+
+export const DISTRIBUTION_MODE = normalizeDistributionMode(extra.distributionMode)

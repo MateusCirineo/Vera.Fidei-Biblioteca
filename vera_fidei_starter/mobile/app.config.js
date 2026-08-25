@@ -1,4 +1,5 @@
 const IS_DEV = process.env.APP_VARIANT === 'development'
+const DISTRIBUTION_MODE = process.env.EXPO_PUBLIC_DISTRIBUTION_MODE === 'direct' ? 'direct' : 'reader'
 
 export default ({ config }) => ({
   ...config,
@@ -11,6 +12,7 @@ export default ({ config }) => ({
   plugins: [
     'expo-font',
     'expo-secure-store',
+    'expo-sharing',
     [
       'expo-splash-screen',
       {
@@ -50,6 +52,7 @@ export default ({ config }) => ({
   extra: {
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api',
     webUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://verafidei.oialfred.com',
+    distributionMode: DISTRIBUTION_MODE,
     eas: {
       projectId: '88255b06-a482-42f8-bc2c-ea69ae091e04',
     },

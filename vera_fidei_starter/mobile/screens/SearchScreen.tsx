@@ -12,7 +12,9 @@ import {
 
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, searchCorpus, type SearchResult } from '../lib/api'
+import { subscriptionGatePolicy } from '../lib/distribution-policy'
 import { canOpenLibraryPdf } from '../lib/plan'
+import { DISTRIBUTION_MODE } from '../lib/runtime-config'
 import { colors } from '../lib/theme'
 
 function resultKey(item: SearchResult): string {
@@ -79,7 +81,12 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
         requestRef.current === controller
         && !(reason instanceof ApiError && reason.code === 'ABORTED')
       ) {
-        setError(reason instanceof Error ? reason.message : 'A pesquisa falhou.')
+        const quotaReached = reason instanceof ApiError && reason.code === 'QUOTA_EXCEEDED'
+        setError(
+          quotaReached && DISTRIBUTION_MODE === 'reader'
+            ? subscriptionGatePolicy(DISTRIBUTION_MODE, 'search').message
+            : reason instanceof Error ? reason.message : 'A pesquisa falhou.',
+        )
         setFailedCursor(append ? cursor : null)
       }
     } finally {
@@ -116,13 +123,16 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
   function openResult(item: SearchResult) {
     if (!item.book_file_id) return
     if (!canOpenLibraryPdf(user?.plan)) {
+      const gate = subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf')
       Alert.alert(
-        'PDF completo no Apologeta',
-        'A localização continua visível. Para abrir a edição digitalizada, conheça o plano Apologeta.',
-        [
-          { text: 'Agora não', style: 'cancel' },
-          { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
-        ],
+        gate.title,
+        gate.message,
+        gate.showPlansAction
+          ? [
+            { text: 'Agora não', style: 'cancel' },
+            { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
+          ]
+          : [{ text: 'Entendi' }],
       )
       return
     }

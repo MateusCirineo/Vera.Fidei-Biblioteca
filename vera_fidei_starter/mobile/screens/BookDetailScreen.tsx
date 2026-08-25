@@ -3,8 +3,10 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacit
 
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, getBook, type Book } from '../lib/api'
+import { subscriptionGatePolicy } from '../lib/distribution-policy'
 import { formatLanguage } from '../lib/language'
 import { canOpenLibraryPdf } from '../lib/plan'
+import { DISTRIBUTION_MODE } from '../lib/runtime-config'
 import { colors } from '../lib/theme'
 
 function Meta({ label, value }: { label: string; value: string }) {
@@ -60,13 +62,16 @@ export default function BookDetailScreen({ route, navigation }: { route: any; na
 
   function openFile(fileId: number, page: number) {
     if (!canOpenLibraryPdf(user?.plan)) {
+      const gate = subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf')
       Alert.alert(
-        'PDF completo no Apologeta',
-        'Os metadados e a localização continuam acessíveis. A leitura do PDF digitalizado exige o plano Apologeta.',
-        [
-          { text: 'Agora não', style: 'cancel' },
-          { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
-        ],
+        gate.title,
+        gate.message,
+        gate.showPlansAction
+          ? [
+            { text: 'Agora não', style: 'cancel' },
+            { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
+          ]
+          : [{ text: 'Entendi' }],
       )
       return
     }
@@ -121,7 +126,11 @@ export default function BookDetailScreen({ route, navigation }: { route: any; na
             {file.start_page && file.start_page > 1 ? <Text style={styles.small}>Início na p. {file.start_page}</Text> : null}
           </View>
           <TouchableOpacity style={styles.pdfButton} onPress={() => openFile(file.id, file.start_page ?? 1)}>
-            <Text style={styles.pdfButtonText}>{canOpenLibraryPdf(user?.plan) ? 'Abrir PDF' : 'PDF no plano Apologeta'}</Text>
+            <Text style={styles.pdfButtonText}>
+              {canOpenLibraryPdf(user?.plan)
+                ? 'Abrir PDF'
+                : subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf').title}
+            </Text>
           </TouchableOpacity>
         </View>
       )) : (

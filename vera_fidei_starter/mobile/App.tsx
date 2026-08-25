@@ -7,6 +7,8 @@ import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { AuthProvider, useAuth } from './auth/AuthContext'
+import { allowsAccountWeb } from './lib/distribution-policy'
+import { DISTRIBUTION_MODE } from './lib/runtime-config'
 import { colors } from './lib/theme'
 import ApresentacaoScreen from './screens/ApresentacaoScreen'
 import BibliotecaScreen from './screens/BibliotecaScreen'
@@ -136,11 +138,13 @@ function AuthenticatedNavigator() {
         component={PdfWebViewScreen}
         options={{ title: 'Conferir no PDF', presentation: 'fullScreenModal' }}
       />
-      <RootStack.Screen
-        name="ContaWeb"
-        component={PdfWebViewScreen}
-        options={{ title: 'Conta e assinatura', presentation: 'fullScreenModal' }}
-      />
+      {allowsAccountWeb(DISTRIBUTION_MODE, 'profile') ? (
+        <RootStack.Screen
+          name="ContaWeb"
+          component={PdfWebViewScreen}
+          options={{ title: 'Conta e assinatura', presentation: 'fullScreenModal' }}
+        />
+      ) : null}
     </RootStack.Navigator>
   )
 }

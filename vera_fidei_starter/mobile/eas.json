@@ -10,10 +10,12 @@
       "env": {
         "APP_VARIANT": "development",
         "EXPO_PUBLIC_API_URL": "https://verafidei.oialfred.com/api",
-        "EXPO_PUBLIC_WEB_URL": "https://verafidei.oialfred.com"
+        "EXPO_PUBLIC_WEB_URL": "https://verafidei.oialfred.com",
+        "EXPO_PUBLIC_DISTRIBUTION_MODE": "direct"
       }
     },
     "preview": {
+      "autoIncrement": true,
       "distribution": "internal",
       "android": {
         "buildType": "apk"
@@ -21,7 +23,8 @@
       "env": {
         "APP_VARIANT": "production",
         "EXPO_PUBLIC_API_URL": "https://verafidei.oialfred.com/api",
-        "EXPO_PUBLIC_WEB_URL": "https://verafidei.oialfred.com"
+        "EXPO_PUBLIC_WEB_URL": "https://verafidei.oialfred.com",
+        "EXPO_PUBLIC_DISTRIBUTION_MODE": "direct"
       }
     },
     "production": {
@@ -29,7 +32,8 @@
       "env": {
         "APP_VARIANT": "production",
         "EXPO_PUBLIC_API_URL": "https://verafidei.oialfred.com/api",
-        "EXPO_PUBLIC_WEB_URL": "https://verafidei.oialfred.com"
+        "EXPO_PUBLIC_WEB_URL": "https://verafidei.oialfred.com",
+        "EXPO_PUBLIC_DISTRIBUTION_MODE": "reader"
       }
     }
   }

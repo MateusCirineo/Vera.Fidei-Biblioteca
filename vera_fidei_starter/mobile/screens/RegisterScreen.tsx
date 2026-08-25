@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ActivityIndicator, Text, TextInput, TouchableOpacity } from 'react-native'
 
 import { useAuth } from '../auth/AuthContext'
+import { DISTRIBUTION_MODE } from '../lib/runtime-config'
 import AuthShell, { authStyles } from './AuthShell'
 
 export default function RegisterScreen({ navigation }: { navigation: any }) {
@@ -38,7 +39,12 @@ export default function RegisterScreen({ navigation }: { navigation: any }) {
   }
 
   return (
-    <AuthShell title="Criar conta" subtitle="Comece no plano Fiel e evolua quando precisar.">
+    <AuthShell
+      title="Criar conta"
+      subtitle={DISTRIBUTION_MODE === 'reader'
+        ? 'Crie sua conta gratuita para acessar o Vera Fidei.'
+        : 'Comece no plano Fiel e evolua quando precisar.'}
+    >
       <Text style={authStyles.label}>Nome</Text>
       <TextInput autoComplete="name" style={authStyles.input} value={name} onChangeText={setName} />
       <Text style={authStyles.label}>E-mail</Text>

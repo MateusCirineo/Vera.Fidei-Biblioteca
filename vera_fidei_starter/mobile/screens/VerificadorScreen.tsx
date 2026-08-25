@@ -14,8 +14,10 @@ import {
 
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, verifyCitation, type StatusCode, type VerifyResponse } from '../lib/api'
+import { subscriptionGatePolicy } from '../lib/distribution-policy'
 import { formatLanguage } from '../lib/language'
 import { canOpenLibraryPdf } from '../lib/plan'
+import { DISTRIBUTION_MODE } from '../lib/runtime-config'
 import { colors } from '../lib/theme'
 
 const statusColors: Record<StatusCode, string> = {
@@ -77,7 +79,12 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
         requestRef.current === controller
         && !(reason instanceof ApiError && reason.code === 'ABORTED')
       ) {
-        setError(reason instanceof Error ? reason.message : 'A verificação falhou.')
+        const quotaReached = reason instanceof ApiError && reason.code === 'VERIFICATION_LIMIT_REACHED'
+        setError(
+          quotaReached && DISTRIBUTION_MODE === 'reader'
+            ? subscriptionGatePolicy(DISTRIBUTION_MODE, 'verification').message
+            : reason instanceof Error ? reason.message : 'A verificação falhou.',
+        )
       }
     } finally {
       if (requestRef.current === controller) {
@@ -91,13 +98,16 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
     const fileId = result?.reference?.pdf_file_id
     if (!fileId) return
     if (!canOpenLibraryPdf(user?.plan)) {
+      const gate = subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf')
       Alert.alert(
-        'PDF completo no Apologeta',
-        'A referência textual disponível no seu plano continua visível. O PDF digitalizado exige o plano Apologeta.',
-        [
-          { text: 'Agora não', style: 'cancel' },
-          { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
-        ],
+        gate.title,
+        gate.message,
+        gate.showPlansAction
+          ? [
+            { text: 'Agora não', style: 'cancel' },
+            { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
+          ]
+          : [{ text: 'Entendi' }],
       )
       return
     }
@@ -186,7 +196,11 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
                 {reference.translator ? <Text style={styles.referenceMeta}>Tradutor: {reference.translator}</Text> : null}
                 {reference.pdf_file_id ? (
                   <TouchableOpacity style={styles.pdfButton} onPress={openReference}>
-                    <Text style={styles.pdfText}>{canOpenLibraryPdf(user?.plan) ? 'Conferir no PDF' : 'PDF no plano Apologeta'}</Text>
+                    <Text style={styles.pdfText}>
+                      {canOpenLibraryPdf(user?.plan)
+                        ? 'Conferir no PDF'
+                        : subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf').title}
+                    </Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
