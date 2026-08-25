@@ -15,13 +15,14 @@ export default ({ config }) => ({
       'expo-splash-screen',
       {
         image: './assets/splash-icon.png',
+        imageWidth: 200,
         resizeMode: 'contain',
-        backgroundColor: '#1a1a2e',
+        backgroundColor: '#0b0b0e',
       },
     ],
   ],
   ios: {
-    supportsTablet: true,
+    supportsTablet: false,
     bundleIdentifier: IS_DEV ? 'com.verafidei.app.dev' : 'com.verafidei.app',
     buildNumber: '1',
     config: {
@@ -33,10 +34,15 @@ export default ({ config }) => ({
     versionCode: 1,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
-      backgroundColor: '#1e3a5f',
+      backgroundColor: '#0b0b0e',
     },
     predictiveBackGestureEnabled: false,
     permissions: [],
+    blockedPermissions: [
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+    ],
   },
   web: {
     favicon: './assets/favicon.png',
