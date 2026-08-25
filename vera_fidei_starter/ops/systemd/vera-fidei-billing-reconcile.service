@@ -1,5 +1,5 @@
 [Unit]
-Description=Reconcile Vera.Fidei subscriptions from Stripe
+Description=Reconcile Vera.Fidei subscriptions from Stripe and Google Play
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=oneshot
 User=root
 WorkingDirectory=/opt/vera_fidei
-ExecStart=/usr/bin/docker compose exec -T backend python -m scripts.reconcile_stripe_subscriptions --apply
+ExecStart=/usr/bin/docker compose exec -T backend python -m scripts.reconcile_billing_subscriptions --apply
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

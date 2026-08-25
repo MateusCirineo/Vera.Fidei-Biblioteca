@@ -11,6 +11,7 @@ from api.routes.billing import _apply_subscription, _latest_subscription_for_use
 from core.config import settings
 from core.plans import is_owner_email
 from models.database import SessionLocal, User
+from services.billing_entitlements import lock_user_for_billing_mutation
 
 
 def _state(user: User) -> tuple[object, ...]:
@@ -57,8 +58,12 @@ def run(*, apply: bool) -> dict[str, object]:
             if is_owner_email(user.email):
                 continue
             summary["checked"] = int(summary["checked"]) + 1
-            before = _state(user)
             try:
+                user = lock_user_for_billing_mutation(db, user.id)
+                if user is None or not user.is_active:
+                    db.rollback()
+                    continue
+                before = _state(user)
                 subscription = _latest_subscription_for_user(user)
                 if subscription is None:
                     summary["without_subscription"] = int(summary["without_subscription"]) + 1

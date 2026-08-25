@@ -28,6 +28,7 @@ class User(Base):
     billing_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     billing_current_period_end: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     billing_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    google_play_account_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     # Incrementing this value invalidates every JWT issued with an older value.
     # Existing tokens did not carry the claim and are treated as version zero,
     # which keeps them compatible until the next password reset.
@@ -107,6 +108,142 @@ class BillingRequest(Base):
     )
 
     user: Mapped["User"] = relationship()
+
+
+class BillingSubscription(Base):
+    """Provider subscription state without exposing provider secrets to clients."""
+
+    __tablename__ = "billing_subscriptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "package_name",
+            "purchase_token_hash",
+            name="uq_billing_subscription_purchase_token",
+        ),
+        UniqueConstraint(
+            "provider",
+            "external_subscription_id",
+            name="uq_billing_subscription_external_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    package_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    provider_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    external_subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    purchase_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    purchase_token_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    linked_purchase_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_status: Mapped[str] = mapped_column(String(80), default="unknown", nullable=False)
+    entitlement_state: Mapped[str] = mapped_column(String(50), default="inactive", nullable=False)
+    acknowledgement_state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    current_period_end: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    auto_renew_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    test_purchase: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    provider_event_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    last_verified_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    last_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    etag: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+    )
+
+    user: Mapped["User"] = relationship()
+    items: Mapped[list["BillingSubscriptionItem"]] = relationship(
+        back_populates="subscription", cascade="all, delete-orphan"
+    )
+
+
+class BillingSubscriptionItem(Base):
+    __tablename__ = "billing_subscription_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "billing_subscription_id",
+            "item_key",
+            name="uq_billing_subscription_item_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    billing_subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("billing_subscriptions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    item_key: Mapped[str] = mapped_column(String(700), nullable=False)
+    product_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    base_plan_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    offer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    plan: Mapped[str] = mapped_column(String(30), nullable=False)
+    expiry_time: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    auto_renew_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    entitled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+    )
+
+    subscription: Mapped["BillingSubscription"] = relationship(back_populates="items")
+
+
+class BillingEvent(Base):
+    """Idempotency ledger. Payloads and raw purchase tokens are never stored."""
+
+    __tablename__ = "billing_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "event_id", name="uq_billing_event_provider_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    package_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    purchase_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="received", nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    occurred_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+    received_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    processed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class BillingRateLimit(Base):
+    """Cross-worker per-user limiter for sensitive billing synchronization."""
+
+    __tablename__ = "billing_rate_limits"
+    __table_args__ = (
+        UniqueConstraint("user_id", "scope", name="uq_billing_rate_limit_user_scope"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scope: Mapped[str] = mapped_column(String(80), nullable=False)
+    window_started_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+        nullable=False,
+    )
 
 
 class Institution(Base):
@@ -395,6 +532,7 @@ def init_db(reset: bool = False) -> None:
             Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         _migrate_add_library_columns()
+        _backfill_legacy_billing_subscriptions()
         _init_db_complete = True
 
 
@@ -439,9 +577,11 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_status VARCHAR(50)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_current_period_end TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_cancel_at_period_end BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_play_account_id VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS idx_users_billing_customer_id ON users(billing_customer_id)",
         "CREATE INDEX IF NOT EXISTS idx_users_billing_subscription_id ON users(billing_subscription_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_play_account_id ON users(google_play_account_id) WHERE google_play_account_id IS NOT NULL",
         "UPDATE users SET plan = 'magisterio', billing_status = 'owner', billing_cancel_at_period_end = FALSE WHERE lower(email) = 'mateuscirineo@gmail.com'",
         "CREATE TABLE IF NOT EXISTS user_favorites (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind VARCHAR(30) NOT NULL, item_id VARCHAR(255) NOT NULL, title VARCHAR(500) NOT NULL, subtitle VARCHAR(500), href VARCHAR(500) NOT NULL, source VARCHAR(255), metadata_json TEXT, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())",
         "ALTER TABLE user_favorites DROP CONSTRAINT IF EXISTS user_favorites_user_id_fkey",
@@ -505,3 +645,96 @@ def _migrate_add_library_columns() -> None:
     with engine.begin() as conn:
         for sql in migrations:
             conn.execute(__import__("sqlalchemy").text(sql))
+
+
+def _backfill_legacy_billing_subscriptions() -> None:
+    """Copy the legacy single-provider projection into the provider ledger once.
+
+    This is intentionally additive: existing user access is never reduced by
+    startup migration. Future provider reconciliation updates these rows.
+    """
+
+    paid_plans = {"catequista", "apologeta", "patristico", "magisterio"}
+    now = datetime.datetime.utcnow()
+    with SessionLocal() as db:
+        changed = False
+        for user in db.query(User).all():
+            if user.billing_status == "owner":
+                continue
+            # A provider ledger is authoritative once it exists. In particular,
+            # a paid Google Play projection must never be converted into a
+            # permanent legacy entitlement merely because ``user.plan`` is paid.
+            if (
+                db.query(BillingSubscription.id)
+                .filter(BillingSubscription.user_id == user.id)
+                .first()
+                is not None
+            ):
+                continue
+
+            provider = (user.billing_provider or "").strip().lower()
+            external_id = (user.billing_subscription_id or "").strip()
+            if not provider and user.plan not in paid_plans:
+                continue
+            if not provider:
+                provider = "legacy_manual"
+            if not external_id:
+                external_id = f"legacy-user-{user.id}"
+
+            existing = (
+                db.query(BillingSubscription)
+                .filter(
+                    BillingSubscription.provider == provider,
+                    BillingSubscription.external_subscription_id == external_id,
+                )
+                .first()
+            )
+            if existing:
+                continue
+
+            status_value = (user.billing_status or "").strip().lower()
+            if provider == "legacy_manual" and user.plan in paid_plans:
+                entitlement_state = "legacy_active"
+            elif status_value in {"active", "trialing"}:
+                entitlement_state = "entitled"
+            elif status_value == "past_due":
+                entitlement_state = "grace"
+            elif (
+                status_value == "canceled"
+                and user.billing_current_period_end is not None
+                and user.billing_current_period_end > now
+            ):
+                entitlement_state = "canceled_valid"
+            elif status_value in {"pending_payment", "incomplete"}:
+                entitlement_state = "pending"
+            else:
+                entitlement_state = "inactive"
+
+            subscription = BillingSubscription(
+                user_id=user.id,
+                provider=provider,
+                package_name="",
+                provider_customer_id=user.billing_customer_id,
+                external_subscription_id=external_id,
+                provider_status=status_value or "legacy",
+                entitlement_state=entitlement_state,
+                current_period_end=user.billing_current_period_end,
+                cancel_at_period_end=bool(user.billing_cancel_at_period_end),
+                last_verified_at=now,
+            )
+            if user.plan in paid_plans:
+                subscription.items.append(
+                    BillingSubscriptionItem(
+                        item_key=f"legacy:{user.plan}",
+                        product_id=f"legacy:{user.plan}",
+                        plan=user.plan,
+                        expiry_time=user.billing_current_period_end,
+                        auto_renew_enabled=not bool(user.billing_cancel_at_period_end),
+                        entitled=entitlement_state
+                        in {"entitled", "grace", "canceled_valid", "legacy_active"},
+                    )
+                )
+            db.add(subscription)
+            changed = True
+        if changed:
+            db.commit()

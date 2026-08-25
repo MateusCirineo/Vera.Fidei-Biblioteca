@@ -17,7 +17,11 @@ from api.routes import auth, billing
 from models.database import (
     ApiKey,
     Base,
+    BillingEvent,
+    BillingRateLimit,
     BillingRequest,
+    BillingSubscription,
+    BillingSubscriptionItem,
     EmailVerificationToken,
     Institution,
     InstitutionMember,
@@ -58,6 +62,10 @@ class AccountPrivacyTests(unittest.TestCase):
                 UserFavorite.__table__,
                 VerificationHistory.__table__,
                 BillingRequest.__table__,
+                BillingSubscription.__table__,
+                BillingSubscriptionItem.__table__,
+                BillingEvent.__table__,
+                BillingRateLimit.__table__,
                 Institution.__table__,
                 InstitutionMember.__table__,
                 ApiKey.__table__,
@@ -111,6 +119,11 @@ class AccountPrivacyTests(unittest.TestCase):
                     ),
                     EmailVerificationToken(user_id=user.id, token_hash="verification-hash"),
                     SearchUsage(user_id=user.id, usage_date=datetime.date(2026, 8, 21), count=3),
+                    BillingRateLimit(
+                        user_id=user.id,
+                        scope="google_play_sync_restore",
+                        attempts=2,
+                    ),
                 ]
             )
             institution = Institution(name="Grupo de estudos", admin_user_id=user.id)
@@ -127,6 +140,26 @@ class AccountPrivacyTests(unittest.TestCase):
         return SimpleNamespace(id=41, email="reader@example.com")
 
     def test_export_contains_portable_data_but_no_secrets(self) -> None:
+        with self.session_factory() as db:
+            subscription = BillingSubscription(
+                user_id=41,
+                provider="google_play",
+                package_name="com.verafidei.app",
+                provider_status="SUBSCRIPTION_STATE_ACTIVE",
+                entitlement_state="entitled",
+                purchase_token_hash="purchase-token-hash-secret",
+                purchase_token_ciphertext="purchase-token-ciphertext-secret",
+            )
+            subscription.items.append(
+                BillingSubscriptionItem(
+                    item_key="order-1",
+                    product_id="vf.sub.catequista",
+                    plan="catequista",
+                    entitled=True,
+                )
+            )
+            db.add(subscription)
+            db.commit()
         with patch.object(auth, "SessionLocal", self.session_factory):
             response = auth.export_personal_data(self.current_user)
 
@@ -140,6 +173,9 @@ class AccountPrivacyTests(unittest.TestCase):
         self.assertNotIn("stored-password-hash", serialized)
         self.assertNotIn("secret-hash", serialized)
         self.assertNotIn("reset-hash", serialized)
+        self.assertNotIn("purchase-token-hash-secret", serialized)
+        self.assertNotIn("purchase-token-ciphertext-secret", serialized)
+        self.assertEqual(payload["billing_subscriptions"][0]["provider"], "google_play")
         self.assertIn("attachment;", response.headers["content-disposition"])
         self.assertEqual(response.headers["cache-control"], "no-store, max-age=0")
 
@@ -166,6 +202,7 @@ class AccountPrivacyTests(unittest.TestCase):
                 PasswordResetToken,
                 EmailVerificationToken,
                 SearchUsage,
+                BillingRateLimit,
             ):
                 self.assertEqual(db.query(model).count(), 0, model.__name__)
 
@@ -295,11 +332,20 @@ class AccountPrivacyTests(unittest.TestCase):
                 ]
             ),
         )
+        checkout_session_service = SimpleNamespace(
+            list=Mock(return_value=stripe_object(data=[])),
+        )
 
         with (
             patch.object(billing, "_configure_stripe"),
             patch.object(stripe, "Customer", customer_service, create=True),
             patch.object(stripe, "Subscription", subscription_service, create=True),
+            patch.object(
+                stripe,
+                "checkout",
+                SimpleNamespace(Session=checkout_session_service),
+                create=True,
+            ),
         ):
             statuses = auth._stripe_live_subscription_statuses(user)
 
@@ -313,6 +359,300 @@ class AccountPrivacyTests(unittest.TestCase):
             {call.kwargs["customer"] for call in subscription_service.list.call_args_list},
             {"cus_stored", "cus_by_email"},
         )
+        self.assertEqual(
+            {call.kwargs["customer"] for call in checkout_session_service.list.call_args_list},
+            {"cus_stored", "cus_by_email"},
+        )
+        self.assertEqual(
+            {call.kwargs["status"] for call in checkout_session_service.list.call_args_list},
+            {"open", "complete"},
+        )
+
+    def test_delete_blocks_open_checkout_found_only_by_customer_metadata(self) -> None:
+        customer_service = SimpleNamespace(
+            list=Mock(return_value=stripe_object(data=[])),
+            search=Mock(
+                return_value=stripe_object(
+                    data=[
+                        stripe_object(
+                            id="cus_crash_before_ledger",
+                            email="legacy-other@example.com",
+                            metadata=stripe_object(user_id="41"),
+                        )
+                    ]
+                )
+            )
+        )
+        subscription_service = SimpleNamespace(
+            list=Mock(return_value=stripe_object(data=[])),
+            retrieve=Mock(),
+        )
+        checkout_session_service = SimpleNamespace(
+            list=Mock(
+                side_effect=lambda **kwargs: stripe_object(
+                    data=(
+                        [stripe_object(id="cs_open_without_local_ledger", status="open")]
+                        if kwargs["status"] == "open"
+                        else []
+                    )
+                )
+            ),
+        )
+        with (
+            patch.object(auth, "SessionLocal", self.session_factory),
+            patch.object(auth, "verify_password", return_value=True),
+            patch.object(auth.settings, "stripe_secret_key", "sk_test_configured"),
+            patch.object(billing, "_configure_stripe"),
+            patch.object(stripe, "Customer", customer_service, create=True),
+            patch.object(stripe, "Subscription", subscription_service, create=True),
+            patch.object(
+                stripe,
+                "checkout",
+                SimpleNamespace(Session=checkout_session_service),
+                create=True,
+            ),
+            self.assertRaises(HTTPException) as blocked,
+        ):
+            auth.delete_account(
+                DeleteAccountRequest(password="correct-password", confirmation="EXCLUIR"),
+                Response(),
+                self.current_user,
+            )
+
+        self.assertEqual(blocked.exception.status_code, 409)
+        self.assertEqual(
+            [call.kwargs["status"] for call in checkout_session_service.list.call_args_list],
+            ["open", "complete"],
+        )
+        customer_service.search.assert_called_once_with(
+            query="metadata['user_id']:'41'",
+            limit=100,
+        )
+        with self.session_factory() as db:
+            self.assertIsNotNone(db.get(User, 41))
+
+    def test_delete_blocks_external_completed_checkout_without_subscription_ledger(self) -> None:
+        customer_service = SimpleNamespace(
+            list=Mock(
+                return_value=stripe_object(
+                    data=[
+                        stripe_object(
+                            id="cus_completed_crash",
+                            email="reader@example.com",
+                            metadata=stripe_object(user_id="41"),
+                        )
+                    ]
+                )
+            )
+        )
+        subscription_service = SimpleNamespace(
+            list=Mock(return_value=stripe_object(data=[])),
+            retrieve=Mock(),
+        )
+
+        def checkout_sessions(*, status, **_kwargs):
+            if status == "complete":
+                return stripe_object(
+                    data=[
+                        stripe_object(
+                            id="cs_complete_without_ledger",
+                            status="complete",
+                            payment_status="unpaid",
+                            subscription=None,
+                        )
+                    ]
+                )
+            return stripe_object(data=[])
+
+        checkout_session_service = SimpleNamespace(list=Mock(side_effect=checkout_sessions))
+        with (
+            patch.object(auth, "SessionLocal", self.session_factory),
+            patch.object(auth, "verify_password", return_value=True),
+            patch.object(auth.settings, "stripe_secret_key", "sk_test_configured"),
+            patch.object(billing, "_configure_stripe"),
+            patch.object(stripe, "Customer", customer_service, create=True),
+            patch.object(stripe, "Subscription", subscription_service, create=True),
+            patch.object(
+                stripe,
+                "checkout",
+                SimpleNamespace(Session=checkout_session_service),
+                create=True,
+            ),
+            self.assertRaises(HTTPException) as blocked,
+        ):
+            auth.delete_account(
+                DeleteAccountRequest(password="correct-password", confirmation="EXCLUIR"),
+                Response(),
+                self.current_user,
+            )
+
+        self.assertEqual(blocked.exception.status_code, 409)
+        subscription_service.retrieve.assert_not_called()
+        self.assertEqual(
+            {call.kwargs["status"] for call in checkout_session_service.list.call_args_list},
+            {"open", "complete"},
+        )
+        with self.session_factory() as db:
+            self.assertIsNotNone(db.get(User, 41))
+
+    def test_delete_ignores_only_matching_terminal_async_payment_failure(self) -> None:
+        with self.session_factory() as db:
+            db.add(
+                BillingSubscription(
+                    user_id=41,
+                    provider="stripe",
+                    provider_status="checkout_failed",
+                    entitlement_state="inactive",
+                    external_subscription_id="cs_verified_async_failure",
+                    provider_customer_id="cus_failed_checkout",
+                )
+            )
+            db.commit()
+
+        customer_service = SimpleNamespace(
+            list=Mock(
+                return_value=stripe_object(
+                    data=[
+                        stripe_object(
+                            id="cus_failed_checkout",
+                            email="reader@example.com",
+                            metadata=stripe_object(user_id="41"),
+                        )
+                    ]
+                )
+            )
+        )
+        subscription_service = SimpleNamespace(
+            list=Mock(return_value=stripe_object(data=[])),
+            retrieve=Mock(),
+        )
+
+        def checkout_sessions(*, status, **_kwargs):
+            if status == "complete":
+                return stripe_object(
+                    data=[
+                        stripe_object(
+                            id="cs_verified_async_failure",
+                            status="complete",
+                            payment_status="unpaid",
+                            subscription=None,
+                        )
+                    ]
+                )
+            return stripe_object(data=[])
+
+        checkout_session_service = SimpleNamespace(list=Mock(side_effect=checkout_sessions))
+        with (
+            patch.object(auth, "SessionLocal", self.session_factory),
+            patch.object(auth, "verify_password", return_value=True),
+            patch.object(auth.settings, "stripe_secret_key", "sk_test_configured"),
+            patch.object(billing, "_configure_stripe"),
+            patch.object(stripe, "Customer", customer_service, create=True),
+            patch.object(stripe, "Subscription", subscription_service, create=True),
+            patch.object(
+                stripe,
+                "checkout",
+                SimpleNamespace(Session=checkout_session_service),
+                create=True,
+            ),
+        ):
+            result = auth.delete_account(
+                DeleteAccountRequest(password="correct-password", confirmation="EXCLUIR"),
+                Response(),
+                self.current_user,
+            )
+
+        self.assertEqual(result["message"], "Conta e dados pessoais excluídos.")
+        subscription_service.retrieve.assert_not_called()
+        with self.session_factory() as db:
+            self.assertIsNone(db.get(User, 41))
+
+    def test_delete_blocks_local_checkout_pending_until_stripe_confirms_terminal(self) -> None:
+        with self.session_factory() as db:
+            db.add(
+                BillingSubscription(
+                    user_id=41,
+                    provider="stripe",
+                    provider_status="checkout_pending",
+                    entitlement_state="pending",
+                    external_subscription_id="cs_local_open",
+                    current_period_end=datetime.datetime.utcnow() + datetime.timedelta(hours=1),
+                )
+            )
+            db.commit()
+
+        checkout_session_service = SimpleNamespace(
+            retrieve=Mock(return_value=stripe_object(id="cs_local_open", status="open")),
+        )
+        with (
+            patch.object(auth, "SessionLocal", self.session_factory),
+            patch.object(auth, "verify_password", return_value=True),
+            patch.object(auth.settings, "stripe_secret_key", "sk_test_configured"),
+            patch.object(
+                stripe,
+                "checkout",
+                SimpleNamespace(Session=checkout_session_service),
+                create=True,
+            ),
+            self.assertRaises(HTTPException) as blocked,
+        ):
+            auth.delete_account(
+                DeleteAccountRequest(password="correct-password", confirmation="EXCLUIR"),
+                Response(),
+                self.current_user,
+            )
+
+        self.assertEqual(blocked.exception.status_code, 409)
+        checkout_session_service.retrieve.assert_called_once_with("cs_local_open")
+        with self.session_factory() as db:
+            self.assertIsNotNone(db.get(User, 41))
+
+    def test_delete_blocks_completed_checkout_until_subscription_is_authoritative(self) -> None:
+        with self.session_factory() as db:
+            db.add(
+                BillingSubscription(
+                    user_id=41,
+                    provider="stripe",
+                    provider_status="checkout_pending",
+                    entitlement_state="pending",
+                    external_subscription_id="cs_local_complete",
+                    current_period_end=datetime.datetime.utcnow() + datetime.timedelta(hours=1),
+                )
+            )
+            db.commit()
+
+        checkout_session_service = SimpleNamespace(
+            retrieve=Mock(
+                return_value=stripe_object(
+                    id="cs_local_complete",
+                    status="complete",
+                    subscription=None,
+                )
+            ),
+        )
+        with (
+            patch.object(auth, "SessionLocal", self.session_factory),
+            patch.object(auth, "verify_password", return_value=True),
+            patch.object(auth.settings, "stripe_secret_key", "sk_test_configured"),
+            patch.object(billing, "_configure_stripe"),
+            patch.object(auth, "_stripe_live_subscription_statuses", return_value=set()),
+            patch.object(
+                stripe,
+                "checkout",
+                SimpleNamespace(Session=checkout_session_service),
+                create=True,
+            ),
+            self.assertRaises(HTTPException) as blocked,
+        ):
+            auth.delete_account(
+                DeleteAccountRequest(password="correct-password", confirmation="EXCLUIR"),
+                Response(),
+                self.current_user,
+            )
+
+        self.assertEqual(blocked.exception.status_code, 409)
+        with self.session_factory() as db:
+            self.assertIsNotNone(db.get(User, 41))
 
     def test_delete_requires_exact_confirmation_and_protects_owner(self) -> None:
         with self.assertRaises(HTTPException) as confirmation_error:

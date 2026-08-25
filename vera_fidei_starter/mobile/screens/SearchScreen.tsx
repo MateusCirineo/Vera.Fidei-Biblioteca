@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -12,7 +13,7 @@ import {
 
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, searchCorpus, type SearchResult } from '../lib/api'
-import { subscriptionGatePolicy } from '../lib/distribution-policy'
+import { plansRouteForMode, subscriptionGatePolicy } from '../lib/distribution-policy'
 import { canOpenLibraryPdf } from '../lib/plan'
 import { DISTRIBUTION_MODE } from '../lib/runtime-config'
 import { colors } from '../lib/theme'
@@ -30,6 +31,7 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
+  const [quotaBlocked, setQuotaBlocked] = useState(false)
   const [failedCursor, setFailedCursor] = useState<string | null>(null)
   const requestRef = useRef<AbortController | null>(null)
   const paginationCursorRef = useRef<string | null>(null)
@@ -59,6 +61,7 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
     if (append) setLoadingMore(true)
     else setLoading(true)
     setError('')
+    setQuotaBlocked(false)
     setFailedCursor(null)
     if (!append) {
       setSubmittedQuery(clean)
@@ -82,8 +85,9 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
         && !(reason instanceof ApiError && reason.code === 'ABORTED')
       ) {
         const quotaReached = reason instanceof ApiError && reason.code === 'QUOTA_EXCEEDED'
+        setQuotaBlocked(quotaReached)
         setError(
-          quotaReached && DISTRIBUTION_MODE === 'reader'
+          quotaReached
             ? subscriptionGatePolicy(DISTRIBUTION_MODE, 'search').message
             : reason instanceof Error ? reason.message : 'A pesquisa falhou.',
         )
@@ -124,13 +128,19 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
     if (!item.book_file_id) return
     if (!canOpenLibraryPdf(user?.plan)) {
       const gate = subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf')
+      const plansRoute = plansRouteForMode(DISTRIBUTION_MODE, Platform.OS)
       Alert.alert(
         gate.title,
         gate.message,
-        gate.showPlansAction
+        gate.showPlansAction && plansRoute
           ? [
             { text: 'Agora não', style: 'cancel' },
-            { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
+            {
+              text: 'Ver planos',
+              onPress: () => plansRoute === 'PlayPlans'
+                ? navigation.navigate('PlayPlans')
+                : navigation.navigate('ContaWeb', { destination: 'plans' }),
+            },
           ]
           : [{ text: 'Entendi' }],
       )
@@ -170,6 +180,15 @@ export default function SearchScreen({ route, navigation }: { route: any; naviga
       {error ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
+          {quotaBlocked && plansRouteForMode(DISTRIBUTION_MODE, Platform.OS) ? (
+            <TouchableOpacity onPress={() => {
+              const plansRoute = plansRouteForMode(DISTRIBUTION_MODE, Platform.OS)
+              if (plansRoute === 'PlayPlans') navigation.navigate('PlayPlans')
+              else if (plansRoute === 'ContaWeb') navigation.navigate('ContaWeb', { destination: 'plans' })
+            }}>
+              <Text style={styles.retry}>Ver planos</Text>
+            </TouchableOpacity>
+          ) : null}
           {submittedQuery ? (
             <TouchableOpacity onPress={() => void runSearch(submittedQuery, failedCursor ?? '', Boolean(failedCursor))}>
               <Text style={styles.retry}>Tentar novamente</Text>

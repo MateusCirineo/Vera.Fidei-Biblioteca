@@ -79,6 +79,24 @@ class Settings(BaseSettings):
     stripe_price_patristico: str = ""
     stripe_price_magisterio: str = ""
 
+    # Google Play Billing is deliberately disabled until Play Console, Pub/Sub
+    # and the encrypted token store are configured and tested end to end.
+    google_play_enabled: bool = False
+    google_play_package_name: str = "com.verafidei.app"
+    google_play_products_json: str = ""
+    google_play_service_account_file: str = ""
+    google_play_token_encryption_key: str = ""
+    google_play_account_hmac_secret: str = ""
+    google_play_require_obfuscated_account_id: bool = True
+    google_play_pubsub_audience: str = ""
+    google_play_pubsub_service_account_email: str = ""
+    google_play_pubsub_subscription: str = ""
+    google_play_http_timeout_seconds: float = 15.0
+    google_play_reconcile_stale_hours: int = 6
+    google_play_reconcile_batch_size: int = 200
+    google_play_sync_rate_limit: int = 20
+    google_play_sync_rate_window_seconds: int = 60
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -90,6 +108,13 @@ settings = Settings()
 
 
 def validate_runtime_security() -> None:
+    if settings.google_play_enabled:
+        try:
+            from services.google_play_billing import validate_google_play_configuration
+
+            validate_google_play_configuration()
+        except Exception as exc:
+            raise RuntimeError("Google Play Billing habilitado sem configuracao segura.") from exc
     if settings.vera_environment.strip().lower() not in {"production", "prod"}:
         return
     secret = settings.jwt_secret.strip()

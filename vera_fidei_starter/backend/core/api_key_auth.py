@@ -7,6 +7,7 @@ from fastapi import Header, HTTPException, status
 
 from models.database import SessionLocal, ApiKey, User
 from core.plans import has_min_plan
+from services.billing_entitlements import refresh_managed_user_plan
 
 
 def require_vf_api_key(x_vf_api_key: str = Header(default="")) -> User:
@@ -33,6 +34,9 @@ def require_vf_api_key(x_vf_api_key: str = Header(default="")) -> User:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Usuário inativo.",
             )
+        refresh_managed_user_plan(db, user)
+        db.commit()
+        db.refresh(user)
         if not has_min_plan(user.plan, "magisterio"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

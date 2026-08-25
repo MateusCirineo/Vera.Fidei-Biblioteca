@@ -79,17 +79,21 @@ Elasticsearch durante implantação ou rollback.
 
 ## Aplicativo móvel
 
-O projeto Expo fica em `mobile/` e possui dois perfis de distribuição
+O projeto Expo fica em `mobile/` e possui três perfis de distribuição
 deliberadamente diferentes:
 
 - `preview`: APK de distribuição direta, com gerenciamento de assinatura pelo
   Stripe;
 - `production`: AAB em modo leitor, sem checkout, portal de cobrança ou links
-  externos de compra dentro do aplicativo.
+  externos de compra dentro do aplicativo;
+- `production-play`: futuro AAB da loja com Google Play Billing nativo, ainda
+  bloqueado até a configuração e a homologação completas.
 
-O modo de produção falha fechado como `reader`. Apenas o valor explícito
-`EXPO_PUBLIC_DISTRIBUTION_MODE=direct` habilita a cobrança externa. Os dois
-perfis usam versionamento remoto do EAS e incremento automático do
+O perfil `production` continua falhando fechado como `reader`, e `preview`
+continua sendo o único perfil com cobrança Stripe direta. O modo `play` não
+deve ser habilitado nem publicado antes de cumprir o runbook em
+[`docs/google-play-release.md`](docs/google-play-release.md). Os perfis de
+release usam versionamento remoto do EAS e incremento automático do
 `versionCode`.
 
 Antes de um build remoto, execute `npm run typecheck`, `npm run lint`,

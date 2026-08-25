@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.routes import billing
 from core.config import settings
-from models.database import Base, User
+from models.database import Base, BillingSubscription, BillingSubscriptionItem, User
 from scripts import reconcile_stripe_subscriptions as reconciler
 
 
@@ -41,7 +41,14 @@ class StripeBillingWebhookTests(unittest.IsolatedAsyncioTestCase):
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-        Base.metadata.create_all(self.engine, tables=[User.__table__])
+        Base.metadata.create_all(
+            self.engine,
+            tables=[
+                User.__table__,
+                BillingSubscription.__table__,
+                BillingSubscriptionItem.__table__,
+            ],
+        )
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         self._reset_user()
 
@@ -171,7 +178,16 @@ class StripeBillingWebhookTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        retrieve = await self._dispatch(event, retrieved_subscription=self._subscription())
+        with patch.object(
+            billing,
+            "lock_user_for_billing_mutation",
+            wraps=billing.lock_user_for_billing_mutation,
+        ) as user_lock, patch.object(
+            billing,
+            "run_in_threadpool",
+            wraps=billing.run_in_threadpool,
+        ) as threadpool:
+            retrieve = await self._dispatch(event, retrieved_subscription=self._subscription())
 
         user = self._user()
         self.assertEqual(user.plan, "catequista")
@@ -180,6 +196,111 @@ class StripeBillingWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(user.billing_customer_id, "cus_42")
         self.assertEqual(user.billing_subscription_id, "sub_42")
         retrieve.assert_called_once_with("sub_42")
+        user_lock.assert_called_once()
+        self.assertEqual(user_lock.call_args.args[1], 42)
+        threadpool.assert_awaited_once()
+        self.assertIs(
+            threadpool.await_args.args[0],
+            billing._process_stripe_webhook_payload,
+        )
+        self.assertEqual(threadpool.await_args.args[1], b'{"test": true}')
+
+    async def test_async_payment_success_replaces_prior_failed_checkout_projection(self) -> None:
+        with self.session_factory() as db:
+            db.add(
+                BillingSubscription(
+                    user_id=42,
+                    provider="stripe",
+                    provider_status="checkout_failed",
+                    entitlement_state="inactive",
+                    external_subscription_id="cs_async_retry",
+                    provider_customer_id="cus_42",
+                )
+            )
+            db.commit()
+        event = stripe_object(
+            id="evt_async_success_after_failure",
+            type="checkout.session.async_payment_succeeded",
+            data=stripe_object(
+                object=stripe_object(
+                    id="cs_async_retry",
+                    payment_status="paid",
+                    client_reference_id="42",
+                    customer="cus_42",
+                    subscription="sub_42",
+                    metadata=stripe_object(user_id="42", plan="catequista"),
+                )
+            ),
+        )
+
+        await self._dispatch(event, retrieved_subscription=self._subscription())
+
+        with self.session_factory() as db:
+            checkout = db.query(BillingSubscription).filter_by(
+                external_subscription_id="cs_async_retry"
+            ).one()
+            active = db.query(BillingSubscription).filter_by(
+                external_subscription_id="sub_42"
+            ).one()
+            user = db.get(User, 42)
+            self.assertEqual(checkout.provider_status, "checkout_complete")
+            self.assertEqual(checkout.entitlement_state, "inactive")
+            self.assertEqual(active.entitlement_state, "entitled")
+            self.assertEqual(user.plan, "catequista")
+
+    async def test_async_payment_failure_after_completed_event_marks_checkout_terminal(self) -> None:
+        with self.session_factory() as db:
+            db.add(
+                BillingSubscription(
+                    user_id=42,
+                    provider="stripe",
+                    provider_status="checkout_pending",
+                    entitlement_state="pending",
+                    external_subscription_id="cs_async_failure",
+                    provider_customer_id="cus_42",
+                )
+            )
+            db.commit()
+
+        def event(event_id: str, event_type: str, payment_status: str):
+            return stripe_object(
+                id=event_id,
+                type=event_type,
+                data=stripe_object(
+                    object=stripe_object(
+                        id="cs_async_failure",
+                        payment_status=payment_status,
+                        client_reference_id="42",
+                        customer="cus_42",
+                        subscription="sub_42",
+                        metadata=stripe_object(user_id="42", plan="catequista"),
+                    )
+                ),
+            )
+
+        incomplete = self._subscription(status="incomplete")
+        await self._dispatch(
+            event("evt_async_initial", "checkout.session.completed", "unpaid"),
+            retrieved_subscription=incomplete,
+        )
+        with self.session_factory() as db:
+            self.assertEqual(
+                db.query(BillingSubscription).filter_by(
+                    external_subscription_id="cs_async_failure"
+                ).one().provider_status,
+                "checkout_complete",
+            )
+
+        await self._dispatch(
+            event("evt_async_failed", "checkout.session.async_payment_failed", "unpaid"),
+            retrieved_subscription=incomplete,
+        )
+        with self.session_factory() as db:
+            checkout = db.query(BillingSubscription).filter_by(
+                external_subscription_id="cs_async_failure"
+            ).one()
+            self.assertEqual(checkout.provider_status, "checkout_failed")
+            self.assertEqual(checkout.entitlement_state, "inactive")
 
     async def test_subscription_created_activates_plan_from_current_stripe_state(self) -> None:
         event = stripe_object(
@@ -582,6 +703,11 @@ class StripeBillingWebhookTests(unittest.IsolatedAsyncioTestCase):
             patch.object(billing, "SessionLocal", self.session_factory),
             patch.object(
                 billing,
+                "lock_user_for_billing_mutation",
+                wraps=billing.lock_user_for_billing_mutation,
+            ) as user_lock,
+            patch.object(
+                billing,
                 "_latest_subscription_for_user",
                 return_value=self._subscription(top_level_period=False),
             ),
@@ -592,6 +718,8 @@ class StripeBillingWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.plan, "catequista")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._user().billing_status, "active")
+        user_lock.assert_called_once()
+        self.assertEqual(user_lock.call_args.args[1], 42)
 
     def test_authenticated_sync_returns_accepted_while_stripe_is_pending(self) -> None:
         response = Response()

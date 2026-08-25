@@ -4,6 +4,7 @@ import * as Sharing from 'expo-sharing'
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,7 +20,7 @@ import {
   exportPersonalData,
   resendEmailVerification,
 } from '../lib/api'
-import { allowsAccountWeb } from '../lib/distribution-policy'
+import { allowsAccountWeb, allowsPlayBilling } from '../lib/distribution-policy'
 import { planLabel } from '../lib/plan'
 import { DISTRIBUTION_MODE } from '../lib/runtime-config'
 import { colors } from '../lib/theme'
@@ -45,6 +46,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   if (!user) return null
 
   const accountWebEnabled = allowsAccountWeb(DISTRIBUTION_MODE, 'profile')
+  const playBillingEnabled = allowsPlayBilling(DISTRIBUTION_MODE, Platform.OS)
 
   async function exportData() {
     await run('export', async () => {
@@ -138,6 +140,11 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
             <Text style={styles.buttonText}>Ver planos</Text>
           </TouchableOpacity>
         </>
+      ) : null}
+      {playBillingEnabled ? (
+        <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('PlayPlans')}>
+          <Text style={styles.buttonText}>Planos e assinatura no Google Play</Text>
+        </TouchableOpacity>
       ) : null}
       <View style={styles.privacyCard}>
         <Text style={styles.privacyTitle}>Privacidade e dados</Text>

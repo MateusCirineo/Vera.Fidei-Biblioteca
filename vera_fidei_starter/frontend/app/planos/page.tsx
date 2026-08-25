@@ -34,10 +34,8 @@ const PLANOS: Plano[] = [
       'Verificação básica de citações',
       'Resultado com nível de confiança',
       'Histórico recente de verificações',
-      'Acesso à biblioteca completa',
-      'Busca no conteúdo dos trechos dos Padres — 5/dia',
-      'Catena Patrum por versículo bíblico — 5/dia',
-      'Catecismo por artigo do CCC — 5/dia',
+      'Catálogo, trechos e localização das fontes na biblioteca',
+      '5 buscas/dia entre Biblioteca, Catena e Catecismos — cota compartilhada',
     ],
   },
   {
@@ -52,10 +50,8 @@ const PLANOS: Plano[] = [
       'Laudos em PDF',
       'Referência exata da fonte',
       'Histórico completo da conta',
-      'Acesso à biblioteca completa',
-      'Busca no conteúdo dos trechos dos Padres — 20/dia',
-      'Catena Patrum por versículo bíblico — 20/dia',
-      'Catecismo por artigo do CCC — 20/dia',
+      'Catálogo, trechos e localização das fontes na biblioteca',
+      '20 buscas/dia entre Biblioteca, Catena e Catecismos — cota compartilhada',
     ],
   },
   {
@@ -71,10 +67,8 @@ const PLANOS: Plano[] = [
       'Contexto patrístico mais completo',
       'Análise de tradução e variação textual',
       'Exportação do histórico em Excel',
-      'Acesso à biblioteca completa',
-      'Busca no conteúdo dos trechos dos Padres — 50/dia',
-      'Catena Patrum por versículo bíblico — 50/dia',
-      'Catecismo por artigo do CCC — 50/dia',
+      'Acesso aos PDFs digitalizados',
+      '50 buscas/dia entre Biblioteca, Catena e Catecismos — cota compartilhada',
     ],
   },
   {
@@ -89,10 +83,8 @@ const PLANOS: Plano[] = [
       'Painel de gestão institucional',
       'Convite e gestão de membros',
       'Relatório mensal de uso',
-      'Acesso à biblioteca completa',
-      'Busca no conteúdo dos trechos dos Padres — 100/dia',
-      'Catena Patrum por versículo bíblico — 100/dia',
-      'Catecismo por artigo do CCC — 100/dia',
+      'Acesso aos PDFs digitalizados',
+      '100 buscas/dia entre Biblioteca, Catena e Catecismos — cota compartilhada',
     ],
   },
   {
@@ -108,10 +100,8 @@ const PLANOS: Plano[] = [
       'Endpoint REST /v1/verificar',
       'Geração e revogação de chaves',
       'Integração com sistemas externos',
-      'Acesso à biblioteca completa',
-      'Busca no conteúdo dos trechos dos Padres — ilimitada',
-      'Catena Patrum por versículo bíblico — ilimitada',
-      'Catecismo por artigo do CCC — ilimitada',
+      'Acesso aos PDFs digitalizados',
+      'Buscas ilimitadas na Biblioteca, Catena e Catecismos',
     ],
   },
 ]
@@ -191,6 +181,8 @@ export default function PlanosPage() {
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-texto-secundario">
             Escolha o nível de acesso conforme o uso. As assinaturas pagas são mensais
             e podem ser canceladas a qualquer momento pelo portal seguro de cobrança.
+            A cota diária é única e compartilhada entre a Biblioteca (Citações dos
+            Padres), a Catena Patrum e os Catecismos.
           </p>
         </div>
 

@@ -9,12 +9,27 @@ import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from starlette.concurrency import run_in_threadpool
 
 from core.auth import require_api_key
 from core.config import settings
 from core.deps import get_current_user
 from core.plans import ensure_owner_access, is_owner_email
-from models.database import BillingRequest, SessionLocal, User
+from models.database import (
+    BillingRequest,
+    BillingSubscription,
+    BillingSubscriptionItem,
+    SessionLocal,
+    User,
+)
+from services.billing_entitlements import (
+    SubscriptionItemInput,
+    has_recoverable_provider_subscription,
+    lock_user_for_billing_mutation,
+    record_stripe_projection,
+    recompute_user_plan,
+    upsert_subscription,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -289,12 +304,141 @@ def _ensure_customer(db, user: User) -> str:
         email=user.email,
         name=user.name,
         metadata={"user_id": str(user.id)},
+        idempotency_key=f"vf-customer-v1-{user.id}",
     )
     user.billing_provider = "stripe"
     user.billing_customer_id = customer["id"]
-    db.commit()
-    db.refresh(user)
+    db.flush()
     return user.billing_customer_id
+
+
+def _stripe_page_items(page: Any) -> list[Any]:
+    auto_paging_iter = getattr(page, "auto_paging_iter", None)
+    if callable(auto_paging_iter):
+        return list(auto_paging_iter())
+    items = _stripe_get(page, "data") or []
+    if not isinstance(items, (list, tuple)):
+        raise RuntimeError("Stripe returned an invalid collection response")
+    return list(items)
+
+
+def _mark_checkout_intent_terminal(
+    db,
+    intent: BillingSubscription,
+    status_value: str,
+) -> None:
+    intent.provider_status = f"checkout_{status_value}"
+    intent.entitlement_state = "inactive"
+    intent.updated_at = datetime.datetime.utcnow()
+    db.query(BillingSubscriptionItem).filter(
+        BillingSubscriptionItem.billing_subscription_id == intent.id
+    ).update({BillingSubscriptionItem.entitled: False}, synchronize_session=False)
+    db.flush()
+
+
+def _refresh_pending_checkout_intents(db, user: User) -> tuple[bool, bool]:
+    """Resolve local checkout intents from Stripe and block every open session."""
+    terminal_checkout_found = False
+    unresolved_complete_found = False
+    intents = (
+        db.query(BillingSubscription)
+        .filter(
+            BillingSubscription.user_id == user.id,
+            BillingSubscription.provider == "stripe",
+            BillingSubscription.provider_status == "checkout_pending",
+            BillingSubscription.entitlement_state == "pending",
+        )
+        .all()
+    )
+    for intent in intents:
+        checkout_id = (intent.external_subscription_id or "").strip()
+        if not checkout_id.startswith("cs_"):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Nao foi possivel confirmar o checkout anterior agora.",
+            )
+        try:
+            checkout = stripe.checkout.Session.retrieve(checkout_id)
+        except stripe.error.StripeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Nao foi possivel confirmar o checkout anterior agora.",
+            ) from exc
+        checkout_status = str(_stripe_get(checkout, "status") or "").strip().lower()
+        if checkout_status == "open":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ja existe um checkout Stripe em andamento para esta conta.",
+            )
+        if checkout_status not in {"complete", "expired"}:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Nao foi possivel confirmar o checkout anterior agora.",
+            )
+        _mark_checkout_intent_terminal(db, intent, checkout_status)
+        terminal_checkout_found = terminal_checkout_found or checkout_status == "complete"
+        if checkout_status == "complete" and not _stripe_id(
+            _stripe_get(checkout, "subscription")
+        ):
+            unresolved_complete_found = True
+    return terminal_checkout_found, unresolved_complete_found
+
+
+def _ensure_no_open_checkout_session(customer_id: str) -> None:
+    try:
+        page = stripe.checkout.Session.list(customer=customer_id, status="open", limit=100)
+        open_sessions = _stripe_page_items(page)
+    except stripe.error.StripeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Nao foi possivel confirmar checkouts Stripe em andamento.",
+        ) from exc
+    if open_sessions:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ja existe um checkout Stripe em andamento para esta conta.",
+        )
+
+
+def _checkout_idempotency_key(
+    *,
+    user_id: int,
+    plan: str,
+) -> str:
+    return f"vf-checkout-v1-{user_id}-{plan}-{secrets.token_hex(16)}"
+
+
+def _close_checkout_intent_for_event(
+    db,
+    *,
+    user: User,
+    checkout_id: str | None,
+    event_type: str,
+) -> None:
+    if not checkout_id:
+        return
+    intent = (
+        db.query(BillingSubscription)
+        .filter(
+            BillingSubscription.user_id == user.id,
+            BillingSubscription.provider == "stripe",
+            BillingSubscription.external_subscription_id == checkout_id,
+        )
+        .one_or_none()
+    )
+    if intent is None:
+        return
+    if event_type == "checkout.session.async_payment_failed":
+        if intent.provider_status not in {"checkout_pending", "checkout_complete"}:
+            return
+    elif intent.provider_status not in {"checkout_pending", "checkout_failed"}:
+        return
+    terminal_status = (
+        "failed"
+        if event_type == "checkout.session.async_payment_failed"
+        else "complete"
+    )
+    _mark_checkout_intent_terminal(db, intent, terminal_status)
 
 
 def _portal_url(customer_id: str) -> str:
@@ -410,13 +554,20 @@ def _apply_subscription(db, user: User, subscription: Any, fallback_plan: str | 
     user.billing_current_period_end = _timestamp_to_datetime(_subscription_period_end(subscription))
     user.billing_cancel_at_period_end = bool(_stripe_get(subscription, "cancel_at_period_end"))
 
-    if ensure_owner_access(user):
+    if is_owner_email(user.email):
+        ensure_owner_access(user)
         return
-
-    if status_value in ACTIVE_BILLING_STATUSES and plan in PAID_PLANS:
-        user.plan = plan
-    elif status_value in {"canceled", "incomplete_expired", "unpaid"}:
-        user.plan = "fiel"
+    record_stripe_projection(
+        db,
+        user=user,
+        subscription_id=subscription_id,
+        customer_id=customer_id,
+        status_value=status_value,
+        plan=plan,
+        current_period_end=user.billing_current_period_end,
+        cancel_at_period_end=user.billing_cancel_at_period_end,
+    )
+    recompute_user_plan(db, user)
 
 
 def _latest_subscription_for_user(
@@ -560,9 +711,22 @@ def create_checkout_session(
         return BillingUrlResponse(url=f"{_site_url()}/perfil?assinatura=owner")
 
     with SessionLocal() as db:
-        user = db.get(User, current_user.id)
+        user = lock_user_for_billing_mutation(db, current_user.id)
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado.")
+
+        if has_recoverable_provider_subscription(
+            db,
+            user_id=user.id,
+            provider="google_play",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Existe uma assinatura Google Play ativa ou recuperavel. "
+                    "Gerencie-a no Google Play antes de assinar pelo site."
+                ),
+            )
 
         if not _stripe_ready_for_plan(plan):
             billing_request = _create_manual_pix_request(db, user, plan)
@@ -572,9 +736,32 @@ def create_checkout_session(
 
         _configure_stripe()
 
+        completed_checkout_found, _ = _refresh_pending_checkout_intents(db, user)
         customer_id = _ensure_customer(db, user)
+        _ensure_no_open_checkout_session(customer_id)
+
+        if completed_checkout_found:
+            try:
+                confirmed_subscription = _latest_subscription_for_user(user)
+            except stripe.error.StripeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="O pagamento anterior ainda esta sendo confirmado.",
+                ) from exc
+            if confirmed_subscription is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="O pagamento anterior ainda esta sendo confirmado.",
+                )
+            _apply_subscription(db, user, confirmed_subscription)
+            if user.billing_status not in ACTIVE_BILLING_STATUSES:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="O pagamento anterior ainda esta sendo confirmado.",
+                )
 
         if user.billing_subscription_id and user.billing_status in ACTIVE_BILLING_STATUSES:
+            db.commit()
             return BillingUrlResponse(url=_portal_url(customer_id))
 
         price_id = _price_id_for_plan(plan)
@@ -605,11 +792,59 @@ def create_checkout_session(
             session_args["payment_method_types"] = payment_methods
 
         try:
-            checkout = stripe.checkout.Session.create(**session_args)
+            checkout = stripe.checkout.Session.create(
+                **session_args,
+                idempotency_key=_checkout_idempotency_key(
+                    user_id=user.id,
+                    plan=plan,
+                ),
+            )
         except stripe.error.StripeError as exc:
+            # Keep the provider customer link, but do not create a billing intent
+            # because Stripe did not return a checkout session.
+            db.commit()
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    return BillingUrlResponse(url=checkout["url"])
+        checkout_id = _stripe_id(checkout)
+        checkout_url = _stripe_get(checkout, "url")
+        if not checkout_id or not checkout_url:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Stripe retornou uma sessao de checkout invalida.",
+            )
+        now = datetime.datetime.utcnow()
+        provider_expiry = _timestamp_to_datetime(_stripe_get(checkout, "expires_at"))
+        intent_expiry = min(
+            provider_expiry or (now + datetime.timedelta(hours=24)),
+            now + datetime.timedelta(hours=24),
+        )
+        if intent_expiry <= now:
+            intent_expiry = now + datetime.timedelta(minutes=30)
+        upsert_subscription(
+            db,
+            user=user,
+            provider="stripe",
+            package_name="",
+            provider_status="checkout_pending",
+            entitlement_state="pending",
+            items=[
+                SubscriptionItemInput(
+                    item_key=f"stripe-checkout:{plan}",
+                    product_id=f"stripe:{plan}",
+                    plan=plan,
+                    expiry_time=intent_expiry,
+                    entitled=False,
+                )
+            ],
+            external_subscription_id=checkout_id,
+            provider_customer_id=customer_id,
+            current_period_end=intent_expiry,
+            provider_event_at=now,
+        )
+        db.commit()
+
+    return BillingUrlResponse(url=checkout_url)
 
 
 @router.post(
@@ -626,7 +861,7 @@ def sync_billing_subscription(
 
     _configure_stripe()
     with SessionLocal() as db:
-        user = db.get(User, current_user.id)
+        user = lock_user_for_billing_mutation(db, current_user.id)
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado.")
 
@@ -842,6 +1077,15 @@ def _process_stripe_event(db, event_type: str, data: Any) -> bool:
         )
         if not user:
             return False
+        user = lock_user_for_billing_mutation(db, user.id)
+        if not user or not user.is_active:
+            return False
+        _close_checkout_intent_for_event(
+            db,
+            user=user,
+            checkout_id=_stripe_id(data),
+            event_type=event_type,
+        )
         if customer_id and not user.billing_customer_id:
             user.billing_provider = "stripe"
             user.billing_customer_id = customer_id
@@ -881,6 +1125,9 @@ def _process_stripe_event(db, event_type: str, data: Any) -> bool:
         )
         if not user:
             return False
+        user = lock_user_for_billing_mutation(db, user.id)
+        if not user or not user.is_active:
+            return False
         if customer_id and not user.billing_customer_id:
             user.billing_provider = "stripe"
             user.billing_customer_id = customer_id
@@ -906,6 +1153,9 @@ def _process_stripe_event(db, event_type: str, data: Any) -> bool:
         )
         if not user:
             return False
+        user = lock_user_for_billing_mutation(db, user.id)
+        if not user or not user.is_active:
+            return False
         if customer_id and not user.billing_customer_id:
             user.billing_provider = "stripe"
             user.billing_customer_id = customer_id
@@ -924,19 +1174,12 @@ def _process_stripe_event(db, event_type: str, data: Any) -> bool:
     return True
 
 
-@router.post("/webhook")
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: str = Header(default="", alias="Stripe-Signature"),
+def _process_stripe_webhook_payload(
+    payload: bytes,
+    stripe_signature: str,
 ) -> dict[str, bool]:
-    if not settings.stripe_webhook_secret:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Webhook Stripe ainda não configurado.",
-        )
+    """Verify and apply a Stripe event from a worker thread."""
     _configure_stripe()
-
-    payload = await request.body()
     try:
         event = stripe.Webhook.construct_event(
             payload=payload,
@@ -972,3 +1215,21 @@ async def stripe_webhook(
         ) from exc
 
     return {"received": True}
+
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str = Header(default="", alias="Stripe-Signature"),
+) -> dict[str, bool]:
+    if not settings.stripe_webhook_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook Stripe ainda não configurado.",
+        )
+    payload = await request.body()
+    return await run_in_threadpool(
+        _process_stripe_webhook_payload,
+        payload,
+        stripe_signature,
+    )

@@ -8,7 +8,7 @@ import { syncBillingSubscription } from '../lib/api'
 import {
   allowsAccountWeb,
   allowsExternalBilling,
-  isReaderPdfNavigationAllowed,
+  isPdfNavigationAllowed,
 } from '../lib/distribution-policy'
 import { API_BASE, DISTRIBUTION_MODE, WEB_BASE } from '../lib/runtime-config'
 import { readSecureToken } from '../lib/secure-token'
@@ -19,7 +19,6 @@ import {
   buildMobileWebRedirect,
   buildMobileWebSessionUrl,
   isTrustedStripeNavigation,
-  isTrustedWebNavigation,
 } from '../lib/url'
 
 function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
@@ -229,9 +228,7 @@ export default function PdfWebViewScreen({ route, navigation }: { route: any; na
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
         onShouldStartLoadWithRequest={request => {
-          const trustedNavigation = DISTRIBUTION_MODE === 'reader' && !isAccount
-            ? isReaderPdfNavigationAllowed(request.url, WEB_BASE)
-            : isTrustedWebNavigation(request.url, WEB_BASE)
+          const trustedNavigation = isPdfNavigationAllowed(DISTRIBUTION_MODE, request.url, WEB_BASE)
           if (trustedNavigation) return true
           if (
             isAccount
@@ -271,7 +268,7 @@ export default function PdfWebViewScreen({ route, navigation }: { route: any; na
             setError(
               isAccount
                 ? 'Sua conta não tem acesso a esta página.'
-                : DISTRIBUTION_MODE === 'reader'
+                : DISTRIBUTION_MODE !== 'direct'
                   ? 'A leitura do PDF digitalizado requer uma assinatura ativa com acesso a este recurso.'
                   : 'O PDF completo requer o plano Apologeta ou superior.',
             )

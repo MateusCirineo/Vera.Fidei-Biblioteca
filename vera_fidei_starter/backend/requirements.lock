@@ -533,7 +533,9 @@ fsspec==2026.7.0 \
     # from https://pypi.org/simple
 google-auth==2.57.0 \
     --hash=sha256:180dafe015cfb62193bea26b677500fab5b9fd51a1e825ebf3ad9b182047ae59
-    # via google-genai
+    # via
+    #   -r backend/requirements.txt
+    #   google-genai
     # from https://pypi.org/simple
 google-genai==2.8.0 \
     --hash=sha256:37a9b3cb127d763e7f4ca47452ae3562c87728773bd1b149f7b559c239da2bc1 \

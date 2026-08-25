@@ -38,6 +38,7 @@ services:
       - ./backend/chroma_db:/app/chroma_db
       - ./backend/model_cache:/app/model_cache
       - ./backend/pdfs:/app/pdfs
+      - ./backend/secrets:/run/secrets/vera-fidei:ro
     depends_on:
       - postgres
       - elasticsearch

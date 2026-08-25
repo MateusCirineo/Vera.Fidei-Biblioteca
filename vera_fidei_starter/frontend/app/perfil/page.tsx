@@ -38,11 +38,11 @@ const PLAN_LABELS: Record<string, string> = {
 }
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
-  fiel: 'Consulta pessoal, biblioteca e verificações essenciais.',
+  fiel: 'Consulta pessoal, catálogo, trechos e verificações essenciais.',
   catequista: 'Laudos em PDF e referências para uso em aulas e grupos.',
-  apologeta: 'Contexto patrístico, análise de tradução e uso de pesquisa.',
-  patristico: 'Gestão institucional, membros e relatório mensal de uso.',
-  magisterio: 'Integração via API, chaves dedicadas e acesso ilimitado.',
+  apologeta: 'PDFs digitalizados, contexto patrístico e análise de tradução.',
+  patristico: 'PDFs digitalizados, gestão institucional, membros e relatório mensal.',
+  magisterio: 'PDFs digitalizados, integração via API, chaves e acesso ilimitado.',
 }
 
 const AVATAR_MAX_SIZE = 700 * 1024

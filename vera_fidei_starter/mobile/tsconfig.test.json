@@ -4,6 +4,12 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["tests/**/*.ts", "lib/plan.ts", "lib/url.ts"],
+  "include": [
+    "tests/**/*.ts",
+    "lib/distribution-policy.ts",
+    "lib/plan.ts",
+    "lib/play-billing.ts",
+    "lib/url.ts"
+  ],
   "exclude": []
 }

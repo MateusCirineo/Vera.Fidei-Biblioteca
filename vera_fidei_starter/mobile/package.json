@@ -9,9 +9,11 @@
     "web": "expo start --web",
     "config": "expo config --type public",
     "build:android:preview": "eas build --platform android --profile preview --non-interactive",
+    "build:android:reader": "eas build --platform android --profile production --non-interactive",
+    "build:android:play": "eas build --platform android --profile production-play --non-interactive",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit --pretty false && tsc --noEmit --pretty false -p tsconfig.test.json",
-    "test": "node --import tsx --test tests/distribution-policy.test.ts tests/plan.test.ts tests/url.test.ts"
+    "test": "node --import tsx --test tests/distribution-policy.test.ts tests/plan.test.ts tests/play-billing.test.ts tests/play-billing-ui-policy.test.ts tests/url.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -22,6 +24,7 @@
     "expo-constants": "~57.0.14",
     "expo-file-system": "~57.0.5",
     "expo-font": "~57.0.1",
+    "expo-iap": "5.3.2",
     "expo-secure-store": "~57.0.1",
     "expo-sharing": "~57.0.15",
     "expo-splash-screen": "~57.0.8",

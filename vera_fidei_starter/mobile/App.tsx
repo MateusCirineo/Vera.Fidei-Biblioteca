@@ -3,11 +3,12 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 import { StatusBar } from 'expo-status-bar'
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Platform, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { AuthProvider, useAuth } from './auth/AuthContext'
-import { allowsAccountWeb } from './lib/distribution-policy'
+import PlayBillingProvider from './billing/PlayBillingProvider'
+import { allowsAccountWeb, allowsPlayBilling } from './lib/distribution-policy'
 import { DISTRIBUTION_MODE } from './lib/runtime-config'
 import { colors } from './lib/theme'
 import ApresentacaoScreen from './screens/ApresentacaoScreen'
@@ -18,6 +19,7 @@ import LoginScreen from './screens/LoginScreen'
 import MoreScreen from './screens/MoreScreen'
 import OracoesScreen from './screens/OracoesScreen'
 import PdfWebViewScreen from './screens/PdfWebViewScreen'
+import PlayPlansScreen from './screens/PlayPlansScreen'
 import ProfileScreen from './screens/ProfileScreen'
 import RegisterScreen from './screens/RegisterScreen'
 import SantosScreen from './screens/SantosScreen'
@@ -145,8 +147,22 @@ function AuthenticatedNavigator() {
           options={{ title: 'Conta e assinatura', presentation: 'fullScreenModal' }}
         />
       ) : null}
+      {allowsPlayBilling(DISTRIBUTION_MODE, Platform.OS) ? (
+        <RootStack.Screen
+          name="PlayPlans"
+          component={PlayPlansScreen}
+          options={{ title: 'Planos Google Play', presentation: 'modal' }}
+        />
+      ) : null}
     </RootStack.Navigator>
   )
+}
+
+function AuthenticatedApp() {
+  const navigator = <AuthenticatedNavigator />
+  return allowsPlayBilling(DISTRIBUTION_MODE, Platform.OS)
+    ? <PlayBillingProvider>{navigator}</PlayBillingProvider>
+    : navigator
 }
 
 function AuthNavigator() {
@@ -172,7 +188,7 @@ function AppGate() {
   }
   return (
     <NavigationContainer theme={navigationTheme}>
-      {status === 'authenticated' ? <AuthenticatedNavigator /> : <AuthNavigator />}
+      {status === 'authenticated' ? <AuthenticatedApp /> : <AuthNavigator />}
     </NavigationContainer>
   )
 }

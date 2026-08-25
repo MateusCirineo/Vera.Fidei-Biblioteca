@@ -18,7 +18,11 @@ from core.config import settings
 from core.security import create_access_token, hash_password, verify_password
 from models.database import (
     ApiKey,
+    BillingEvent,
+    BillingRateLimit,
     BillingRequest,
+    BillingSubscription,
+    BillingSubscriptionItem,
     EmailVerificationToken,
     Institution,
     InstitutionMember,
@@ -28,6 +32,21 @@ from models.database import (
     User,
     UserFavorite,
     VerificationHistory,
+)
+from services.billing_entitlements import (
+    google_subscription_blocks_deletion,
+    lock_user_for_billing_mutation,
+    recompute_user_plan,
+    sanitized_subscriptions_for_export,
+)
+from services.google_play_billing import (
+    GooglePlayAPIError,
+    decrypt_purchase_token,
+    get_google_play_client,
+    parse_verified_subscription,
+    persist_verified_purchase,
+    product_catalog_by_id,
+    validate_google_play_configuration,
 )
 from schemas.auth import (
     ContactRequest,
@@ -55,6 +74,8 @@ BLOCKING_STRIPE_SUBSCRIPTION_STATUSES = {
     "unpaid",
     "incomplete",
     "paused",
+    "checkout_open",
+    "checkout_unresolved",
 }
 
 
@@ -165,7 +186,10 @@ def _clear_session_cookie(response: Response) -> None:
     )
 
 
-def _stripe_live_subscription_statuses(user: User) -> set[str]:
+def _stripe_live_subscription_statuses(
+    user: User,
+    terminal_failed_checkout_ids: set[str] | frozenset[str] = frozenset(),
+) -> set[str]:
     """Read all Stripe subscriptions linked to an account without mutating them."""
     import stripe
 
@@ -237,6 +261,56 @@ def _stripe_live_subscription_statuses(user: User) -> set[str]:
         for subscription in items_from(page):
             remember(subscription)
 
+        for checkout_status in ("open", "complete"):
+            try:
+                checkout_page = stripe.checkout.Session.list(
+                    customer=customer_id,
+                    status=checkout_status,
+                    limit=100,
+                )
+            except stripe.error.InvalidRequestError:
+                logger.info(
+                    "stripe_customer_missing_during_checkout_deletion_check user_id=%s customer_suffix=%s",
+                    user.id,
+                    customer_id[-8:],
+                )
+                break
+            for checkout in items_from(checkout_page):
+                checkout_id = _stripe_id(checkout) or customer_id
+                if checkout_status == "open":
+                    subscriptions[f"checkout-open:{checkout_id}"] = {
+                        "status": "checkout_open"
+                    }
+                    continue
+
+                payment_status = str(
+                    _stripe_get(checkout, "payment_status") or ""
+                ).strip().lower()
+                subscription_id = _stripe_id(_stripe_get(checkout, "subscription"))
+                verified_terminal_failure = bool(
+                    checkout_id in terminal_failed_checkout_ids
+                    and payment_status == "unpaid"
+                )
+                if not subscription_id:
+                    if verified_terminal_failure:
+                        continue
+                    subscriptions[f"checkout-unresolved:{checkout_id}"] = {
+                        "status": "checkout_unresolved"
+                    }
+                    continue
+                try:
+                    remember(stripe.Subscription.retrieve(subscription_id))
+                except stripe.error.InvalidRequestError:
+                    if not verified_terminal_failure:
+                        subscriptions[f"checkout-unresolved:{checkout_id}"] = {
+                            "status": "checkout_unresolved"
+                        }
+                    continue
+                if payment_status not in {"paid", "no_payment_required"} and not verified_terminal_failure:
+                    subscriptions[f"checkout-unresolved:{checkout_id}"] = {
+                        "status": "checkout_unresolved"
+                    }
+
     statuses: set[str] = set()
     for subscription in subscriptions.values():
         status_value = str(_stripe_get(subscription, "status") or "").strip().lower()
@@ -246,11 +320,21 @@ def _stripe_live_subscription_statuses(user: User) -> set[str]:
     return statuses
 
 
-def _ensure_no_live_stripe_subscription(user: User) -> None:
+def _ensure_no_live_stripe_subscription(db, user: User) -> None:
+    has_local_stripe_ledger = (
+        db.query(BillingSubscription.id)
+        .filter(
+            BillingSubscription.user_id == user.id,
+            BillingSubscription.provider == "stripe",
+        )
+        .first()
+        is not None
+    )
     has_stripe_link = bool(
         user.billing_provider == "stripe"
         or user.billing_customer_id
         or (user.billing_subscription_id or "").startswith("sub_")
+        or has_local_stripe_ledger
     )
     # A delayed or previously failed webhook can leave a real Stripe customer
     # without local billing ids.  When Stripe is configured, always perform the
@@ -261,7 +345,33 @@ def _ensure_no_live_stripe_subscription(user: User) -> None:
         return
 
     try:
-        live_statuses = _stripe_live_subscription_statuses(user)
+        from api.routes.billing import _configure_stripe, _refresh_pending_checkout_intents
+
+        if has_local_stripe_ledger:
+            _configure_stripe()
+        completed_checkout_found, unresolved_complete_found = _refresh_pending_checkout_intents(
+            db,
+            user,
+        )
+        terminal_failed_checkout_ids = {
+            str(row.external_subscription_id)
+            for row in db.query(BillingSubscription)
+            .filter(
+                BillingSubscription.user_id == user.id,
+                BillingSubscription.provider == "stripe",
+                BillingSubscription.provider_status == "checkout_failed",
+                BillingSubscription.entitlement_state == "inactive",
+                BillingSubscription.external_subscription_id.is_not(None),
+            )
+            .all()
+            if str(row.external_subscription_id).startswith("cs_")
+        }
+        live_statuses = _stripe_live_subscription_statuses(
+            user,
+            terminal_failed_checkout_ids,
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("stripe_account_deletion_check_failed user_id=%s", user.id)
         raise HTTPException(
@@ -269,11 +379,88 @@ def _ensure_no_live_stripe_subscription(user: User) -> None:
             detail="Não foi possível confirmar o cancelamento da assinatura agora. Tente novamente em instantes.",
         ) from exc
 
-    if live_statuses & BLOCKING_STRIPE_SUBSCRIPTION_STATUSES:
+    if (
+        unresolved_complete_found
+        or (completed_checkout_found and not live_statuses)
+        or live_statuses & BLOCKING_STRIPE_SUBSCRIPTION_STATUSES
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cancele a assinatura no portal de cobrança antes de excluir a conta.",
         )
+
+
+def _ensure_no_live_google_play_subscription(db, user: User) -> list[BillingSubscription]:
+    """Revalidate every stored Play token before allowing destructive deletion."""
+    subscriptions = (
+        db.query(BillingSubscription)
+        .filter(
+            BillingSubscription.user_id == user.id,
+            BillingSubscription.provider == "google_play",
+        )
+        .order_by(BillingSubscription.id.asc())
+        .all()
+    )
+    if not subscriptions:
+        return []
+
+    try:
+        if not settings.google_play_enabled:
+            raise RuntimeError("google_play_disabled")
+        validate_google_play_configuration()
+        client = get_google_play_client()
+        catalog = product_catalog_by_id(strict=True)
+        for subscription in subscriptions:
+            if not subscription.purchase_token_ciphertext:
+                raise RuntimeError("missing_encrypted_purchase_token")
+            purchase_token = decrypt_purchase_token(subscription.purchase_token_ciphertext)
+            try:
+                provider_payload = client.get_subscription(purchase_token)
+            except GooglePlayAPIError as exc:
+                if (
+                    exc.status_code in {404, 410}
+                    and subscription.entitlement_state in {"inactive", "revoked", "replaced"}
+                ):
+                    continue
+                raise
+            verified = parse_verified_subscription(provider_payload, catalog)
+            persist_verified_purchase(
+                db,
+                user=user,
+                purchase_token=purchase_token,
+                verified=verified,
+            )
+        recompute_user_plan(db, user)
+        db.flush()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("google_play_account_deletion_check_failed user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Nao foi possivel confirmar o cancelamento da assinatura no Google Play agora. "
+                "Tente novamente em instantes."
+            ),
+        ) from exc
+
+    refreshed = (
+        db.query(BillingSubscription)
+        .filter(
+            BillingSubscription.user_id == user.id,
+            BillingSubscription.provider == "google_play",
+        )
+        .order_by(BillingSubscription.id.asc())
+        .all()
+    )
+    if any(google_subscription_blocks_deletion(row) for row in refreshed):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cancele a assinatura no Google Play e aguarde a confirmacao "
+                "antes de excluir a conta."
+            ),
+        )
+    return refreshed
 
 
 def _send_verification_email(user: User) -> bool:
@@ -474,6 +661,7 @@ def export_personal_data(current_user: User = Depends(get_current_user)) -> JSON
         )
         usage = db.query(SearchUsage).filter(SearchUsage.user_id == user.id).order_by(SearchUsage.usage_date).all()
         billing = db.query(BillingRequest).filter(BillingRequest.user_id == user.id).order_by(BillingRequest.id).all()
+        billing_subscriptions = sanitized_subscriptions_for_export(db, user.id)
         api_keys = db.query(ApiKey).filter(ApiKey.user_id == user.id).order_by(ApiKey.id).all()
         memberships = (
             db.query(InstitutionMember, Institution.name)
@@ -549,6 +737,7 @@ def export_personal_data(current_user: User = Depends(get_current_user)) -> JSON
                 }
                 for row in billing
             ],
+            "billing_subscriptions": billing_subscriptions,
             "api_keys": [
                 {
                     "label": row.label,
@@ -602,13 +791,14 @@ def delete_account(
         )
 
     with SessionLocal() as db:
-        user = db.get(User, current_user.id)
+        user = lock_user_for_billing_mutation(db, current_user.id)
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conta não encontrada.")
         if not verify_password(payload.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha incorreta.")
 
-        _ensure_no_live_stripe_subscription(user)
+        _ensure_no_live_stripe_subscription(db, user)
+        google_subscriptions = _ensure_no_live_google_play_subscription(db, user)
 
         administered_ids = [
             row.id
@@ -622,6 +812,28 @@ def delete_account(
 
         db.query(InstitutionMember).filter(InstitutionMember.user_id == user.id).delete(synchronize_session=False)
         db.query(ApiKey).filter(ApiKey.user_id == user.id).delete(synchronize_session=False)
+        db.query(BillingRateLimit).filter(BillingRateLimit.user_id == user.id).delete(
+            synchronize_session=False
+        )
+        subscription_ids = [row.id for row in google_subscriptions]
+        subscription_ids.extend(
+            row.id
+            for row in db.query(BillingSubscription.id)
+            .filter(BillingSubscription.user_id == user.id)
+            .all()
+            if row.id not in subscription_ids
+        )
+        if subscription_ids:
+            db.query(BillingSubscriptionItem).filter(
+                BillingSubscriptionItem.billing_subscription_id.in_(subscription_ids)
+            ).delete(synchronize_session=False)
+            db.query(BillingSubscription).filter(
+                BillingSubscription.id.in_(subscription_ids)
+            ).delete(synchronize_session=False)
+        db.query(BillingEvent).filter(BillingEvent.user_id == user.id).update(
+            {BillingEvent.user_id: None},
+            synchronize_session=False,
+        )
         db.query(BillingRequest).filter(BillingRequest.user_id == user.id).delete(synchronize_session=False)
         db.query(SearchUsage).filter(SearchUsage.user_id == user.id).delete(synchronize_session=False)
         db.query(EmailVerificationToken).filter(EmailVerificationToken.user_id == user.id).delete(synchronize_session=False)

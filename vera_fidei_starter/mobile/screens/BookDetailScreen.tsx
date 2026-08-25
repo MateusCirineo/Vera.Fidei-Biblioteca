@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, getBook, type Book } from '../lib/api'
-import { subscriptionGatePolicy } from '../lib/distribution-policy'
+import { plansRouteForMode, subscriptionGatePolicy } from '../lib/distribution-policy'
 import { formatLanguage } from '../lib/language'
 import { canOpenLibraryPdf } from '../lib/plan'
 import { DISTRIBUTION_MODE } from '../lib/runtime-config'
@@ -63,13 +63,19 @@ export default function BookDetailScreen({ route, navigation }: { route: any; na
   function openFile(fileId: number, page: number) {
     if (!canOpenLibraryPdf(user?.plan)) {
       const gate = subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf')
+      const plansRoute = plansRouteForMode(DISTRIBUTION_MODE, Platform.OS)
       Alert.alert(
         gate.title,
         gate.message,
-        gate.showPlansAction
+        gate.showPlansAction && plansRoute
           ? [
             { text: 'Agora não', style: 'cancel' },
-            { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
+            {
+              text: 'Ver planos',
+              onPress: () => plansRoute === 'PlayPlans'
+                ? navigation.navigate('PlayPlans')
+                : navigation.navigate('ContaWeb', { destination: 'plans' }),
+            },
           ]
           : [{ text: 'Entendi' }],
       )

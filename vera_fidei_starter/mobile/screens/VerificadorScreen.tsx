@@ -14,7 +14,7 @@ import {
 
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, verifyCitation, type StatusCode, type VerifyResponse } from '../lib/api'
-import { subscriptionGatePolicy } from '../lib/distribution-policy'
+import { plansRouteForMode, subscriptionGatePolicy } from '../lib/distribution-policy'
 import { formatLanguage } from '../lib/language'
 import { canOpenLibraryPdf } from '../lib/plan'
 import { DISTRIBUTION_MODE } from '../lib/runtime-config'
@@ -47,6 +47,7 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
   const [language, setLanguage] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [quotaBlocked, setQuotaBlocked] = useState(false)
   const [result, setResult] = useState<VerifyResponse | null>(null)
   const requestRef = useRef<AbortController | null>(null)
 
@@ -66,6 +67,7 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
     requestRef.current = controller
     setLoading(true)
     setError('')
+    setQuotaBlocked(false)
     setResult(null)
     try {
       const nextResult = await verifyCitation({
@@ -80,8 +82,9 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
         && !(reason instanceof ApiError && reason.code === 'ABORTED')
       ) {
         const quotaReached = reason instanceof ApiError && reason.code === 'VERIFICATION_LIMIT_REACHED'
+        setQuotaBlocked(quotaReached)
         setError(
-          quotaReached && DISTRIBUTION_MODE === 'reader'
+          quotaReached
             ? subscriptionGatePolicy(DISTRIBUTION_MODE, 'verification').message
             : reason instanceof Error ? reason.message : 'A verificação falhou.',
         )
@@ -99,13 +102,19 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
     if (!fileId) return
     if (!canOpenLibraryPdf(user?.plan)) {
       const gate = subscriptionGatePolicy(DISTRIBUTION_MODE, 'pdf')
+      const plansRoute = plansRouteForMode(DISTRIBUTION_MODE, Platform.OS)
       Alert.alert(
         gate.title,
         gate.message,
-        gate.showPlansAction
+        gate.showPlansAction && plansRoute
           ? [
             { text: 'Agora não', style: 'cancel' },
-            { text: 'Ver planos', onPress: () => navigation.navigate('ContaWeb', { destination: 'plans' }) },
+            {
+              text: 'Ver planos',
+              onPress: () => plansRoute === 'PlayPlans'
+                ? navigation.navigate('PlayPlans')
+                : navigation.navigate('ContaWeb', { destination: 'plans' }),
+            },
           ]
           : [{ text: 'Entendi' }],
       )
@@ -167,7 +176,20 @@ export default function VerificadorScreen({ navigation }: { navigation: any }) {
           onChangeText={setLanguage}
           onSubmitEditing={() => void submit()}
         />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.error}>{error}</Text>
+            {quotaBlocked && plansRouteForMode(DISTRIBUTION_MODE, Platform.OS) ? (
+              <TouchableOpacity onPress={() => {
+                const plansRoute = plansRouteForMode(DISTRIBUTION_MODE, Platform.OS)
+                if (plansRoute === 'PlayPlans') navigation.navigate('PlayPlans')
+                else if (plansRoute === 'ContaWeb') navigation.navigate('ContaWeb', { destination: 'plans' })
+              }}>
+                <Text style={styles.planLink}>Ver planos</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
         <TouchableOpacity style={[styles.verifyButton, loading && styles.disabled]} disabled={loading} onPress={() => void submit()}>
           {loading ? <ActivityIndicator color="#fff" /> : null}
           <Text style={styles.verifyText}>{loading ? 'Verificando…' : 'Verificar citação'}</Text>
@@ -243,6 +265,8 @@ const styles = StyleSheet.create({
   input: { minHeight: 46, color: colors.text, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
   quoteInput: { minHeight: 142 },
   error: { color: '#fecaca', backgroundColor: '#7f1d1d44', borderRadius: 7, padding: 10, marginTop: 11 },
+  errorBox: { gap: 7 },
+  planLink: { color: colors.gold, fontWeight: '900' },
   verifyButton: { minHeight: 49, marginTop: 15, flexDirection: 'row', gap: 8, borderRadius: 8, backgroundColor: colors.wine, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.65 },
   verifyText: { color: '#fff', fontWeight: '900' },

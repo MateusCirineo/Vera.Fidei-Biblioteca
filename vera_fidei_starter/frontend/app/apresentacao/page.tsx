@@ -245,11 +245,11 @@ export default function ApresentacaoPage() {
         </h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {[
-            { nome: 'Fiel', preco: 'Grátis', desc: '10 verificações/mês · 5 buscas/dia na Biblioteca' },
-            { nome: 'Catequista', preco: 'R$ 9,90/mês', desc: '25 verificações/mês · 20 buscas/dia · Laudos em PDF' },
-            { nome: 'Apologeta', preco: 'R$ 29,99/mês', desc: '50 verificações/mês · 50 buscas/dia · Exportação Excel', destaque: true },
-            { nome: 'Patrístico', preco: 'R$ 59,99/mês', desc: '100 verificações/mês · 100 buscas/dia · Painel institucional' },
-            { nome: 'Magistério', preco: 'R$ 99,99/mês', desc: 'Tudo ilimitado · API dedicada · Integrações externas' },
+            { nome: 'Fiel', preco: 'Grátis', desc: '10 verificações/mês · 5 buscas/dia compartilhadas' },
+            { nome: 'Catequista', preco: 'R$ 9,90/mês', desc: '25 verificações/mês · 20 buscas/dia compartilhadas · Laudos em PDF' },
+            { nome: 'Apologeta', preco: 'R$ 29,99/mês', desc: '50 verificações/mês · 50 buscas/dia compartilhadas · PDFs digitalizados', destaque: true },
+            { nome: 'Patrístico', preco: 'R$ 59,99/mês', desc: '100 verificações/mês · 100 buscas/dia compartilhadas · PDFs digitalizados e painel institucional' },
+            { nome: 'Magistério', preco: 'R$ 99,99/mês', desc: 'Tudo ilimitado · PDFs digitalizados · API dedicada' },
           ].map(({ nome, preco, desc, destaque }) => (
             <div
               key={nome}
@@ -263,6 +263,10 @@ export default function ApresentacaoPage() {
             </div>
           ))}
         </div>
+        <p className="text-center text-xs leading-relaxed text-texto-terciario">
+          A cota diária de buscas é única e compartilhada entre a Biblioteca (Citações dos
+          Padres), a Catena Patrum e os Catecismos.
+        </p>
         <div className="flex flex-col items-center gap-3 pt-2 sm:flex-row sm:justify-center">
           <Link
             href="/cadastro"

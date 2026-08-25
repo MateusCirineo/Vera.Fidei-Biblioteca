@@ -1,5 +1,8 @@
 const IS_DEV = process.env.APP_VARIANT === 'development'
-const DISTRIBUTION_MODE = process.env.EXPO_PUBLIC_DISTRIBUTION_MODE === 'direct' ? 'direct' : 'reader'
+const RAW_DISTRIBUTION_MODE = process.env.EXPO_PUBLIC_DISTRIBUTION_MODE
+const DISTRIBUTION_MODE = RAW_DISTRIBUTION_MODE === 'direct' || RAW_DISTRIBUTION_MODE === 'play'
+  ? RAW_DISTRIBUTION_MODE
+  : 'reader'
 
 export default ({ config }) => ({
   ...config,
@@ -11,6 +14,7 @@ export default ({ config }) => ({
   userInterfaceStyle: 'dark',
   plugins: [
     'expo-font',
+    'expo-iap',
     'expo-secure-store',
     'expo-sharing',
     [

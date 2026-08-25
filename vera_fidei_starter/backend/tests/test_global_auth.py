@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from core import auth, deps
 from core.config import settings
-from models.database import Base, User
+from models.database import Base, BillingSubscription, BillingSubscriptionItem, User
 
 
 class GlobalAuthenticationTests(unittest.TestCase):
@@ -20,7 +20,14 @@ class GlobalAuthenticationTests(unittest.TestCase):
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-        Base.metadata.create_all(self.engine, tables=[User.__table__])
+        Base.metadata.create_all(
+            self.engine,
+            tables=[
+                User.__table__,
+                BillingSubscription.__table__,
+                BillingSubscriptionItem.__table__,
+            ],
+        )
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.session_factory() as db:
             db.add_all(

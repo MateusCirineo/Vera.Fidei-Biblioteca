@@ -1,4 +1,13 @@
 import { API_BASE } from './runtime-config'
+import {
+  parsePlayBillingCatalog,
+  parsePlayBillingStatus,
+  parsePlaySyncResponse,
+  type PlayBillingCatalog,
+  type PlayBillingStatus,
+  type PlayPurchaseInput,
+  type PlaySyncResponse,
+} from './play-billing'
 
 let authToken = ''
 let unauthorizedHandler: (() => void) | null = null
@@ -170,6 +179,29 @@ export function syncBillingSubscription(signal?: AbortSignal): Promise<BillingSy
     { method: 'POST' },
     { signal, timeoutMs: 20_000 },
   )
+}
+
+export async function getGooglePlayBillingCatalog(signal?: AbortSignal): Promise<PlayBillingCatalog> {
+  const response = await requestJson<unknown>('/billing/google-play/catalog', {}, { signal })
+  return parsePlayBillingCatalog(response)
+}
+
+export async function syncGooglePlaySubscriptions(
+  purchases: PlayPurchaseInput[],
+  operation: 'sync' | 'restore',
+  signal?: AbortSignal,
+): Promise<PlaySyncResponse> {
+  const response = await requestJson<unknown>(
+    `/billing/google-play/subscriptions/${operation}`,
+    { method: 'POST', body: JSON.stringify({ purchases }) },
+    { signal, timeoutMs: 35_000 },
+  )
+  return parsePlaySyncResponse(response, operation)
+}
+
+export async function getGooglePlayBillingStatus(signal?: AbortSignal): Promise<PlayBillingStatus> {
+  const response = await requestJson<unknown>('/billing/status', {}, { signal })
+  return parsePlayBillingStatus(response)
 }
 
 export async function requestPasswordReset(email: string, signal?: AbortSignal): Promise<string> {

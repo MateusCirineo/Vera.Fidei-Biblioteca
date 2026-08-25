@@ -15,7 +15,11 @@ def _get_db() -> Session:
 def _get_user_by_id(user_id: int) -> User:
     with _get_db() as db:
         user = db.get(User, user_id)
-        if user and ensure_owner_access(user):
+        if user:
+            from services.billing_entitlements import refresh_managed_user_plan
+
+            refresh_managed_user_plan(db, user)
+            ensure_owner_access(user)
             db.commit()
             db.refresh(user)
     if not user or not user.is_active:
