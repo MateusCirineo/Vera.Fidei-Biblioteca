@@ -26,14 +26,12 @@ export default ({ config }) => ({
   ios: {
     supportsTablet: false,
     bundleIdentifier: IS_DEV ? 'com.verafidei.app.dev' : 'com.verafidei.app',
-    buildNumber: '1',
     config: {
       usesNonExemptEncryption: false,
     },
   },
   android: {
     package: IS_DEV ? 'com.verafidei.app.dev' : 'com.verafidei.app',
-    versionCode: 1,
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#0b0b0e',
