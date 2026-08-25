@@ -20,17 +20,18 @@ O método `ctx.handoff(source, target, payload)` registra transferência de cont
 
 ## Fluxos principais
 
-O sistema possui três fluxos distintos, detectados automaticamente pelo Orchestrator:
+O sistema possui quatro fluxos distintos, detectados automaticamente pelo Orchestrator:
 
 | Fluxo | Palavras-chave detectadas | Agentes envolvidos |
 |---|---|---|
 | **Verificação de Citações** | cita, atribu, disse, escreveu | 10 agentes |
 | **Ingestão de PDFs** | pdf, upload, ingest, importar, patrologia, pg, pl, po, concilio | 4 agentes |
+| **Instagram** | instagram, carrossel, postar, publicação, rede social | 8 etapas |
 | **Tarefa Geral** | qualquer outro input | 2 agentes |
 
 ---
 
-## Os 13 Agentes
+## Os 19 Agentes
 
 ---
 
@@ -187,6 +188,32 @@ Valida se a ingestão dos PDFs foi concluída com sucesso no banco. Consulta o P
 
 ---
 
+### 14–19. Agentes editoriais do Instagram
+
+O fluxo obrigatório é:
+
+```text
+orchestrator → planner → social_source_agent → social_consistency_agent
+→ social_copy_agent → social_art_agent → social_approval_agent
+→ social_publish_agent
+```
+
+- `social_source_agent`: seleciona um trecho não publicado e reconstrói todos
+  os metadados a partir do mesmo chunk PostgreSQL.
+- `social_consistency_agent`: confere autor, obra, edição, página, recorte real
+  do PDF e retrato aprovado.
+- `social_copy_agent`: escreve apenas a partir dos dados validados.
+- `social_art_agent`: renderiza as três artes no padrão homologado.
+- `social_approval_agent`: impede publicação após qualquer mudança de estilo.
+- `social_publish_agent`: publica pela API oficial e registra o ID remoto.
+
+Antes de alterar esse fluxo ou qualquer arte, leia integralmente
+`../INSTAGRAM_STYLE.md` e `docs/instagram-automation.md`. O primeiro define o
+padrão universal de todas as publicações; o segundo define sua operação. As
+regras são obrigatórias para Codex, Claude Code e qualquer novo agente.
+
+---
+
 ## Grafo de dependências — Fluxo de Verificação de Citações
 
 ```
@@ -244,3 +271,9 @@ ingestion_validation_agent
 | 11 | Safety Agent | `safety_agent.py` | Verificação |
 | 12 | PDF Ingestion Agent | `pdf_ingestion_agent.py` | Ingestão |
 | 13 | Ingestion Validation Agent | `ingestion_validation_agent.py` | Ingestão |
+| 14 | Social Source Agent | `social_source_agent.py` | Instagram |
+| 15 | Social Consistency Agent | `social_consistency_agent.py` | Instagram |
+| 16 | Social Copy Agent | `social_copy_agent.py` | Instagram |
+| 17 | Social Art Agent | `social_art_agent.py` | Instagram |
+| 18 | Social Approval Agent | `social_approval_agent.py` | Instagram |
+| 19 | Social Publish Agent | `social_publish_agent.py` | Instagram |

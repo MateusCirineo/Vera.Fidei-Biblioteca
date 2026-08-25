@@ -1,8 +1,18 @@
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:3c1dfceb3f1267d4d378e7883cddf35c58757bab98d70bba30b6e02e808fa21d
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+# Match the Debian snapshot used to create the pinned Python base image. This
+# keeps later rebuilds from silently selecting different system packages.
+RUN set -eux; \
+    sed -Ei \
+      -e 's|https?://deb.debian.org/debian-security|https://snapshot.debian.org/archive/debian-security/20260824T000000Z|g' \
+      -e 's|https?://deb.debian.org/debian|https://snapshot.debian.org/archive/debian/20260824T000000Z|g' \
+      /etc/apt/sources.list.d/debian.sources; \
+    printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot; \
+    ! grep -Rqs 'deb.debian.org' /etc/apt/sources.list.d; \
+    apt-get update; \
+    apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-por \
     tesseract-ocr-lat \
@@ -11,11 +21,11 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     curl \
-    rclone \
-    && rm -rf /var/lib/apt/lists/*
+    rclone; \
+    rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.lock ./
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY . .
 

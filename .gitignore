@@ -55,6 +55,23 @@ poppler-25.12.0/
 test-results/
 playwright-report/
 *.log
+/.playwright-mcp/
+/tmp/
+/vera_fidei_starter/tmp/
+/docs/videos/
+/biblioteca_home.png
+/login_page.png
+vera_fidei_starter/backend/scripts/output/
+vera_fidei_starter/backend/imports/
+vera_fidei_starter/backend/data/social/*.jsonl
+vera_fidei_starter/backend/data/social/*.lock
+vera_fidei_starter/backend/data/social/*.approval.json
+# Artefatos experimentais do protótipo interrompido do Claude; não usados.
+vera_fidei_starter/backend/app/social/assets/corner_bl.png
+vera_fidei_starter/backend/app/social/assets/corner_br.png
+vera_fidei_starter/backend/app/social/assets/fonts/Baloo2.ttf
+vera_fidei_starter/backend/app/social/assets/Logo-VF.png
+vera_fidei_starter/backend/app/social/assets/paginas.png
 
 # Dependências Python instaladas localmente
 site-packages/

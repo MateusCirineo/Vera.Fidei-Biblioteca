@@ -19,7 +19,39 @@ from unittest.mock import MagicMock, Mock, patch
 # Minimal stubs so we can import route helpers without a running DB / ES
 # ---------------------------------------------------------------------------
 
-def _make_hit(chunk_id: int, text: str = "eucaristia body text", **kw) -> Any:
+@dataclass
+class _TestHit:
+    chunk_id: int
+    score: float
+    text: str
+    author: str
+    work_title: str
+    book_id: int
+    pdf_page: int
+    collection: str
+    source_fidelity: str
+    chunk_author: str | None = None
+    chapter_or_section: str | None = None
+    volume: int | None = None
+    edition_label: str | None = None
+    language: str | None = None
+    literal_search_text: str | None = None
+    translation_text: str | None = None
+    book_file_id: int | None = None
+    matched_query: str | None = None
+    source_page_key: str | None = None
+    match_type: str = "literal"
+
+
+def _make_hit(
+    chunk_id: int,
+    text: str = (
+        "A Eucaristia reúne os fiéis na ação de graças e conserva a memória "
+        "da paixão do Senhor, segundo a tradição recebida pela Igreja desde "
+        "os apóstolos e transmitida aos irmãos em cada celebração."
+    ),
+    **kw,
+) -> Any:
     defaults = {
         "chunk_id": chunk_id,
         "score": 5.0,
@@ -37,7 +69,7 @@ def _make_hit(chunk_id: int, text: str = "eucaristia body text", **kw) -> Any:
         "source_page_key": f"book:{100 + chunk_id}:page:{chunk_id}",
     }
     defaults.update(kw)
-    return SimpleNamespace(**defaults)
+    return _TestHit(**defaults)
 
 
 def _make_ocr_hit(chunk_id: int, **kw) -> Any:
@@ -157,6 +189,8 @@ class TestFilterQuotableHitsUnverifiedLocators(unittest.TestCase):
                 fidelity_score=None,
                 library_section="patristica",
                 patristic_tradition="greco",
+                translator=None,
+                editor=None,
             )
             mock_rows.append(row)
 
@@ -165,11 +199,20 @@ class TestFilterQuotableHitsUnverifiedLocators(unittest.TestCase):
         mock_session.__exit__ = Mock(return_value=False)
         mock_query = mock_session.query.return_value
         mock_join = mock_query.join.return_value
-        mock_filter = mock_join.filter.return_value
+        mock_second_join = mock_join.join.return_value
+        mock_filter = mock_second_join.filter.return_value
         mock_filter.all.return_value = mock_rows
         mock_query.filter.return_value.all.return_value = []
 
-        with _patch("api.routes.search.SessionLocal", return_value=mock_session):
+        unverified_ids = {
+            hit.chunk_id
+            for hit in hits
+            if hit.source_fidelity not in {"verified", "source_text"}
+        }
+        with (
+            _patch("api.routes.search.SessionLocal", return_value=mock_session),
+            _patch("api.routes.search._unverified_ocr_chunk_ids", return_value=unverified_ids),
+        ):
             import api.routes.search as route
             filtered = route._filter_quotable_hits_preserving_verified(
                 hits,
@@ -195,6 +238,43 @@ class TestFilterQuotableHitsUnverifiedLocators(unittest.TestCase):
         hits = [_make_ocr_hit(2)]
         result = self._run_filter(hits, include_unverified_locators=True)
         self.assertTrue(len(result) >= 0)  # filtered by content quality but not blocked entirely
+
+    def test_ocr_locator_never_exposes_unchecked_wording(self) -> None:
+        hit = _make_ocr_hit(2)
+        row = SimpleNamespace(
+            id=hit.chunk_id,
+            book_id=hit.book_id,
+            book_file_id=44,
+            chunk_author=None,
+            extraction_method="ocr",
+            source_fidelity="unverified_ocr",
+            fidelity_score=None,
+            library_section="patristica",
+            patristic_tradition="latina",
+            translator=None,
+            editor=None,
+        )
+        mock_session = MagicMock()
+        mock_session.__enter__ = Mock(return_value=mock_session)
+        mock_session.__exit__ = Mock(return_value=False)
+        mock_query = mock_session.query.return_value
+        mock_query.join.return_value.join.return_value.filter.return_value.all.return_value = [row]
+        mock_query.filter.return_value.all.return_value = []
+
+        with patch("api.routes.search.SessionLocal", return_value=mock_session):
+            from api.routes.search import _enrich_with_db
+            result = _enrich_with_db(
+                [hit],
+                query="Eucaristia",
+                preexcerpted=True,
+                require_source_verified=False,
+            )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].source_fidelity, "unverified_ocr")
+        self.assertEqual(result[0].text, "")
+        self.assertIn("não é exibido como citação", result[0].source_warning)
+        self.assertIn(result[0].matched_query.casefold(), {"eucaristia", "eucharistia"})
 
     def test_source_text_chunk_always_visible(self) -> None:
         hits = [_make_hit(3, source_fidelity="source_text", collection="PT")]
@@ -357,6 +437,35 @@ class TestNormAndExcerptHelpers(unittest.TestCase):
         text = "A Eucaristia é o centro da vida cristã."
         result = _query_centered_excerpt(text, "eucaristia", limit=200)
         self.assertEqual(result, text)
+
+
+class TestCatechismThemeQueries(unittest.TestCase):
+    def test_distinctive_terms_replace_impossible_full_paragraph_literal(self) -> None:
+        from api.routes.search import _catechism_theme_queries
+        from services.ccc_commentary_service import CccArticleQuery, CccQueryMode
+
+        context = CccArticleQuery(
+            article=1374,
+            section_title="A presença de Cristo",
+            section_start=1373,
+            section_end=1381,
+            mode=CccQueryMode.EXACT_ARTICLE,
+            query="cristo eucaristia sacramento presença substancial corpo sangue",
+            article_text="Cristo está presente na Eucaristia de modo substancial.",
+            article_fingerprint="test",
+            key_terms=("Cristo", "Eucaristia", "sacramento", "presença", "substancial"),
+            quoted_phrases=(),
+            scripture_references=(),
+            patristic_mentions=(),
+            source_book_id=1,
+            source_chunk_ids=(),
+            source_pages=(321,),
+        )
+
+        queries = _catechism_theme_queries(context)
+        self.assertEqual(queries[:4], ["Eucaristia", "sacramento", "presença", "substancial"])
+        self.assertNotIn("Cristo", queries)
+        self.assertNotIn(context.query, queries)
 
 
 # ---------------------------------------------------------------------------

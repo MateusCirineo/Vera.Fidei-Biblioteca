@@ -1,107 +1,126 @@
+import { useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-const GOLD = '#c9a84c'
-const INK = '#2f241d'
-const PAPER = '#fbf7ef'
-const WINE = '#6f1d32'
-const BLUE = '#183c5c'
+import { colors } from '../lib/theme'
 
-const related = [
-  { title: 'Catecismo', subtitle: 'virtudes, oração e santidade' },
-  { title: 'Patrística', subtitle: 'modelos antigos de vida cristã' },
-  { title: 'Liturgia', subtitle: 'memória celebrada na Igreja' },
+type Saint = {
+  id: string
+  day: number
+  month: number
+  name: string
+  subtitle: string
+  summary: string
+  searches: string[]
+}
+
+const saints: Saint[] = [
+  {
+    id: 'agostinho', day: 28, month: 8, name: 'Santo Agostinho', subtitle: 'bispo de Hipona e Doutor da Igreja',
+    summary: 'Sua obra une busca da verdade, conversão, graça, vida da Igreja e leitura profunda das Escrituras.',
+    searches: ['Santo Agostinho', 'graça', 'Cidade de Deus'],
+  },
+  {
+    id: 'ambrosio', day: 7, month: 12, name: 'Santo Ambrósio', subtitle: 'bispo de Milão e Doutor da Igreja',
+    summary: 'Pastor, pregador e escritor latino, teve papel decisivo na formação cristã de Agostinho e na defesa da fé nicena.',
+    searches: ['Santo Ambrósio', 'sacramentos', 'De Mysteriis'],
+  },
+  {
+    id: 'irineu', day: 28, month: 6, name: 'Santo Irineu de Lião', subtitle: 'bispo, mártir e Doutor da Igreja',
+    summary: 'Testemunha da tradição apostólica, combateu as heresias e expôs a unidade da criação, da redenção e da Igreja.',
+    searches: ['Santo Irineu de Lião', 'Contra as Heresias', 'tradição apostólica'],
+  },
+  {
+    id: 'filipeneri', day: 26, month: 5, name: 'São Filipe Néri', subtitle: 'presbítero e apóstolo de Roma',
+    summary: 'Recordado pela caridade alegre, pela vida de oração e pela formação espiritual marcada por humildade e proximidade.',
+    searches: ['São Filipe Néri', 'alegria cristã', 'oração'],
+  },
 ]
 
-export default function SantosScreen() {
+const monthNames = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ']
+
+export default function SantosScreen({ navigation }: { navigation: any }) {
+  const today = useMemo(() => new Date(), [])
+  const initial = saints.find(item => item.day === today.getDate() && item.month === today.getMonth() + 1) ?? saints[0]
+  const [selectedId, setSelectedId] = useState(initial.id)
+  const saint = saints.find(item => item.id === selectedId) ?? initial
+  const isToday = saint.day === today.getDate() && saint.month === today.getMonth() + 1
+
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.container}>
+      <View style={styles.selector}>
+        <Text style={styles.kicker}>Memórias e fontes</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          {saints.map(item => (
+            <TouchableOpacity key={item.id} style={[styles.chip, selectedId === item.id && styles.chipActive]} onPress={() => setSelectedId(item.id)}>
+              <Text style={[styles.chipText, selectedId === item.id && styles.chipTextActive]}>{item.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <View style={styles.headerCard}>
         <View style={styles.dateBlock}>
-          <Text style={styles.day}>26</Text>
-          <Text style={styles.month}>MAI</Text>
+          <Text style={styles.day}>{saint.day}</Text>
+          <Text style={styles.month}>{monthNames[saint.month - 1]}</Text>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.kicker}>Santo do dia</Text>
-          <Text style={styles.title}>São Filipe Néri</Text>
-          <Text style={styles.subtitle}>presbítero, apóstolo de Roma e mestre da alegria cristã</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.kicker}>{isToday ? 'Memória de hoje' : 'Memória litúrgica'}</Text>
+          <Text style={styles.title}>{saint.name}</Text>
+          <Text style={styles.subtitle}>{saint.subtitle}</Text>
         </View>
       </View>
 
       <View style={styles.portrait}>
-        <View style={styles.halo}>
-          <Ionicons name="person-outline" size={54} color={GOLD} />
-        </View>
-        <Text style={styles.portraitCaption}>Memória litúrgica</Text>
+        <View style={styles.halo}><Ionicons name="person-outline" size={52} color={colors.gold} /></View>
+        <Text style={styles.portraitCaption}>Biografia resumida</Text>
       </View>
 
       <View style={styles.article}>
         <Text style={styles.articleTitle}>Vida e espiritualidade</Text>
-        <Text style={styles.paragraph}>
-          São Filipe Néri é recordado pela caridade alegre, pela vida de oração e pela capacidade de formar almas sem dureza. Sua santidade mostra que a fidelidade à Igreja pode ser profunda, bela e cheia de humanidade.
-        </Text>
-        <Text style={styles.paragraph}>
-          No Vera Fidei, a tela dos santos deve ir além da biografia: cada santo pode ser ligado às fontes da biblioteca, às virtudes do Catecismo, à liturgia do dia e a trilhas de estudo.
+        <Text style={styles.paragraph}>{saint.summary}</Text>
+        <Text style={styles.disclaimer}>
+          Use os atalhos abaixo para localizar passagens no acervo. A pesquisa mostra apenas o que estiver efetivamente indexado e identifica a situação da fonte.
         </Text>
       </View>
 
-      <View style={styles.quoteCard}>
-        <Ionicons name="chatbox-ellipses-outline" size={19} color={WINE} />
-        <Text style={styles.quote}>
-          “Alegrai-vos no Senhor”: a santidade diária precisa caber no coração e na rotina.
-        </Text>
-      </View>
-
-      <Text style={styles.sectionTitle}>Aprofundar no Vera Fidei</Text>
-      <View style={styles.relatedGrid}>
-        {related.map(item => (
-          <TouchableOpacity key={item.title} style={styles.relatedCard}>
-            <Text style={styles.relatedTitle}>{item.title}</Text>
-            <Text style={styles.relatedSubtitle}>{item.subtitle}</Text>
-            <Ionicons name="arrow-forward-outline" size={16} color={BLUE} />
-          </TouchableOpacity>
-        ))}
-      </View>
+      <Text style={styles.sectionTitle}>Pesquisar no Vera Fidei</Text>
+      {saint.searches.map(term => (
+        <TouchableOpacity key={term} style={styles.relatedCard} onPress={() => navigation.navigate('Pesquisa', { initialQuery: term })}>
+          <Ionicons name="search-outline" size={18} color={colors.gold} />
+          <Text style={styles.relatedTitle}>{term}</Text>
+          <Ionicons name="arrow-forward-outline" size={16} color={colors.gold} />
+        </TouchableOpacity>
+      ))}
     </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: PAPER },
-  container: { padding: 16, paddingBottom: 40, gap: 14 },
-  headerCard: {
-    flexDirection: 'row',
-    gap: 14,
-    backgroundColor: '#fffaf2',
-    borderWidth: 1,
-    borderColor: '#eadcc2',
-    borderRadius: 8,
-    padding: 16,
-  },
+  root: { flex: 1, backgroundColor: colors.background },
+  container: { padding: 15, paddingBottom: 42, gap: 12 },
+  selector: { gap: 8 },
+  kicker: { color: colors.gold, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 },
+  chips: { gap: 7, paddingRight: 10 },
+  chip: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 8 },
+  chipActive: { borderColor: '#6b5721', backgroundColor: colors.goldSoft },
+  chipText: { color: colors.muted, fontWeight: '700', fontSize: 12 },
+  chipTextActive: { color: colors.gold },
+  headerCard: { flexDirection: 'row', gap: 13, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 14 },
   dateBlock: { alignItems: 'center', minWidth: 54 },
-  day: { fontSize: 34, color: WINE, fontWeight: '800', lineHeight: 36 },
-  month: { fontSize: 12, color: '#8c7b65', fontWeight: '700', letterSpacing: 1 },
-  kicker: { fontSize: 11, color: GOLD, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
-  title: { fontSize: 23, color: INK, fontWeight: '800', marginTop: 2 },
-  subtitle: { fontSize: 13, color: '#6f5b42', lineHeight: 18, marginTop: 3 },
-  portrait: {
-    minHeight: 180,
-    backgroundColor: '#203c55',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  halo: { width: 96, height: 96, borderRadius: 48, borderWidth: 1, borderColor: GOLD, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff10' },
-  portraitCaption: { color: '#f4ead3', fontSize: 13, fontWeight: '700' },
-  article: { backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#eadcc2', padding: 16, gap: 8 },
-  articleTitle: { fontSize: 15, color: INK, fontWeight: '800' },
-  paragraph: { fontSize: 14, color: '#4c3c31', lineHeight: 22 },
-  quoteCard: { flexDirection: 'row', gap: 10, backgroundColor: '#fff1f4', borderWidth: 1, borderColor: '#e8c8d0', borderRadius: 8, padding: 14 },
-  quote: { flex: 1, color: WINE, fontSize: 14, lineHeight: 21, fontStyle: 'italic' },
-  sectionTitle: { fontSize: 16, color: BLUE, fontWeight: '800' },
-  relatedGrid: { gap: 8 },
-  relatedCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#d8e3ea', padding: 12 },
-  relatedTitle: { width: 92, color: BLUE, fontSize: 14, fontWeight: '800' },
-  relatedSubtitle: { flex: 1, color: '#61788a', fontSize: 12, lineHeight: 17 },
+  day: { color: colors.gold, fontSize: 34, fontWeight: '900', lineHeight: 37 },
+  month: { color: colors.muted, fontSize: 11, fontWeight: '800' },
+  headerText: { flex: 1 },
+  title: { color: colors.text, fontSize: 22, fontWeight: '900', marginTop: 3 },
+  subtitle: { color: colors.muted, lineHeight: 18, marginTop: 3 },
+  portrait: { minHeight: 170, backgroundColor: '#203c55', borderRadius: 10, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  halo: { width: 94, height: 94, borderRadius: 47, borderWidth: 1, borderColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
+  portraitCaption: { color: '#f4ead3', fontWeight: '700' },
+  article: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 14, gap: 8 },
+  articleTitle: { color: colors.text, fontSize: 16, fontWeight: '900' },
+  paragraph: { color: colors.muted, fontSize: 14, lineHeight: 21 },
+  disclaimer: { color: colors.tertiary, fontSize: 12, lineHeight: 18 },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '900', marginTop: 3 },
+  relatedCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12 },
+  relatedTitle: { flex: 1, color: colors.text, fontWeight: '800' },
 })

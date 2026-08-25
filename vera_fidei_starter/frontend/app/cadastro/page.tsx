@@ -2,31 +2,36 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import AuthShell from '@/components/auth/AuthShell'
 import { getUser, register } from '@/lib/auth'
 
 export default function CadastroPage() {
+  const router = useRouter()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    setReady(true)
     getUser().then((user) => {
-      if (user) window.location.replace('/perfil')
+      if (user) router.replace('/perfil')
     })
-  }, [])
+  }, [router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    if (password.length < 8) {
+      setError('A senha deve ter pelo menos 8 caracteres.')
+      return
+    }
     setLoading(true)
     try {
       await register(name, email, password)
-      window.location.assign('/perfil')
+      router.replace('/perfil')
+      router.refresh()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao cadastrar')
       setLoading(false)
@@ -77,21 +82,21 @@ export default function CadastroPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
+            minLength={8}
             autoComplete="new-password"
             className="w-full rounded-lg border border-fundo-borda bg-fundo px-3 py-2.5 text-sm text-texto transition-colors placeholder:text-texto-terciario focus:border-dourado focus:outline-none"
           />
-          <p className="mt-1 text-xs text-texto-terciario">Minimo de 6 caracteres</p>
+          <p className="mt-1 text-xs text-texto-terciario">Mínimo de 8 caracteres</p>
         </div>
 
         {error && <p className="text-xs text-vermelho">{error}</p>}
 
         <button
           type="submit"
-          disabled={loading || !ready}
+          disabled={loading}
           className="rounded-lg bg-dourado py-2.5 text-sm font-medium text-fundo transition-colors hover:bg-dourado-claro disabled:opacity-50"
         >
-          {!ready ? 'Carregando...' : loading ? 'Criando conta...' : 'Criar conta'}
+          {loading ? 'Criando conta...' : 'Criar conta'}
         </button>
       </form>
     </AuthShell>

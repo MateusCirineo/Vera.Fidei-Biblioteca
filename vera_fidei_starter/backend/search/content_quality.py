@@ -716,9 +716,13 @@ def filter_quotable_hits(
         original = hit.text or ""
         translation = hit.translation_text or ""
         chunk_author = getattr(hit, "chunk_author", None)
-        if not _chunk_attribution_is_specific(hit.author, chunk_author, hit.work_title):
+        author = getattr(hit, "author", None)
+        work_title = getattr(hit, "work_title", None)
+        section = getattr(hit, "chapter_or_section", None)
+        pdf_page = getattr(hit, "pdf_page", None)
+        if not _chunk_attribution_is_specific(author, chunk_author, work_title):
             continue
-        effective_author = _effective_author(hit.author, chunk_author, hit.work_title)
+        effective_author = _effective_author(author, chunk_author, work_title)
         if fold_text(effective_author) in _GENERIC_BOOK_AUTHORS:
             # A collective volume without per-chunk attribution cannot be
             # presented truthfully as a quotation of a specific Father. Some
@@ -728,17 +732,17 @@ def filter_quotable_hits(
             continue
         original_assessment = assess_content(
             original,
-            section=hit.chapter_or_section,
+            section=section,
             author=effective_author,
-            work_title=hit.work_title,
-            pdf_page=hit.pdf_page,
+            work_title=work_title,
+            pdf_page=pdf_page,
         )
         translation_assessment = assess_content(
             translation,
-            section=hit.chapter_or_section,
+            section=section,
             author=effective_author,
-            work_title=hit.work_title,
-            pdf_page=hit.pdf_page,
+            work_title=work_title,
+            pdf_page=pdf_page,
         ) if translation else ContentAssessment("missing", False, 0.0)
 
         original_folded = fold_text(original)
@@ -755,10 +759,10 @@ def filter_quotable_hits(
             passage = extract_query_passage(
                 translation,
                 query,
-                section=hit.chapter_or_section,
+                section=section,
                 author=effective_author,
-                work_title=hit.work_title,
-                pdf_page=hit.pdf_page,
+                work_title=work_title,
+                pdf_page=pdf_page,
             )
             if not passage:
                 continue
@@ -774,10 +778,10 @@ def filter_quotable_hits(
             passage = extract_query_passage(
                 original,
                 query,
-                section=hit.chapter_or_section,
+                section=section,
                 author=effective_author,
-                work_title=hit.work_title,
-                pdf_page=hit.pdf_page,
+                work_title=work_title,
+                pdf_page=pdf_page,
             )
             if not passage:
                 continue

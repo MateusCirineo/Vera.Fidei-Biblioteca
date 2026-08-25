@@ -1,0 +1,15 @@
+[Unit]
+Description=Vera Fidei Patrologia Orientalis Latin candidate OCR
+After=docker.service vera-latin-reindex.service vera-greek-latin-reindex.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/vera_fidei/backend/scripts/run_orientalis_latin_corpus_reindex.sh
+WorkingDirectory=/opt/vera_fidei
+Nice=10
+IOSchedulingClass=idle
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

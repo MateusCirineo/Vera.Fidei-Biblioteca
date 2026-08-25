@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useRef, useState } from 'react'
 
 export default function AppSplash() {
@@ -52,9 +53,13 @@ export default function AppSplash() {
       aria-label="Inicializando Vera.Fidei"
       aria-live="polite"
     >
-      <img
+      <Image
         src="/branding/splash-preto-1290x2796.png"
         alt=""
+        width={1290}
+        height={2796}
+        priority
+        sizes="100vw"
         className="vf-app-splash__art"
         aria-hidden="true"
       />

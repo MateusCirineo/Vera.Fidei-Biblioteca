@@ -11,7 +11,8 @@ from langdetect import detect, LangDetectException
 from sqlalchemy import func
 
 from models.database import SessionLocal, Book, Chunk, BookFile, Translation
-from search.text_search import TextSearchClient
+from search.content_quality import assess_content
+from search.text_search import PATRISTIC_COLLECTIONS, TextSearchClient
 from search.semantic_search import SemanticSearchClient
 from storage.pdf_storage import get_pdf_storage
 from ingestion.pdf_extractor import PDFExtractor
@@ -21,6 +22,17 @@ from utils.author_detection import detect_author, detect_canonical_title, detect
 from utils.language import detect_latin_heuristic, normalize_lang
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "pdfs")
+
+
+def _is_patristic_book(book: Book | None) -> bool:
+    return bool(
+        book
+        and (
+            book.library_section == "patristica"
+            or book.patristic_tradition
+            or book.collection in PATRISTIC_COLLECTIONS
+        )
+    )
 
 # ─── Detecção de tradutor nas primeiras páginas ───────────────────────────────
 
@@ -306,6 +318,10 @@ class IngestionService:
                     char_offset_end=chunk_data.get("char_offset_end"),
                     visual_anchor=f"col{chunk_data.get('column_start', '')}",
                     chapter_or_section=chunk_data.get("chapter_or_section", ""),
+                    extraction_method=chunk_data.get("extraction_method", "legacy_unknown"),
+                    source_fidelity=chunk_data.get("source_fidelity", "unverified"),
+                    fidelity_score=chunk_data.get("fidelity_score"),
+                    fidelity_reasons=chunk_data.get("fidelity_reasons"),
                 )
                 db.add(chunk)
                 chunk_records.append(chunk)
@@ -314,9 +330,18 @@ class IngestionService:
 
             book = db.get(Book, book_id)
             semantic_language = normalize_lang(book.language if book else "la")
+            is_patristic = _is_patristic_book(book)
             es_items: list[tuple[int, dict]] = []
             chroma_items: list[tuple[int, str, dict]] = []
             for chunk in chunk_records:
+                quality = assess_content(
+                    chunk.text,
+                    section=chunk.chapter_or_section,
+                    author=book.author,
+                    work_title=book.title,
+                    pdf_page=chunk.pdf_page,
+                )
+                source_is_public = chunk.source_fidelity in {"source_text", "verified"}
                 es_items.append((
                     chunk.id,
                     {
@@ -334,18 +359,26 @@ class IngestionService:
                         "chapter_or_section": chunk.chapter_or_section,
                         "char_offset_start": chunk.char_offset_start,
                         "char_offset_end": chunk.char_offset_end,
+                        "content_role": quality.role,
+                        "is_quotable": quality.is_quotable and source_is_public,
+                        "content_quality_score": quality.quality_score,
+                        "extraction_method": chunk.extraction_method,
+                        "source_fidelity": chunk.source_fidelity,
+                        "fidelity_score": chunk.fidelity_score,
                     },
                 ))
-                chroma_items.append((
-                    chunk.id,
-                    chunk.text,
-                    {
-                        "book_id": book_id,
-                        "book_file_id": book_file.id,
-                        "author": book.author,
-                        "work_title": book.title,
-                    },
-                ))
+                if source_is_public and (not is_patristic or quality.is_quotable):
+                    chroma_items.append((
+                        chunk.id,
+                        chunk.text,
+                        {
+                            "book_id": book_id,
+                            "book_file_id": book_file.id,
+                            "author": book.author,
+                            "work_title": book.title,
+                            "content_role": quality.role,
+                        },
+                    ))
 
             try:
                 self.text_search.index_chunks(es_items)
@@ -621,6 +654,10 @@ class IngestionService:
                         char_offset_end=chunk_data.get("char_offset_end"),
                         visual_anchor=f"col{chunk_data.get('column_start', '')}",
                         chapter_or_section=chunk_data.get("chapter_or_section", ""),
+                        extraction_method=chunk_data.get("extraction_method", "legacy_unknown"),
+                        source_fidelity=chunk_data.get("source_fidelity", "unverified"),
+                        fidelity_score=chunk_data.get("fidelity_score"),
+                        fidelity_reasons=chunk_data.get("fidelity_reasons"),
                     )
                     db.add(chunk)
                     chunk_records.append(chunk)
@@ -629,9 +666,18 @@ class IngestionService:
 
                 book = db.get(Book, book_id)
                 semantic_language = normalize_lang(book.language if book else "la")
+                is_patristic = _is_patristic_book(book)
                 es_items: list[tuple[int, dict]] = []
                 chroma_items: list[tuple[int, str, dict]] = []
                 for chunk in chunk_records:
+                    quality = assess_content(
+                        chunk.text,
+                        section=chunk.chapter_or_section,
+                        author=book.author,
+                        work_title=book.title,
+                        pdf_page=chunk.pdf_page,
+                    )
+                    source_is_public = chunk.source_fidelity in {"source_text", "verified"}
                     es_items.append((
                         chunk.id,
                         {
@@ -649,18 +695,26 @@ class IngestionService:
                             "chapter_or_section": chunk.chapter_or_section,
                             "char_offset_start": chunk.char_offset_start,
                             "char_offset_end": chunk.char_offset_end,
+                            "content_role": quality.role,
+                            "is_quotable": quality.is_quotable and source_is_public,
+                            "content_quality_score": quality.quality_score,
+                            "extraction_method": chunk.extraction_method,
+                            "source_fidelity": chunk.source_fidelity,
+                            "fidelity_score": chunk.fidelity_score,
                         },
                     ))
-                    chroma_items.append((
-                        chunk.id,
-                        chunk.text,
-                        {
-                            "book_id": book_id,
-                            "book_file_id": book_file_id,
-                            "author": book.author,
-                            "work_title": book.title,
-                        },
-                    ))
+                    if source_is_public and (not is_patristic or quality.is_quotable):
+                        chroma_items.append((
+                            chunk.id,
+                            chunk.text,
+                            {
+                                "book_id": book_id,
+                                "book_file_id": book_file_id,
+                                "author": book.author,
+                                "work_title": book.title,
+                                "content_role": quality.role,
+                            },
+                        ))
                 db.commit()
 
             try:

@@ -78,6 +78,8 @@ h3 {
   transition:
     opacity 560ms ease,
     visibility 560ms ease;
+  /* Safety net before React hydrates on a slow mobile connection. */
+  animation: vf-splash-fallback-hide 1ms linear 3200ms forwards;
 }
 
 .vf-app-splash--leaving {
@@ -167,6 +169,13 @@ h3 {
   }
 }
 
+@keyframes vf-splash-fallback-hide {
+  to {
+    visibility: hidden;
+    opacity: 0;
+  }
+}
+
 @media (min-width: 768px) {
   .vf-app-splash__art {
     object-fit: contain;
@@ -194,11 +203,14 @@ h3 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vf-app-splash,
   .vf-app-splash__art,
   .vf-app-splash__loader::before,
   .vf-app-splash__loader span {
     animation: none;
+    transition: none;
+  }
+
+  .vf-app-splash {
     transition: none;
   }
 }

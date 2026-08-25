@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
+// Server-side requests must use the Docker network. Calling the public URL here
+// would send /api/pdfs back through Nginx and recurse into this same handler.
+const BASE = process.env.INTERNAL_API_URL ?? 'http://backend:8000'
+const API_KEY = process.env.INTERNAL_API_KEY ?? process.env.NEXT_PUBLIC_API_KEY ?? ''
 
 export async function GET(
   request: NextRequest,
@@ -18,6 +20,9 @@ export async function GET(
   }
 
   const upstreamUrl = new URL(`${BASE}/pdfs/${fileId}`)
+  const rangeHeader = request.headers.get('range')
+  const requestedStream = request.nextUrl.searchParams.get('stream')
+  if (requestedStream) upstreamUrl.searchParams.set('stream', requestedStream)
   if (request.nextUrl.searchParams.get('download')) {
     upstreamUrl.searchParams.set('download', '1')
   }
@@ -26,8 +31,9 @@ export async function GET(
     Authorization: `Bearer ${token}`,
   }
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  const range = request.headers.get('range')
-  if (range) headers.Range = range
+  const forwardedApiKey = request.headers.get('x-api-key')
+  if (forwardedApiKey) headers['X-API-Key'] = forwardedApiKey
+  if (rangeHeader) headers.Range = rangeHeader
 
   const res = await fetch(upstreamUrl.toString(), {
     headers,
@@ -61,6 +67,7 @@ function copyPdfHeaders(headers: Headers): Headers {
     'content-type',
     'etag',
     'last-modified',
+    'x-accel-redirect',
   ]) {
     const value = headers.get(key)
     if (value) responseHeaders.set(key, value)
@@ -68,11 +75,20 @@ function copyPdfHeaders(headers: Headers): Headers {
   if (!responseHeaders.has('content-type')) {
     responseHeaders.set('content-type', 'application/pdf')
   }
-  responseHeaders.set('cache-control', 'private, no-store')
+  responseHeaders.set('cache-control', 'private, max-age=60, must-revalidate')
+  responseHeaders.set('vary', 'Range')
   return responseHeaders
 }
 
 function readToken(request: NextRequest): string {
+  const authHeader = request.headers.get('authorization')
+  if (authHeader) {
+    const [type, value] = authHeader.split(' ')
+    if (type?.toLowerCase() === 'bearer' && value) {
+      return value
+    }
+  }
+
   const cookieValue = request.cookies.get('vf_token')?.value
   if (!cookieValue) return ''
   try {

@@ -84,14 +84,14 @@ function workSummary(books: Book[]): string {
   const languages = [...new Set(books.map(book => book.language).filter(Boolean))]
   const chunks = books.reduce((sum, book) => sum + (book.chunk_count ?? 0), 0)
   const parts = [
-    languages.length > 0 ? languages.map(language => formatLanguage(language!)).join(' Â· ') : null,
+    languages.length > 0 ? languages.map(language => formatLanguage(language!)).join(' · ') : null,
     chunks > 0 ? `${chunks.toLocaleString('pt-BR')} trechos` : null,
   ].filter(Boolean)
-  return parts.length > 0 ? parts.join(' Â· ') : 'Obra catalogada'
+  return parts.length > 0 ? parts.join(' · ') : 'Obra catalogada'
 }
 
 function publisherDetailLabel(publisher: string | null): string {
-  if (!publisher || publisher === UNKNOWN_PUBLISHER) return 'Editora nÃ£o identificada no PDF'
+  if (!publisher || publisher === UNKNOWN_PUBLISHER) return 'Editora não identificada no PDF'
   return `Editora: ${publisher}`
 }
 

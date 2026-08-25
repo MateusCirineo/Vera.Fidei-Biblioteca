@@ -2,21 +2,39 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
+import logging
+import re
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import func
 
-from core.deps import get_current_user
+from core.deps import get_current_user, require_owner
 from core.email import send_email
-from core.plans import ensure_owner_access, initial_plan_for_email, normalize_email
+from core.plans import ensure_owner_access, has_min_plan, initial_plan_for_email, is_owner_email, normalize_email
 from core.config import settings
 from core.security import create_access_token, hash_password, verify_password
-from models.database import EmailVerificationToken, PasswordResetToken, SessionLocal, User
+from models.database import (
+    ApiKey,
+    BillingRequest,
+    EmailVerificationToken,
+    Institution,
+    InstitutionMember,
+    PasswordResetToken,
+    SearchUsage,
+    SessionLocal,
+    User,
+    UserFavorite,
+    VerificationHistory,
+)
 from schemas.auth import (
     ContactRequest,
+    DeleteAccountRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    MobileWebSessionRequest,
     RegisterRequest,
     ResetPasswordRequest,
     TokenResponse,
@@ -24,9 +42,241 @@ from schemas.auth import (
 )
 
 router = APIRouter()
+SESSION_COOKIE = "vf_token"
+MOBILE_WEB_SESSION_MINUTES = 15
+_MOBILE_REDIRECT_RE = re.compile(r"^/visualizar/([1-9][0-9]*)\?page=([1-9][0-9]*)$")
+_MOBILE_ACCOUNT_REDIRECTS = frozenset({"/perfil", "/planos"})
+logger = logging.getLogger(__name__)
+
+BLOCKING_STRIPE_SUBSCRIPTION_STATUSES = {
+    "active",
+    "trialing",
+    "past_due",
+    "unpaid",
+    "incomplete",
+    "paused",
+}
 
 
-def _send_verification_email(user: User) -> None:
+def _session_cookie_secure() -> bool:
+    return settings.vera_environment.strip().lower() in {"production", "prod"}
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        max_age=max(60, int(settings.jwt_expire_minutes) * 60),
+        path="/",
+        secure=_session_cookie_secure(),
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _validate_mobile_redirect(value: str) -> str:
+    """Accept only the one relative viewer shape understood by the mobile app."""
+    match = _MOBILE_REDIRECT_RE.fullmatch(value)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Destino do visualizador inválido.",
+        )
+    file_id, page = (int(part) for part in match.groups())
+    if not (0 < file_id <= 2_147_483_647 and 0 < page <= 1_000_000):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Destino do visualizador inválido.",
+        )
+    return f"/visualizar/{file_id}?page={page}"
+
+
+def _validate_mobile_account_redirect(value: str) -> str:
+    """Accept only the two authenticated account pages exposed by the app."""
+    if value not in _MOBILE_ACCOUNT_REDIRECTS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Destino da conta inválido.",
+        )
+    return value
+
+
+def _mobile_bearer_user(authorization: str = Header(default="")) -> User:
+    """Require an explicit native Bearer token; a browser cookie is insufficient."""
+    if not authorization.startswith("Bearer ") or not authorization.removeprefix("Bearer ").strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token Bearer ausente ou mal formatado.",
+        )
+    return get_current_user(authorization=authorization, vf_token=None)
+
+
+def _mobile_pdf_user(current_user: User = Depends(_mobile_bearer_user)) -> User:
+    if not has_min_plan(current_user.plan, "apologeta"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="O visualizador de PDFs requer o plano Apologeta ou superior.",
+        )
+    return current_user
+
+
+def _issue_mobile_web_session(redirect_path: str, current_user: User) -> RedirectResponse:
+    token = create_access_token(
+        current_user.id,
+        int(current_user.session_version or 0),
+        expires_minutes=MOBILE_WEB_SESSION_MINUTES,
+    )
+    response = RedirectResponse(
+        url=redirect_path,
+        status_code=status.HTTP_303_SEE_OTHER,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        max_age=MOBILE_WEB_SESSION_MINUTES * 60,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+def _mobile_web_session_response(redirect_value: str, current_user: User) -> RedirectResponse:
+    return _issue_mobile_web_session(_validate_mobile_redirect(redirect_value), current_user)
+
+
+def _mobile_account_session_response(redirect_value: str, current_user: User) -> RedirectResponse:
+    return _issue_mobile_web_session(_validate_mobile_account_redirect(redirect_value), current_user)
+
+
+def _clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=SESSION_COOKIE,
+        path="/",
+        secure=_session_cookie_secure(),
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _stripe_live_subscription_statuses(user: User) -> set[str]:
+    """Read all Stripe subscriptions linked to an account without mutating them."""
+    import stripe
+
+    from api.routes.billing import _configure_stripe, _stripe_get, _stripe_id
+
+    _configure_stripe()
+    subscriptions: dict[str, object] = {}
+
+    def items_from(page: object):
+        auto_paging_iter = getattr(page, "auto_paging_iter", None)
+        if callable(auto_paging_iter):
+            return auto_paging_iter()
+        return iter(_stripe_get(page, "data") or [])
+
+    def remember(subscription: object) -> None:
+        subscription_id = _stripe_id(subscription)
+        if subscription_id:
+            subscriptions[subscription_id] = subscription
+
+    stored_subscription_id = (user.billing_subscription_id or "").strip()
+    if stored_subscription_id.startswith("sub_"):
+        try:
+            remember(stripe.Subscription.retrieve(stored_subscription_id))
+        except stripe.error.InvalidRequestError:
+            logger.info(
+                "stripe_subscription_missing_during_account_deletion user_id=%s subscription_suffix=%s",
+                user.id,
+                stored_subscription_id[-8:],
+            )
+
+    customer_ids: set[str] = set()
+    if user.billing_customer_id:
+        customer_ids.add(user.billing_customer_id)
+
+    normalized_email = normalize_email(user.email)
+
+    def remember_customer(customer: object) -> None:
+        customer_id = _stripe_id(customer)
+        if not customer_id:
+            return
+        metadata = _stripe_get(customer, "metadata") or {}
+        metadata_user_id = str(_stripe_get(metadata, "user_id") or "")
+        customer_email = normalize_email(str(_stripe_get(customer, "email") or ""))
+        if metadata_user_id == str(user.id) or customer_email == normalized_email:
+            customer_ids.add(customer_id)
+
+    # Existing accounts may predate email normalization. Query both spellings
+    # so a mixed-case legacy email cannot leave a paid Stripe customer behind.
+    for lookup_email in {str(user.email).strip(), normalized_email}:
+        for customer in items_from(stripe.Customer.list(email=lookup_email, limit=100)):
+            remember_customer(customer)
+
+    customer_search = getattr(stripe.Customer, "search", None)
+    if callable(customer_search):
+        metadata_query = f"metadata['user_id']:'{int(user.id)}'"
+        for customer in items_from(customer_search(query=metadata_query, limit=100)):
+            remember_customer(customer)
+
+    for customer_id in customer_ids:
+        try:
+            page = stripe.Subscription.list(customer=customer_id, status="all", limit=100)
+        except stripe.error.InvalidRequestError:
+            logger.info(
+                "stripe_customer_missing_during_account_deletion user_id=%s customer_suffix=%s",
+                user.id,
+                customer_id[-8:],
+            )
+            continue
+        for subscription in items_from(page):
+            remember(subscription)
+
+    statuses: set[str] = set()
+    for subscription in subscriptions.values():
+        status_value = str(_stripe_get(subscription, "status") or "").strip().lower()
+        if not status_value:
+            raise RuntimeError("Stripe returned a subscription without status")
+        statuses.add(status_value)
+    return statuses
+
+
+def _ensure_no_live_stripe_subscription(user: User) -> None:
+    has_stripe_link = bool(
+        user.billing_provider == "stripe"
+        or user.billing_customer_id
+        or (user.billing_subscription_id or "").startswith("sub_")
+    )
+    # A delayed or previously failed webhook can leave a real Stripe customer
+    # without local billing ids.  When Stripe is configured, always perform the
+    # email/metadata lookup as a final fail-closed check before deleting data.
+    # Development installations without Stripe keep the ordinary free-account
+    # deletion flow available.
+    if not has_stripe_link and not settings.stripe_secret_key.strip():
+        return
+
+    try:
+        live_statuses = _stripe_live_subscription_statuses(user)
+    except Exception as exc:
+        logger.exception("stripe_account_deletion_check_failed user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Não foi possível confirmar o cancelamento da assinatura agora. Tente novamente em instantes.",
+        ) from exc
+
+    if live_statuses & BLOCKING_STRIPE_SUBSCRIPTION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cancele a assinatura no portal de cobrança antes de excluir a conta.",
+        )
+
+
+def _send_verification_email(user: User) -> bool:
     raw = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
     with SessionLocal() as db:
@@ -54,7 +304,10 @@ def _send_verification_email(user: User) -> None:
       <p style="font-size:11px;color:#bbb;">Vera.Fidei — Biblioteca Católica Digital</p>
     </div>
     """
-    send_email(user.email, "Confirme seu e-mail — Vera.Fidei", html)
+    sent = send_email(user.email, "Confirme seu e-mail — Vera.Fidei", html)
+    if not sent:
+        logger.warning("verification_email_not_sent user_id=%s", user.id)
+    return sent
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -74,12 +327,12 @@ def register(payload: RegisterRequest) -> TokenResponse:
         db.add(user)
         db.commit()
         db.refresh(user)
-        token = create_access_token(user.id)
+        token = create_access_token(user.id, int(user.session_version or 0))
         user_copy = User(id=user.id, name=user.name, email=user.email, email_verified=user.email_verified)
     try:
         _send_verification_email(user_copy)
     except Exception:
-        pass
+        logger.exception("verification_email_failed_after_registration user_id=%s", user_copy.id)
     return TokenResponse(access_token=token)
 
 
@@ -96,12 +349,290 @@ def login(payload: LoginRequest) -> TokenResponse:
             db.commit()
             db.refresh(user)
         user_id = user.id
-    return TokenResponse(access_token=create_access_token(user_id))
+        session_version = int(user.session_version or 0)
+    return TokenResponse(access_token=create_access_token(user_id, session_version))
+
+
+@router.post("/web-register", status_code=status.HTTP_201_CREATED)
+def web_register(payload: RegisterRequest, response: Response) -> dict[str, bool]:
+    """Register a browser session without exposing its JWT to JavaScript."""
+    token = register(payload).access_token
+    _set_session_cookie(response, token)
+    return {"authenticated": True}
+
+
+@router.post("/web-login")
+def web_login(payload: LoginRequest, response: Response) -> dict[str, bool]:
+    """Authenticate the web app with a Secure, HttpOnly session cookie."""
+    token = login(payload).access_token
+    _set_session_cookie(response, token)
+    return {"authenticated": True}
+
+
+@router.post(
+    "/mobile-web-session",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_303_SEE_OTHER,
+)
+def mobile_web_session(
+    payload: MobileWebSessionRequest,
+    current_user: User = Depends(_mobile_pdf_user),
+) -> RedirectResponse:
+    """Exchange a native Bearer session for a short-lived, host-only web cookie."""
+    return _mobile_web_session_response(payload.redirect, current_user)
+
+
+@router.get(
+    "/mobile-web-session",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_303_SEE_OTHER,
+)
+def mobile_web_session_webview(
+    redirect: str = Header(alias="X-Vera-Fidei-Redirect", min_length=1, max_length=200),
+    current_user: User = Depends(_mobile_pdf_user),
+) -> RedirectResponse:
+    """Android WebView bridge: GET is required because POST drops custom headers."""
+    return _mobile_web_session_response(redirect, current_user)
+
+
+@router.post(
+    "/mobile-account-session",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_303_SEE_OTHER,
+)
+def mobile_account_session(
+    payload: MobileWebSessionRequest,
+    current_user: User = Depends(_mobile_bearer_user),
+) -> RedirectResponse:
+    """Open one allowlisted account page from the authenticated native app."""
+    return _mobile_account_session_response(payload.redirect, current_user)
+
+
+@router.get(
+    "/mobile-account-session",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_303_SEE_OTHER,
+)
+def mobile_account_session_webview(
+    redirect: str = Header(alias="X-Vera-Fidei-Redirect", min_length=1, max_length=200),
+    current_user: User = Depends(_mobile_bearer_user),
+) -> RedirectResponse:
+    """Android WebView bridge for the two allowlisted account pages."""
+    return _mobile_account_session_response(redirect, current_user)
+
+
+@router.post("/logout")
+def logout(response: Response) -> dict[str, bool]:
+    _clear_session_cookie(response)
+    return {"authenticated": False}
 
 
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)) -> UserResponse:
-    return UserResponse.model_validate(current_user)
+    return UserResponse.model_validate(current_user).model_copy(
+        update={"is_owner": is_owner_email(current_user.email)}
+    )
+
+
+@router.get("/admin", response_model=UserResponse)
+def admin_session(current_user: User = Depends(require_owner)) -> UserResponse:
+    return UserResponse.model_validate(current_user).model_copy(update={"is_owner": True})
+
+
+def _iso(value: datetime.date | datetime.datetime | None) -> str | None:
+    if value is None:
+        return None
+    rendered = value.isoformat()
+    if isinstance(value, datetime.datetime) and value.tzinfo is None:
+        rendered += "Z"
+    return rendered
+
+
+def _stored_json(value: str | None):
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
+
+
+@router.get("/data-export")
+def export_personal_data(current_user: User = Depends(get_current_user)) -> JSONResponse:
+    """Return the signed-in user's portable data without credentials or secrets."""
+    with SessionLocal() as db:
+        user = db.get(User, current_user.id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conta não encontrada.")
+
+        favorites = db.query(UserFavorite).filter(UserFavorite.user_id == user.id).order_by(UserFavorite.id).all()
+        history = (
+            db.query(VerificationHistory)
+            .filter(VerificationHistory.user_id == user.id)
+            .order_by(VerificationHistory.id)
+            .all()
+        )
+        usage = db.query(SearchUsage).filter(SearchUsage.user_id == user.id).order_by(SearchUsage.usage_date).all()
+        billing = db.query(BillingRequest).filter(BillingRequest.user_id == user.id).order_by(BillingRequest.id).all()
+        api_keys = db.query(ApiKey).filter(ApiKey.user_id == user.id).order_by(ApiKey.id).all()
+        memberships = (
+            db.query(InstitutionMember, Institution.name)
+            .join(Institution, Institution.id == InstitutionMember.institution_id)
+            .filter(InstitutionMember.user_id == user.id)
+            .order_by(InstitutionMember.id)
+            .all()
+        )
+        administered = db.query(Institution).filter(Institution.admin_user_id == user.id).order_by(Institution.id).all()
+
+        payload = {
+            "exported_at": _iso(datetime.datetime.utcnow()),
+            "format": "vera-fidei-personal-data-v1",
+            "account": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "email_verified": bool(user.email_verified),
+                "plan": user.plan,
+                "is_active": bool(user.is_active),
+                "created_at": _iso(user.created_at),
+                "billing": {
+                    "provider": user.billing_provider,
+                    "status": user.billing_status,
+                    "current_period_end": _iso(user.billing_current_period_end),
+                    "cancel_at_period_end": bool(user.billing_cancel_at_period_end),
+                },
+            },
+            "favorites": [
+                {
+                    "kind": row.kind,
+                    "item_id": row.item_id,
+                    "title": row.title,
+                    "subtitle": row.subtitle,
+                    "href": row.href,
+                    "source": row.source,
+                    "metadata": _stored_json(row.metadata_json),
+                    "created_at": _iso(row.created_at),
+                    "updated_at": _iso(row.updated_at),
+                }
+                for row in favorites
+            ],
+            "citation_verifications": [
+                {
+                    "citation_text": row.citation_text,
+                    "attributed_to": row.attributed_to,
+                    "status_code": row.status_code,
+                    "label": row.label,
+                    "confidence": row.confidence,
+                    "author": row.author,
+                    "work": row.work,
+                    "reference": _stored_json(row.reference_json),
+                    "matched_excerpt": row.matched_excerpt,
+                    "explanation": row.explanation,
+                    "response": _stored_json(row.response_json),
+                    "created_at": _iso(row.created_at),
+                }
+                for row in history
+            ],
+            "search_usage": [
+                {"date": _iso(row.usage_date), "count": row.count}
+                for row in usage
+            ],
+            "billing_requests": [
+                {
+                    "plan": row.plan,
+                    "amount_cents": row.amount_cents,
+                    "status": row.status,
+                    "provider": row.provider,
+                    "reference_code": row.reference_code,
+                    "created_at": _iso(row.created_at),
+                    "updated_at": _iso(row.updated_at),
+                }
+                for row in billing
+            ],
+            "api_keys": [
+                {
+                    "label": row.label,
+                    "is_active": bool(row.is_active),
+                    "usage_count": row.usage_count,
+                    "created_at": _iso(row.created_at),
+                    "last_used_at": _iso(row.last_used_at),
+                }
+                for row in api_keys
+            ],
+            "institutions": {
+                "administered": [{"id": row.id, "name": row.name} for row in administered],
+                "memberships": [
+                    {
+                        "institution_id": member.institution_id,
+                        "institution_name": institution_name,
+                        "role": member.role,
+                        "joined_at": _iso(member.joined_at),
+                    }
+                    for member, institution_name in memberships
+                ],
+            },
+        }
+
+    stamp = datetime.datetime.utcnow().strftime("%Y%m%d")
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Content-Disposition": f'attachment; filename="vera-fidei-dados-{stamp}.json"',
+            "Cache-Control": "no-store, max-age=0",
+        },
+    )
+
+
+@router.delete("/account")
+def delete_account(
+    payload: DeleteAccountRequest,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Permanently remove a non-owner account after fresh password confirmation."""
+    if payload.confirmation.strip().upper() != "EXCLUIR":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='Digite "EXCLUIR" para confirmar.',
+        )
+    if is_owner_email(current_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A conta proprietária não pode ser excluída por este fluxo.",
+        )
+
+    with SessionLocal() as db:
+        user = db.get(User, current_user.id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conta não encontrada.")
+        if not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha incorreta.")
+
+        _ensure_no_live_stripe_subscription(user)
+
+        administered_ids = [
+            row.id
+            for row in db.query(Institution.id).filter(Institution.admin_user_id == user.id).all()
+        ]
+        if administered_ids:
+            db.query(InstitutionMember).filter(
+                InstitutionMember.institution_id.in_(administered_ids)
+            ).delete(synchronize_session=False)
+            db.query(Institution).filter(Institution.id.in_(administered_ids)).delete(synchronize_session=False)
+
+        db.query(InstitutionMember).filter(InstitutionMember.user_id == user.id).delete(synchronize_session=False)
+        db.query(ApiKey).filter(ApiKey.user_id == user.id).delete(synchronize_session=False)
+        db.query(BillingRequest).filter(BillingRequest.user_id == user.id).delete(synchronize_session=False)
+        db.query(SearchUsage).filter(SearchUsage.user_id == user.id).delete(synchronize_session=False)
+        db.query(EmailVerificationToken).filter(EmailVerificationToken.user_id == user.id).delete(synchronize_session=False)
+        db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).delete(synchronize_session=False)
+        db.query(UserFavorite).filter(UserFavorite.user_id == user.id).delete(synchronize_session=False)
+        db.query(VerificationHistory).filter(VerificationHistory.user_id == user.id).delete(synchronize_session=False)
+        db.delete(user)
+        db.commit()
+
+    _clear_session_cookie(response)
+    return {"message": "Conta e dados pessoais excluídos."}
 
 
 # ─── Recuperação de senha ─────────────────────────────────────────────────────
@@ -145,7 +676,14 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict:
       <p style="font-size:11px;color:#bbb;">Vera.Fidei — Biblioteca Católica Digital</p>
     </div>
     """
-    send_email(email, "Redefinição de senha — Vera.Fidei", html)
+    try:
+        sent = send_email(email, "Redefinição de senha — Vera.Fidei", html)
+        if not sent:
+            logger.warning("password_reset_email_not_sent user_id=%s", user.id)
+    except Exception:
+        # Preserve the generic public response while making delivery failures
+        # visible to production monitoring and logs.
+        logger.exception("password_reset_email_failed user_id=%s", user.id)
     return {"message": "Se o e-mail estiver cadastrado, você receberá o link em breve."}
 
 
@@ -153,17 +691,23 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict:
 def reset_password(payload: ResetPasswordRequest) -> dict:
     token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
     with SessionLocal() as db:
-        token = db.query(PasswordResetToken).filter(
-            PasswordResetToken.token_hash == token_hash,
-            PasswordResetToken.used == False,  # noqa: E712
-            PasswordResetToken.expires_at > datetime.datetime.utcnow(),
-        ).first()
+        token = (
+            db.query(PasswordResetToken)
+            .filter(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used == False,  # noqa: E712
+                PasswordResetToken.expires_at > datetime.datetime.utcnow(),
+            )
+            .with_for_update()
+            .first()
+        )
         if not token:
             raise HTTPException(status_code=400, detail="Link inválido ou expirado. Solicite um novo link.")
         user = db.get(User, token.user_id)
         if not user or not user.is_active:
             raise HTTPException(status_code=400, detail="Usuário não encontrado.")
         user.password_hash = hash_password(payload.password)
+        user.session_version = int(user.session_version or 0) + 1
         token.used = True
         db.commit()
     return {"message": "Senha redefinida com sucesso."}
@@ -194,9 +738,18 @@ def resend_verification(current_user: User = Depends(get_current_user)) -> dict:
     if current_user.email_verified:
         return {"message": "E-mail já verificado."}
     try:
-        _send_verification_email(current_user)
-    except Exception:
-        pass
+        sent = _send_verification_email(current_user)
+    except Exception as exc:
+        logger.exception("verification_email_resend_failed user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Não foi possível reenviar o e-mail agora. Tente novamente em instantes.",
+        ) from exc
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Não foi possível reenviar o e-mail agora. Tente novamente em instantes.",
+        )
     return {"message": "E-mail de verificação reenviado."}
 
 
@@ -219,5 +772,18 @@ def contact(payload: ContactRequest) -> dict:
       <p style="font-size:11px;color:#bbb;">Mensagem enviada via formulário do Vera.Fidei</p>
     </div>
     """
-    send_email(settings.support_email, subject, html)
+    try:
+        sent = send_email(settings.support_email, subject, html)
+    except Exception as exc:
+        logger.exception("contact_email_failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Não foi possível enviar a mensagem agora. Tente novamente em instantes.",
+        ) from exc
+    if not sent:
+        logger.warning("contact_email_not_sent")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Não foi possível enviar a mensagem agora. Tente novamente em instantes.",
+        )
     return {"message": "Mensagem enviada. Responderemos em breve no e-mail informado."}

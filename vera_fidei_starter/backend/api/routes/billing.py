@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import secrets
-from typing import Any
+from typing import Any, Literal
 
 import stripe
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 
 from core.auth import require_api_key
 from core.config import settings
@@ -15,6 +17,7 @@ from core.plans import ensure_owner_access, is_owner_email
 from models.database import BillingRequest, SessionLocal, User
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 PAID_PLANS = {"catequista", "apologeta", "patristico", "magisterio"}
 ACTIVE_BILLING_STATUSES = {"active", "trialing"}
@@ -48,6 +51,12 @@ class CheckoutRequest(BaseModel):
 
 class BillingUrlResponse(BaseModel):
     url: str
+
+
+class BillingSyncResponse(BaseModel):
+    synced: bool
+    plan: str
+    billing_status: str | None = None
 
 
 class PixRequestResponse(BaseModel):
@@ -91,6 +100,14 @@ class AdminCouponsResponse(BaseModel):
     inactive: list[AdminCouponResponse]
 
 
+class AdminCouponCreateRequest(BaseModel):
+    code: str = Field(..., min_length=3, max_length=50, pattern=r"^[A-Za-z0-9-]+$")
+    percent_off: float = Field(..., gt=0, le=100)
+    duration: Literal["once", "forever"] = "once"
+    max_redemptions: int | None = Field(default=None, ge=1, le=100000)
+    name: str | None = Field(default=None, max_length=100)
+
+
 def _site_url() -> str:
     return settings.site_url.rstrip("/")
 
@@ -120,6 +137,13 @@ def _stripe_get(obj: Any, key: str, default: Any = None) -> Any:
         return obj[key]
     except (KeyError, TypeError):
         return default
+
+
+def _stripe_id(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    object_id = _stripe_get(value, "id")
+    return str(object_id) if object_id else None
 
 
 def _resolve_promotion_code(code: str) -> str | None:
@@ -285,21 +309,72 @@ def _portal_url(customer_id: str) -> str:
 
 
 def _subscription_plan(subscription: Any, fallback_plan: str | None = None) -> str | None:
-    metadata = subscription.get("metadata") or {}
-    plan = metadata.get("plan") or fallback_plan
-    if plan in PAID_PLANS:
-        return plan
+    metadata = _stripe_get(subscription, "metadata") or {}
+    metadata_plan = _stripe_get(metadata, "plan") or fallback_plan
 
-    items = ((subscription.get("items") or {}).get("data") or [])
-    if items:
-        price = (items[0].get("price") or {})
-        plan = _plan_from_price_id(price.get("id"))
+    items = _stripe_get(_stripe_get(subscription, "items") or {}, "data") or []
+    for item in items:
+        price = _stripe_get(item, "price") or {}
+        plan = _plan_from_price_id(_stripe_id(price))
         if plan in PAID_PLANS:
             return plan
+    if items:
+        return None
+    return metadata_plan if metadata_plan in PAID_PLANS else None
+
+
+def _subscription_period_end(subscription: Any) -> Any:
+    period_end = _stripe_get(subscription, "current_period_end")
+    if period_end:
+        return period_end
+
+    items = _stripe_get(_stripe_get(subscription, "items") or {}, "data") or []
+    item_period_ends = [
+        _stripe_get(item, "current_period_end")
+        for item in items
+        if _stripe_get(item, "current_period_end")
+    ]
+    return max(item_period_ends) if item_period_ends else None
+
+
+def _invoice_subscription_id(invoice: Any) -> str | None:
+    legacy_id = _stripe_id(_stripe_get(invoice, "subscription"))
+    if legacy_id:
+        return legacy_id
+
+    parent = _stripe_get(invoice, "parent") or {}
+    subscription_details = _stripe_get(parent, "subscription_details") or {}
+    parent_id = _stripe_id(_stripe_get(subscription_details, "subscription"))
+    if parent_id:
+        return parent_id
+
+    lines = _stripe_get(_stripe_get(invoice, "lines") or {}, "data") or []
+    for line in lines:
+        line_parent = _stripe_get(line, "parent") or {}
+        item_details = _stripe_get(line_parent, "subscription_item_details") or {}
+        line_id = _stripe_id(_stripe_get(item_details, "subscription"))
+        if line_id:
+            return line_id
     return None
 
 
-def _find_user(db, *, user_id: str | None, customer_id: str | None, subscription_id: str | None) -> User | None:
+def _event_email(data: Any) -> str | None:
+    customer_details = _stripe_get(data, "customer_details") or {}
+    value = (
+        _stripe_get(customer_details, "email")
+        or _stripe_get(data, "customer_email")
+    )
+    return str(value).strip().lower() if value else None
+
+
+def _find_user(
+    db,
+    *,
+    user_id: str | None,
+    customer_id: str | None,
+    subscription_id: str | None,
+    email: str | None = None,
+) -> User | None:
     if user_id and user_id.isdigit():
         user = db.get(User, int(user_id))
         if user:
@@ -312,14 +387,19 @@ def _find_user(db, *, user_id: str | None, customer_id: str | None, subscription
         user = db.query(User).filter(User.billing_customer_id == customer_id).first()
         if user:
             return user
+    if email:
+        normalized_email = email.strip().lower()
+        user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
+        if user:
+            return user
     return None
 
 
 def _apply_subscription(db, user: User, subscription: Any, fallback_plan: str | None = None) -> None:
     plan = _subscription_plan(subscription, fallback_plan=fallback_plan)
-    status_value = subscription.get("status")
-    customer_id = subscription.get("customer")
-    subscription_id = subscription.get("id")
+    status_value = _stripe_get(subscription, "status")
+    customer_id = _stripe_id(_stripe_get(subscription, "customer"))
+    subscription_id = _stripe_id(subscription)
 
     user.billing_provider = "stripe"
     if customer_id:
@@ -327,8 +407,8 @@ def _apply_subscription(db, user: User, subscription: Any, fallback_plan: str | 
     if subscription_id:
         user.billing_subscription_id = subscription_id
     user.billing_status = status_value
-    user.billing_current_period_end = _timestamp_to_datetime(subscription.get("current_period_end"))
-    user.billing_cancel_at_period_end = bool(subscription.get("cancel_at_period_end"))
+    user.billing_current_period_end = _timestamp_to_datetime(_subscription_period_end(subscription))
+    user.billing_cancel_at_period_end = bool(_stripe_get(subscription, "cancel_at_period_end"))
 
     if ensure_owner_access(user):
         return
@@ -337,6 +417,135 @@ def _apply_subscription(db, user: User, subscription: Any, fallback_plan: str | 
         user.plan = plan
     elif status_value in {"canceled", "incomplete_expired", "unpaid"}:
         user.plan = "fiel"
+
+
+def _latest_subscription_for_user(
+    user: User,
+    *,
+    candidate_subscription: Any | None = None,
+) -> Any | None:
+    """Return the newest authoritative subscription without trusting event order.
+
+    Stripe can retry old events after a newer subscription has already become
+    active. Collecting the candidate, the locally linked subscription and the
+    customer's current list prevents a late cancellation/failure from
+    overwriting a newer paid plan.
+    """
+
+    subscriptions_by_id: dict[str, Any] = {}
+
+    def remember(subscription: Any | None) -> None:
+        subscription_id = _stripe_id(subscription)
+        if subscription_id:
+            subscriptions_by_id[subscription_id] = subscription
+
+    remember(candidate_subscription)
+    candidate_id = _stripe_id(candidate_subscription)
+    subscription_id = user.billing_subscription_id or ""
+    if subscription_id.startswith("sub_") and subscription_id != candidate_id:
+        try:
+            remember(stripe.Subscription.retrieve(subscription_id))
+        except stripe.error.InvalidRequestError:
+            logger.warning(
+                "stripe_subscription_not_found user_id=%s subscription_suffix=%s",
+                user.id,
+                subscription_id[-8:],
+            )
+
+    customer_ids: list[str] = []
+    for value in (
+        user.billing_customer_id,
+        _stripe_id(_stripe_get(candidate_subscription, "customer")),
+        *(
+            _stripe_id(_stripe_get(subscription, "customer"))
+            for subscription in subscriptions_by_id.values()
+        ),
+    ):
+        if value and value not in customer_ids:
+            customer_ids.append(value)
+
+    if not customer_ids:
+        customers = _stripe_get(stripe.Customer.list(email=user.email, limit=10), "data") or []
+        matching_customers = [
+            customer
+            for customer in customers
+            if str(_stripe_get(_stripe_get(customer, "metadata") or {}, "user_id") or "") == str(user.id)
+        ]
+        customer = matching_customers[0] if matching_customers else (customers[0] if len(customers) == 1 else None)
+        customer_id = _stripe_id(customer)
+        if customer_id:
+            user.billing_provider = "stripe"
+            user.billing_customer_id = customer_id
+            customer_ids.append(customer_id)
+
+    invalid_customer_ids: list[str] = []
+
+    def load_customer_subscriptions(customer_id: str) -> bool:
+        try:
+            listed_subscriptions = _stripe_get(
+                stripe.Subscription.list(customer=customer_id, status="all", limit=100),
+                "data",
+            ) or []
+        except stripe.error.InvalidRequestError:
+            logger.warning(
+                "stripe_customer_not_found user_id=%s customer_suffix=%s",
+                user.id,
+                customer_id[-8:],
+            )
+            invalid_customer_ids.append(customer_id)
+            return False
+        for subscription in listed_subscriptions:
+            remember(subscription)
+        return True
+
+    for customer_id in customer_ids:
+        load_customer_subscriptions(customer_id)
+
+    has_active_subscription = any(
+        _stripe_get(subscription, "status") in ACTIVE_BILLING_STATUSES
+        and _subscription_plan(subscription) in PAID_PLANS
+        for subscription in subscriptions_by_id.values()
+    )
+    if invalid_customer_ids and not has_active_subscription:
+        customers = _stripe_get(stripe.Customer.list(email=user.email, limit=10), "data") or []
+        replacements = [
+            customer
+            for customer in customers
+            if str(_stripe_get(_stripe_get(customer, "metadata") or {}, "user_id") or "")
+            == str(user.id)
+            and _stripe_id(customer) not in customer_ids
+        ]
+        for replacement in replacements:
+            replacement_id = _stripe_id(replacement)
+            if replacement_id and load_customer_subscriptions(replacement_id):
+                user.billing_customer_id = replacement_id
+
+    subscriptions = list(subscriptions_by_id.values())
+    eligible = [subscription for subscription in subscriptions if _subscription_plan(subscription) in PAID_PLANS]
+    if not eligible:
+        return None
+
+    active = [
+        subscription
+        for subscription in eligible
+        if _stripe_get(subscription, "status") in ACTIVE_BILLING_STATUSES
+    ]
+    candidates = active or eligible
+    return max(
+        candidates,
+        key=lambda item: (
+            int(_stripe_get(item, "created", 0) or 0),
+            _stripe_id(item) or "",
+        ),
+    )
+
+
+def _authoritative_subscription_for_event(user: User, candidate: Any | None) -> Any | None:
+    candidate_id = _stripe_id(candidate)
+    current_id = user.billing_subscription_id or ""
+    if candidate is not None and (not current_id or current_id == candidate_id):
+        return candidate
+    return _latest_subscription_for_user(user, candidate_subscription=candidate)
 
 
 @router.post("/checkout", response_model=BillingUrlResponse, dependencies=[Depends(require_api_key)])
@@ -401,6 +610,48 @@ def create_checkout_session(
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     return BillingUrlResponse(url=checkout["url"])
+
+
+@router.post(
+    "/sync",
+    response_model=BillingSyncResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def sync_billing_subscription(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> BillingSyncResponse:
+    if is_owner_email(current_user.email):
+        return BillingSyncResponse(synced=True, plan="magisterio", billing_status="owner")
+
+    _configure_stripe()
+    with SessionLocal() as db:
+        user = db.get(User, current_user.id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado.")
+
+        try:
+            subscription = _latest_subscription_for_user(user)
+        except stripe.error.StripeError as exc:
+            logger.exception("stripe_sync_failed user_id=%s", user.id)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Não foi possível confirmar a assinatura agora.",
+            ) from exc
+
+        if subscription is not None:
+            _apply_subscription(db, user, subscription)
+        db.commit()
+        db.refresh(user)
+
+        synced = user.billing_status in ACTIVE_BILLING_STATUSES and user.plan in PAID_PLANS
+        if not synced:
+            response.status_code = status.HTTP_202_ACCEPTED
+        return BillingSyncResponse(
+            synced=synced,
+            plan=user.plan,
+            billing_status=user.billing_status,
+        )
 
 
 @router.get("/pix/{reference_code}", response_model=PixRequestResponse, dependencies=[Depends(require_api_key)])
@@ -507,6 +758,172 @@ def list_admin_coupons(
     )
 
 
+@router.post(
+    "/admin/coupons",
+    response_model=AdminCouponResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_api_key)],
+)
+def create_admin_coupon(
+    payload: AdminCouponCreateRequest,
+    current_user: User = Depends(get_current_user),
+) -> AdminCouponResponse:
+    _require_owner_admin(current_user)
+    _configure_stripe()
+
+    code = payload.code.strip().upper()
+    try:
+        existing = stripe.PromotionCode.list(code=code, active=True, limit=1)
+    except stripe.error.StripeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Nao foi possivel consultar os cupons na Stripe.",
+        ) from exc
+    if _stripe_get(existing, "data"):
+        raise HTTPException(status_code=409, detail="Ja existe um cupom ativo com esse codigo.")
+
+    coupon = None
+    try:
+        coupon = stripe.Coupon.create(
+            duration=payload.duration,
+            percent_off=payload.percent_off,
+            name=(payload.name or code).strip(),
+            metadata={"created_by": "vera_fidei_admin", "code": code},
+        )
+        promotion_args: dict[str, Any] = {
+            "promotion": {"type": "coupon", "coupon": _stripe_get(coupon, "id")},
+            "code": code,
+            "metadata": {"created_by": "vera_fidei_admin"},
+        }
+        if payload.max_redemptions is not None:
+            promotion_args["max_redemptions"] = payload.max_redemptions
+        promotion = stripe.PromotionCode.create(**promotion_args)
+        return _coupon_payload_from_promotion_code(promotion)
+    except stripe.error.StripeError as exc:
+        coupon_id = _stripe_get(coupon, "id")
+        if coupon_id:
+            try:
+                stripe.Coupon.delete(coupon_id)
+            except stripe.error.StripeError:
+                pass
+        message = getattr(exc, "user_message", None) or "A Stripe recusou a criacao do cupom."
+        raise HTTPException(status_code=400, detail=message) from exc
+
+
+CHECKOUT_WEBHOOK_EVENTS = {
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+}
+SUBSCRIPTION_WEBHOOK_EVENTS = {
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+}
+INVOICE_WEBHOOK_EVENTS = {
+    "invoice.paid",
+    "invoice.payment_succeeded",
+    "invoice.payment_failed",
+}
+
+
+def _process_stripe_event(db, event_type: str, data: Any) -> bool:
+    if event_type in CHECKOUT_WEBHOOK_EVENTS:
+        metadata = _stripe_get(data, "metadata") or {}
+        subscription_id = _stripe_id(_stripe_get(data, "subscription"))
+        customer_id = _stripe_id(_stripe_get(data, "customer"))
+        user_id = _stripe_get(metadata, "user_id") or _stripe_get(data, "client_reference_id")
+        user = _find_user(
+            db,
+            user_id=str(user_id) if user_id is not None else None,
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+            email=_event_email(data),
+        )
+        if not user:
+            return False
+        if customer_id and not user.billing_customer_id:
+            user.billing_provider = "stripe"
+            user.billing_customer_id = customer_id
+
+        candidate = stripe.Subscription.retrieve(subscription_id) if subscription_id else None
+        subscription = _authoritative_subscription_for_event(user, candidate)
+        if subscription is None:
+            return False
+        live_metadata = _stripe_get(candidate, "metadata") or {}
+        fallback_plan = None
+        if _stripe_id(subscription) == subscription_id:
+            fallback_plan = _stripe_get(live_metadata, "plan") or _stripe_get(metadata, "plan")
+        _apply_subscription(db, user, subscription, fallback_plan=fallback_plan)
+        return True
+
+    if event_type in SUBSCRIPTION_WEBHOOK_EVENTS:
+        subscription_id = _stripe_id(data)
+        event_metadata = _stripe_get(data, "metadata") or {}
+        candidate = data
+        if subscription_id:
+            try:
+                candidate = stripe.Subscription.retrieve(subscription_id)
+            except stripe.error.InvalidRequestError:
+                if event_type != "customer.subscription.deleted":
+                    raise
+
+        live_metadata = _stripe_get(candidate, "metadata") or {}
+        user_id = _stripe_get(live_metadata, "user_id") or _stripe_get(event_metadata, "user_id")
+        customer_id = _stripe_id(_stripe_get(candidate, "customer")) or _stripe_id(
+            _stripe_get(data, "customer")
+        )
+        user = _find_user(
+            db,
+            user_id=str(user_id) if user_id is not None else None,
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+        )
+        if not user:
+            return False
+        if customer_id and not user.billing_customer_id:
+            user.billing_provider = "stripe"
+            user.billing_customer_id = customer_id
+
+        subscription = _authoritative_subscription_for_event(user, candidate)
+        if subscription is None:
+            return False
+        fallback_plan = None
+        if _stripe_id(subscription) == subscription_id:
+            fallback_plan = _stripe_get(live_metadata, "plan") or _stripe_get(event_metadata, "plan")
+        _apply_subscription(db, user, subscription, fallback_plan=fallback_plan)
+        return True
+
+    if event_type in INVOICE_WEBHOOK_EVENTS:
+        subscription_id = _invoice_subscription_id(data)
+        customer_id = _stripe_id(_stripe_get(data, "customer"))
+        user = _find_user(
+            db,
+            user_id=None,
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+            email=_event_email(data),
+        )
+        if not user:
+            return False
+        if customer_id and not user.billing_customer_id:
+            user.billing_provider = "stripe"
+            user.billing_customer_id = customer_id
+
+        candidate = (
+            stripe.Subscription.retrieve(subscription_id)
+            if subscription_id
+            else None
+        )
+        subscription = _authoritative_subscription_for_event(user, candidate)
+        if subscription is None:
+            return False
+        _apply_subscription(db, user, subscription)
+        return True
+
+    return True
+
+
 @router.post("/webhook")
 async def stripe_webhook(
     request: Request,
@@ -529,47 +946,29 @@ async def stripe_webhook(
     except (ValueError, stripe.error.SignatureVerificationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Webhook inválido.") from exc
 
-    event_type = event["type"]
-    data = event["data"]["object"]
+    event_type = str(_stripe_get(event, "type") or "")
+    event_id = _stripe_id(event) or "unknown"
+    data = _stripe_get(_stripe_get(event, "data") or {}, "object") or {}
 
-    with SessionLocal() as db:
-        if event_type == "checkout.session.completed":
-            user_id = (data.get("metadata") or {}).get("user_id") or data.get("client_reference_id")
-            plan = (data.get("metadata") or {}).get("plan")
-            subscription_id = data.get("subscription")
-            customer_id = data.get("customer")
-            user = _find_user(db, user_id=user_id, customer_id=customer_id, subscription_id=subscription_id)
-            if user and subscription_id:
-                subscription = stripe.Subscription.retrieve(subscription_id)
-                _apply_subscription(db, user, subscription, fallback_plan=plan)
-                db.commit()
-
-        elif event_type in {
-            "customer.subscription.created",
-            "customer.subscription.updated",
-            "customer.subscription.deleted",
-        }:
-            subscription_id = data.get("id")
-            customer_id = data.get("customer")
-            metadata = data.get("metadata") or {}
-            user = _find_user(
-                db,
-                user_id=metadata.get("user_id"),
-                customer_id=customer_id,
-                subscription_id=subscription_id,
-            )
-            if user:
-                _apply_subscription(db, user, data, fallback_plan=metadata.get("plan"))
-                db.commit()
-
-        elif event_type in {"invoice.payment_succeeded", "invoice.payment_failed"}:
-            subscription_id = data.get("subscription")
-            customer_id = data.get("customer")
-            if subscription_id:
-                user = _find_user(db, user_id=None, customer_id=customer_id, subscription_id=subscription_id)
-                if user:
-                    subscription = stripe.Subscription.retrieve(subscription_id)
-                    _apply_subscription(db, user, subscription)
-                    db.commit()
+    try:
+        with SessionLocal() as db:
+            processed = _process_stripe_event(db, event_type, data)
+            if not processed:
+                logger.warning(
+                    "stripe_webhook_acknowledged_without_local_match event_type=%s event_suffix=%s",
+                    event_type,
+                    event_id[-8:],
+                )
+            db.commit()
+    except Exception as exc:
+        logger.exception(
+            "stripe_webhook_processing_failed event_type=%s event_suffix=%s",
+            event_type,
+            event_id[-8:],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Falha temporária ao aplicar o evento de assinatura.",
+        ) from exc
 
     return {"received": True}

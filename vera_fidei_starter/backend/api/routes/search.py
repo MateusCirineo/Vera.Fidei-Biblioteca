@@ -29,6 +29,7 @@ from search.text_search import (
 )
 from services.catena_service import BibleReferenceError, parse_bible_reference, search_catena
 from services.ccc_commentary_service import (
+    CccArticleQuery,
     CccCommentaryService,
     SqlAlchemyCccArticleSource,
     SqlAlchemyPatristicChunkFilter,
@@ -297,24 +298,21 @@ def _enrich_with_db(
         else:
             if require_source_verified:
                 continue
-            # Show an OCR excerpt centered on the matched variant so the user
-            # can see the term highlighted before opening the PDF. The text is
-            # labelled OCR-unverified; never presented as the edition wording.
+            # OCR remains useful for locating a likely PDF page, but its
+            # wording must never cross the public API boundary as a quotation.
+            # Keep only the matched variant and source coordinates so every
+            # client (web, mobile or API) fails closed consistently.
             locator_variants = _query_literal_variants(query) if query else [query]
             matched_v = next(
                 (v for v in locator_variants if v and _literal_query_supported(raw_text, v)),
                 None,
             )
-            public_text = (
-                _query_centered_excerpt(raw_text, matched_v, 400)
-                if matched_v and raw_text
-                else ""
-            )
+            public_text = ""
             fidelity = "unverified_ocr"
             fidelity_label = "Página sugerida pelo índice; texto ainda não conferido"
             source_warning = (
-                "Texto OCR — não conferido com a edição impressa. "
-                "Abra o PDF para ler a redação original."
+                "O índice localizou uma possível ocorrência nesta página, mas o OCR "
+                "não é exibido como citação. Abra o PDF para ler a redação original."
             )
         # Classify the chunk role to distinguish body text from editorial matter.
         # Pure Python computation — no additional DB round-trip.
@@ -495,7 +493,11 @@ def _filter_quotable_hits_preserving_verified(
             ).role not in _NON_BODY_ROLES
             if content_ok:
                 raw_locator_ids.add(int(hit.chunk_id))
-    locator_ids = raw_locator_ids & _unverified_ocr_chunk_ids(remaining)
+    locator_ids = (
+        raw_locator_ids & _unverified_ocr_chunk_ids(remaining)
+        if raw_locator_ids
+        else set()
+    )
     readable = []
     locators = []
     for hit in hits:
@@ -677,7 +679,10 @@ def _scan_quotable_source_hits(
         )
         if candidate_total is None:
             candidate_total = page.total
-            matching_works_es = page.matching_works
+            # Keep compatibility with lightweight/older search-page adapters;
+            # current Elasticsearch responses expose this aggregation, but its
+            # absence must not break mobile pagination.
+            matching_works_es = getattr(page, "matching_works", 0)
         batch = list(page.hits)
         if not batch:
             scan_offset = candidate_total
@@ -1023,6 +1028,120 @@ def _quotable_patristic_results(hits: list, query: str, *, limit: int) -> list[A
         preexcerpted=True,
         require_source_verified=True,
     )
+
+
+_GENERIC_CATECHISM_THEMES = {
+    "aquele",
+    "catolica",
+    "cristo",
+    "deus",
+    "espirito",
+    "filho",
+    "homem",
+    "igreja",
+    "jesus",
+    "mundo",
+    "nosso",
+    "pessoa",
+    "senhor",
+    "todos",
+    "vida",
+}
+
+
+def _catechism_theme_queries(context: CccArticleQuery, *, limit: int = 8) -> list[str]:
+    """Choose bounded, article-specific anchors for the patristic layer.
+
+    Requiring the complete CCC retrieval query as one literal expression made
+    genuine source passages disappear: no Father is expected to reproduce a
+    modern Portuguese paragraph word for word. Individual distinctive terms
+    remain literal search anchors, while the returned wording still has to be
+    native source text or a page transcription checked against the PDF.
+    """
+
+    selected: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        clean = re.sub(r"\s+", " ", value or "").strip(" .,:;!?\"'()[]{}")
+        folded = _norm(clean)
+        if not folded or folded in seen:
+            return
+        words = re.findall(r"[\w\u00c0-\u024f]{3,}", clean, re.UNICODE)
+        if not words or len(clean) > 120:
+            return
+        if len(words) == 1 and (len(folded) < 5 or folded in _GENERIC_CATECHISM_THEMES):
+            return
+        seen.add(folded)
+        selected.append(clean)
+
+    # The service ranks exact-article terms by prominence. Prefer those over
+    # quotations, which are often biblical and therefore less discriminating.
+    for term in context.key_terms:
+        add(term)
+        if len(selected) >= limit:
+            return selected
+    for phrase in context.quoted_phrases:
+        add(phrase)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _thematic_patristic_results(
+    context: CccArticleQuery,
+    *,
+    seed_hits: list,
+    limit: int,
+) -> list[AcervoResult]:
+    """Return real source passages related to one exact CCC paragraph.
+
+    Hybrid retrieval may rank a useful candidate through several combined
+    terms. We first re-check those candidates against each literal anchor,
+    then ask the source-text index for missing anchors. At every stage the
+    normal quotation, authorship and fidelity gates remain authoritative.
+    """
+
+    anchors = _catechism_theme_queries(context)
+    if not anchors:
+        return []
+
+    collected: list[AcervoResult] = []
+    seen: set[tuple] = set()
+
+    def extend(results: list[AcervoResult]) -> None:
+        for result in results:
+            identity = _hit_source_page_identity(result)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            collected.append(result)
+
+    for anchor in anchors:
+        if seed_hits:
+            extend(_quotable_patristic_results(seed_hits, anchor, limit=limit))
+        if len(collected) >= limit:
+            break
+
+    # A combined semantic query can miss literal source occurrences. Search
+    # the bounded anchor list directly and stop as soon as the public payload
+    # is full; unverified OCR is deliberately excluded here.
+    for anchor in anchors:
+        if len(collected) >= limit:
+            break
+        remaining = limit - len(collected)
+        scan = _scan_quotable_source_hits(
+            _client(),
+            query=anchor,
+            author_filter="",
+            collection_filter="patristica",
+            patristic_book_ids=_get_patristic_book_ids(),
+            max_accepted=max(6, remaining * 2),
+            include_ocr_locators=False,
+        )
+        extend(_quotable_patristic_results(scan.hits, anchor, limit=remaining))
+
+    return _diversify_hits_by_book(collected, limit=limit)
 
 
 def _norm(text: str) -> str:
@@ -1917,9 +2036,9 @@ def ccc_commentary(
         _refund_search_quota(user, usage_date)
     context = outcome.context
     try:
-        results = _quotable_patristic_results(
-            list(outcome.hits),
-            context.query,
+        results = _thematic_patristic_results(
+            context,
+            seed_hits=list(outcome.hits),
             limit=limit,
         )
     except Exception as exc:
@@ -1982,9 +2101,9 @@ def catechism_concordance(
         # Search the maximum service window, then let the quotation-quality
         # gate select the smaller public result set.
         root_outcome = base_service.search(article, limit=30)
-        roots = _quotable_patristic_results(
-            list(root_outcome.hits),
-            context.query,
+        roots = _thematic_patristic_results(
+            context,
+            seed_hits=list(root_outcome.hits),
             limit=patristic_limit,
         )
         if root_outcome.warning:

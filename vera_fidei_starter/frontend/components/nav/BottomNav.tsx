@@ -137,7 +137,7 @@ export default function BottomNav() {
             <Link
               key={tab.href}
               href={tab.href}
-              prefetch={false}
+              prefetch
               className={`flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 text-[10px] transition-colors sm:py-3 sm:text-xs ${
                 active
                   ? 'text-dourado'

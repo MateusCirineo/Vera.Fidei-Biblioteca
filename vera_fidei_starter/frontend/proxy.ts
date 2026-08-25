@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PROTECTED = ['/historico', '/painel', '/perfil', '/verificador']
+const PROTECTED = ['/historico', '/painel', '/perfil', '/verificador', '/admin']
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isProtected = PROTECTED.some((p) => pathname.startsWith(p))
+  const isProtected = PROTECTED.some((path) => pathname.startsWith(path))
   if (!isProtected) return NextResponse.next()
 
   const token = request.cookies.get('vf_token')?.value
@@ -17,5 +17,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/historico/:path*', '/painel/:path*', '/perfil/:path*', '/verificador/:path*'],
+  matcher: ['/historico/:path*', '/painel/:path*', '/perfil/:path*', '/verificador/:path*', '/admin/:path*'],
 }

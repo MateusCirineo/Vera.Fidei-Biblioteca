@@ -1,6 +1,6 @@
 'use client'
 
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import FavoriteButton from '@/components/favorites/FavoriteButton'
 
 type PrayerVersion = {
@@ -122,20 +122,6 @@ export default function OracoesView({
   const [activePrayerId, setActivePrayerId] = useState<string | null>(initialGroup ? (initialPrayerId ?? null) : null)
   const activeGroup = groups.find(group => group.code === activeCode) ?? null
   const activePrayer = activeGroup?.items.find(item => item.id === activePrayerId) ?? null
-
-  useEffect(() => {
-    if (initialGroupCode || typeof window === 'undefined') return
-
-    const params = new URLSearchParams(window.location.search)
-    const groupCode = params.get('grupo')
-    if (!groupCode) return
-
-    const group = groups.find(item => item.code === groupCode)
-    if (!group) return
-
-    setActiveCode(group.code)
-    setActivePrayerId(params.get('oracao'))
-  }, [groups, initialGroupCode])
 
   const totalPrayers = groups.reduce((sum, group) => sum + group.items.length, 0)
   const totalVersions = groups.reduce(

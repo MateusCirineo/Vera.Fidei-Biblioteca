@@ -313,6 +313,8 @@ class TextSearchClient:
         self._ensure_index()
 
     def _ensure_index(self) -> None:
+        replicas_raw = os.environ.get("ES_NUMBER_OF_REPLICAS", "0").strip()
+        replicas = int(replicas_raw) if replicas_raw.isdigit() else 0
         quality_properties = {
             "content_role": {"type": "keyword"},
             "is_quotable": {"type": "boolean"},
@@ -328,6 +330,7 @@ class TextSearchClient:
         }
         if not self.es.indices.exists(index=ES_INDEX):
             self.es.indices.create(index=ES_INDEX, body={
+                "settings": {"number_of_replicas": replicas},
                 "mappings": {
                     "properties": {
                         "chunk_id":          {"type": "integer"},
@@ -352,6 +355,13 @@ class TextSearchClient:
                 }
             })
         else:
+            try:
+                self.es.indices.put_settings(
+                    index=ES_INDEX,
+                    settings={"index": {"number_of_replicas": replicas}},
+                )
+            except Exception as exc:
+                _log.warning("Could not update index replica count: %s", exc)
             try:
                 self.es.indices.put_mapping(index=ES_INDEX, properties=quality_properties)
             except Exception as exc:
@@ -504,7 +514,7 @@ class TextSearchClient:
         if not literal_candidates_only and source_fidelities and original_tokens:
             # The historical index uses the standard analyzer, which does not
             # fold accents. A low-boost fuzzy branch retrieves candidates such
-            # as ``ressurreicao`` -> ``ressurreiÃ§Ã£o``; the public literal gate
+            # as ``ressurreicao`` -> ``ressurreição``; the public literal gate
             # then requires accent-insensitive equality before displaying the
             # untouched source wording, so ordinary misspellings never pass.
             query_alternatives.append({

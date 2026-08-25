@@ -6,9 +6,34 @@ CHUNK_OVERLAP = 100  # sobreposição entre chunks
 
 class Chunker:
     def chunk(self, pages: list[dict], document_meta: dict) -> list[dict]:
-        full_text, page_offsets = self._build_full_text(pages)
-        column_markers = self._detect_columns(full_text)
-        return self._split(full_text, page_offsets, column_markers, document_meta)
+        # Never let one searchable chunk cross a physical page boundary. A
+        # cross-page chunk cannot truthfully point to the page that contains
+        # every displayed word and made PG001 appear under the wrong page.
+        chunks: list[dict] = []
+        document_offset = 0
+        for page in pages:
+            page_text = page.get("text", "") or ""
+            page_number = int(page.get("page_number") or 1)
+            page_meta = {
+                **document_meta,
+                "extraction_method": page.get("extraction_method", document_meta.get("extraction_method", "legacy_unknown")),
+                "source_fidelity": page.get("source_fidelity", document_meta.get("source_fidelity", "unverified")),
+                "fidelity_score": page.get("fidelity_score", document_meta.get("fidelity_score")),
+                "fidelity_reasons": page.get("fidelity_reasons", document_meta.get("fidelity_reasons")),
+            }
+            page_chunks = self._split(
+                page_text,
+                [{"page": page_number, "offset": 0}],
+                self._detect_columns(page_text),
+                page_meta,
+            )
+            for chunk in page_chunks:
+                chunk["pdf_page"] = page_number
+                chunk["char_offset_start"] += document_offset
+                chunk["char_offset_end"] += document_offset
+            chunks.extend(page_chunks)
+            document_offset += len(page_text) + 1
+        return chunks
 
     def _build_full_text(self, pages: list[dict]) -> tuple[str, list[dict]]:
         full_text = ""

@@ -113,7 +113,7 @@ export default function OfflineReaderPage() {
       </div>
 
       <p className="mb-4 mt-2 rounded border border-amber-900/30 bg-amber-950/20 px-3 py-2 text-[10px] text-amber-400/80">
-        Estes trechos são fragmentos do texto já extraído e indexado para verificação.
+        Somente texto nativo da edição ou transcrição conferida na página do PDF fica disponível offline.
         O arquivo original permanece no servidor — este modo permite estudo offline sem download de obras protegidas.
       </p>
 
@@ -135,6 +135,9 @@ export default function OfflineReaderPage() {
                 {chunk.chapter_or_section && <span>{chunk.chapter_or_section}</span>}
                 {chunk.pdf_page != null && <span>p. {chunk.pdf_page}</span>}
                 {chunk.volume != null && <span>vol. {chunk.volume}</span>}
+                <span className="rounded border border-emerald-700/35 bg-emerald-950/25 px-1.5 py-0.5 text-emerald-300">
+                  {chunk.source_fidelity_label}
+                </span>
                 {isTranslation && (
                   <span className="rounded bg-dourado/10 px-1.5 py-0.5 text-dourado">PT</span>
                 )}

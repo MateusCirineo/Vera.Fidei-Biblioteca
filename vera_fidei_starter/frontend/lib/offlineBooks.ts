@@ -15,6 +15,8 @@ export interface OfflineChunk {
   translation_pt: string | null
   pdf_page: number | null
   volume: number | null
+  source_fidelity: 'verified_transcription' | 'source_text'
+  source_fidelity_label: string
 }
 
 export interface OfflineBookEntry {

@@ -6,6 +6,8 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -23,7 +25,7 @@ PDF_DIR = Path(
 
 PDF_CACHE_DIR = Path(
     os.environ.get("PDF_CACHE_DIR")
-    or Path(os.environ.get("TMPDIR", "/tmp")) / "vera_fidei_pdf_cache"
+    or Path(tempfile.gettempdir()) / "vera_fidei_pdf_cache"
 )
 
 
@@ -102,6 +104,8 @@ class PdfStorage:
         self.gdrive_prefix = _normalize_key(os.environ.get("GDRIVE_PREFIX", self.prefix))
         self.rclone_bin = os.environ.get("RCLONE_BIN", "rclone").strip() or "rclone"
         self.rclone_timeout = int(os.environ.get("VERA_RCLONE_TIMEOUT", "600"))
+        self._remote_size_cache: dict[str, int] = {}
+        self._remote_size_lock = threading.Lock()
 
         PDF_DIR.mkdir(parents=True, exist_ok=True)
         PDF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -318,12 +322,16 @@ class PdfStorage:
         self,
         stored_path: str,
         original_filename: str,
+        stream_pdf: bool = False,
         range_header: str | None = None,
         as_attachment: bool = False,
     ) -> Response:
         disposition = "attachment" if as_attachment else "inline"
         local = self.resolve_local_path(stored_path)
         if local:
+            if stream_pdf:
+                return self._file_response(local, original_filename, range_header, disposition)
+
             response = self._x_accel_response(local, original_filename, disposition)
             if response:
                 return response
@@ -331,14 +339,23 @@ class PdfStorage:
         if stored_path.replace("\\", "/").startswith("gdrive://"):
             local = self._local_mirror_for_gdrive(stored_path, original_filename)
             if local:
+                if stream_pdf:
+                    return self._file_response(local, original_filename, range_header, disposition)
+
                 response = self._x_accel_response(local, original_filename, disposition)
                 if response:
                     return response
 
-            local = self.resolve_for_processing(stored_path)
-            if not local:
-                raise HTTPException(status_code=404, detail="PDF remoto nao encontrado.")
-            return self._file_response(local, original_filename, range_header, disposition)
+            # A visualizacao nao precisa aguardar o download integral do Google
+            # Drive. O PDF.js solicita intervalos; entregamos somente esses bytes
+            # diretamente pelo rclone e mantemos o cache integral reservado aos
+            # fluxos de OCR/processamento.
+            return self._gdrive_streaming_response(
+                stored_path,
+                original_filename,
+                range_header,
+                disposition,
+            )
 
         if _is_remote_path(stored_path):
             bucket, key = self._parse_remote_path(stored_path)
@@ -454,6 +471,95 @@ class PdfStorage:
             media_type="application/pdf",
             headers=headers,
         )
+
+    def _gdrive_streaming_response(
+        self,
+        stored_path: str,
+        original_filename: str,
+        range_header: str | None,
+        disposition: str = "inline",
+    ) -> Response:
+        _bucket, key = self._parse_remote_path(stored_path)
+        if not key or self.backend != "gdrive":
+            raise HTTPException(status_code=404, detail="PDF remoto nao encontrado.")
+
+        try:
+            file_size = self.remote_size(stored_path)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Nao foi possivel consultar o PDF remoto.",
+            ) from exc
+        if not file_size:
+            raise HTTPException(status_code=404, detail="PDF remoto nao encontrado.")
+
+        headers = {
+            "Content-Disposition": _content_disposition(original_filename, disposition),
+            "Accept-Ranges": "bytes",
+        }
+        parsed_range = self._parse_range_header(range_header, file_size)
+        if parsed_range is None:
+            start, end = 0, file_size - 1
+            status_code = 200
+        else:
+            start, end = parsed_range
+            status_code = 206
+            headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+
+        content_length = end - start + 1
+        headers["Content-Length"] = str(content_length)
+        return StreamingResponse(
+            self._iter_gdrive_range(key, start, content_length),
+            status_code=status_code,
+            media_type="application/pdf",
+            headers=headers,
+        )
+
+    def _iter_gdrive_range(self, key: str, start: int, content_length: int):
+        try:
+            process = subprocess.Popen(
+                [
+                    self.rclone_bin,
+                    "cat",
+                    self._gdrive_target(key),
+                    "--offset",
+                    str(start),
+                    "--count",
+                    str(content_length),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("PDF_STORAGE=gdrive requires rclone installed.") from exc
+
+        remaining = content_length
+        try:
+            if process.stdout is None:
+                raise RuntimeError("rclone did not expose its output stream")
+            while remaining > 0:
+                data = process.stdout.read(min(1024 * 1024, remaining))
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+            return_code = process.wait(timeout=self.rclone_timeout)
+            if return_code != 0 or remaining:
+                details = ""
+                if process.stderr is not None:
+                    details = process.stderr.read().decode("utf-8", errors="replace").strip()
+                raise RuntimeError(
+                    f"rclone range stream failed ({return_code}); missing={remaining}; {details}"
+                )
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
     def _parse_range_header(self, range_header: str | None, file_size: int) -> tuple[int, int] | None:
         if not range_header:
@@ -593,9 +699,27 @@ class PdfStorage:
             _bucket, key = self._parse_remote_path(stored_path)
             if not key:
                 return None
-            result = self._run_rclone("size", "--json", self._gdrive_target(key))
+            with self._remote_size_lock:
+                cached_size = self._remote_size_cache.get(normalized)
+            if cached_size is not None:
+                return cached_size
+            # ``rclone size`` walks the remote path and can take almost a
+            # minute on a cold Google Drive connection even for a single PDF.
+            # ``lsjson --stat`` performs a direct metadata lookup for that
+            # exact object and returns the same byte length without a tree
+            # traversal.
+            result = self._run_rclone(
+                "lsjson",
+                self._gdrive_target(key),
+                "--stat",
+                "--no-modtime",
+            )
             payload = json.loads(result.stdout or "{}")
-            return int(payload.get("bytes") or 0)
+            size = int(payload.get("Size") or 0)
+            if size > 0:
+                with self._remote_size_lock:
+                    self._remote_size_cache[normalized] = size
+            return size
 
         bucket, key = self._parse_remote_path(stored_path)
         if bucket and key:

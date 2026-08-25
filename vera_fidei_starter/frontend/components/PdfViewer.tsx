@@ -18,23 +18,15 @@ export default function PdfViewer({ fileId, initialPage = 1 }: Props) {
     return () => mql.removeEventListener('change', update)
   }, [])
 
-  const pdfUrl = `/pdfs/${fileId}`
+  const pdfUrl = `/api/pdfs/${fileId}`
   const viewerHref = `/viewer/pdf?file=${encodeURIComponent(pdfUrl)}&page=${initialPage}`
-
-  if (!isMobile) {
-    return (
-      <iframe
-        src={`${pdfUrl}#page=${initialPage}`}
-        className="flex-1 w-full border-0"
-        title="Visualizador de PDF"
-      />
-    )
-  }
 
   return (
     <iframe
       src={viewerHref}
-      className="fixed inset-0 z-[100] h-dvh w-screen border-0 bg-zinc-950"
+      className={isMobile
+        ? 'fixed inset-0 z-[100] h-dvh w-screen border-0 bg-zinc-950'
+        : 'flex-1 w-full h-full border-0 bg-zinc-950'}
       title="Visualizador de PDF"
     />
   )

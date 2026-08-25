@@ -21,9 +21,11 @@ def serve_pdf(
         if book_file is None:
             raise HTTPException(status_code=404, detail="Arquivo nao encontrado.")
 
+    stream_pdf = request.query_params.get("stream") in {"1", "true", "sim"}
     return get_pdf_storage().response_for_pdf(
         stored_path=book_file.stored_path,
         original_filename=book_file.original_filename,
         range_header=request.headers.get("range"),
+        stream_pdf=stream_pdf,
         as_attachment=request.query_params.get("download") in {"1", "true", "sim"},
     )

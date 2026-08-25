@@ -145,13 +145,7 @@ function ChevronDown({ expanded }: { expanded: boolean }) {
 
 // ─── Linha de documento (dentro do detalhe do concílio) ───────────────────────
 
-function DocRow({
-  group,
-  councilName,
-}: {
-  group: DocGroup
-  councilName: string
-}) {
+function DocRow({ group }: { group: DocGroup }) {
   const [expanded, setExpanded] = useState(false)
 
   if (group.books.length === 1) {
@@ -280,7 +274,7 @@ function CouncilDetail({
         </p>
         <div className="space-y-1.5">
           {docGroups.map(dg => (
-            <DocRow key={dg.title} group={dg} councilName={council.name} />
+            <DocRow key={dg.title} group={dg} />
           ))}
         </div>
       </div>

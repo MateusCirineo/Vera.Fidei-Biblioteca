@@ -49,6 +49,8 @@ class BookFileResponse(BaseModel):
     editor: str | None
     translator: str | None
     created_at: datetime.datetime
+    start_page: int = 1
+    is_source_alias: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

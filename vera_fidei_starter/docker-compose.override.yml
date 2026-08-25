@@ -12,5 +12,8 @@ services:
       RCLONE_BIN: rclone
       VERA_RCLONE_TIMEOUT: "900"
       RCLONE_CONFIG: /app/rclone/rclone.conf
+    # OAuth refresh rotates rclone.conf atomically, so the isolated runtime
+    # directory must be writable. It is excluded from both Git and Docker
+    # build contexts and is protected as mode 0700/0600 on the production host.
     volumes:
-      - ./backend/rclone:/app/rclone
+      - ./backend/rclone:/app/rclone:rw

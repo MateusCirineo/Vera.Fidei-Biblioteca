@@ -7,23 +7,25 @@ export default ({ config }) => ({
   version: '1.2.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
-  userInterfaceStyle: 'light',
-  newArchEnabled: true,
-  splash: {
-    image: './assets/splash-icon.png',
-    resizeMode: 'contain',
-    backgroundColor: '#1a1a2e',
-  },
+  userInterfaceStyle: 'dark',
+  plugins: [
+    'expo-font',
+    'expo-secure-store',
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/splash-icon.png',
+        resizeMode: 'contain',
+        backgroundColor: '#1a1a2e',
+      },
+    ],
+  ],
   ios: {
     supportsTablet: true,
     bundleIdentifier: IS_DEV ? 'com.verafidei.app.dev' : 'com.verafidei.app',
     buildNumber: '1',
-    infoPlist: {
-      NSAppTransportSecurity: {
-        // Permite HTTP durante desenvolvimento/servidor sem HTTPS
-        // Remover após configurar HTTPS no servidor
-        NSAllowsArbitraryLoads: true,
-      },
+    config: {
+      usesNonExemptEncryption: false,
     },
   },
   android: {
@@ -33,7 +35,6 @@ export default ({ config }) => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#1e3a5f',
     },
-    edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     permissions: [],
   },
@@ -42,7 +43,7 @@ export default ({ config }) => ({
   },
   extra: {
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api',
-    apiKey: process.env.EXPO_PUBLIC_API_KEY ?? '',
+    webUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://verafidei.oialfred.com',
     eas: {
       projectId: '88255b06-a482-42f8-bc2c-ea69ae091e04',
     },
@@ -50,4 +51,5 @@ export default ({ config }) => ({
   updates: {
     fallbackToCacheTimeout: 0,
   },
+  scheme: 'verafidei',
 })

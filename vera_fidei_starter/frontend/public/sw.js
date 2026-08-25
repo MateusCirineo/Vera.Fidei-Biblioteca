@@ -1,14 +1,7 @@
-const CACHE_NAME = 'vera-fidei-pwa-v11'
+const CACHE_NAME = 'vera-fidei-pwa-v13'
 const APP_SHELL = [
   '/offline.html',
-  '/branding/Logo-VF.png',
-  '/branding/Logo-VF-seal.png',
-  '/branding/Logo-VF-wine.png',
-  '/branding/splash-preto-1290x2796.png',
   '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-1024.png',
-  '/icons/maskable-512.png',
 ]
 
 self.addEventListener('install', (event) => {

@@ -2,7 +2,7 @@
 
 This conftest is loaded automatically by pytest before any test file.
 It installs minimal fake modules for packages that require a running server
-or are not installed in the unit-test venv (jose JWT, stripe, sendgrid,
+or are not installed in the unit-test venv (PyJWT, stripe, sendgrid,
 passlib). The real `core` package is left untouched since it lives in the
 backend directory and is importable as-is once the stubs are in place.
 """
@@ -23,14 +23,38 @@ def _stub(name: str, **attrs) -> types.ModuleType:
 
 
 # ── jose (JWT) ─────────────────────────────────────────────────────────────────
-_jose = _stub("jose", JWTError=Exception)
-_jose_jwt = _stub("jose.jwt")
-_jose_jwt.decode = MagicMock(return_value={})
-_jose_jwt.encode = MagicMock(return_value="stub.token")
-_jose.jwt = _jose_jwt
+_jwt = _stub("jwt", InvalidTokenError=Exception)
+_jwt.decode = MagicMock(return_value={})
+_jwt.encode = MagicMock(return_value="stub.token")
 
 # ── stripe ─────────────────────────────────────────────────────────────────────
-_stub("stripe")
+# Keep the fallback usable by exception-path tests when stripe-python is not
+# installed in the lightweight unit-test environment.
+class _StripeError(Exception):
+    pass
+
+
+class _InvalidRequestError(_StripeError):
+    pass
+
+
+class _APIConnectionError(_StripeError):
+    pass
+
+
+class _SignatureVerificationError(_StripeError):
+    pass
+
+
+_stub(
+    "stripe",
+    error=types.SimpleNamespace(
+        StripeError=_StripeError,
+        InvalidRequestError=_InvalidRequestError,
+        APIConnectionError=_APIConnectionError,
+        SignatureVerificationError=_SignatureVerificationError,
+    ),
+)
 
 # ── sendgrid ───────────────────────────────────────────────────────────────────
 _sg = _stub("sendgrid")

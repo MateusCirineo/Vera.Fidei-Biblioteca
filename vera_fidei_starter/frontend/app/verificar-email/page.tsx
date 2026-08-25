@@ -9,18 +9,14 @@ import { verifyEmail } from '@/lib/auth'
 function VerifyContent() {
   const params = useSearchParams()
   const token = params.get('token') ?? ''
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
-  const [message, setMessage] = useState('')
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>(token ? 'loading' : 'error')
+  const [message, setMessage] = useState(token ? '' : 'Link inválido. Nenhum token encontrado.')
   const ran = useRef(false)
 
   useEffect(() => {
     if (ran.current) return
     ran.current = true
-    if (!token) {
-      setStatus('error')
-      setMessage('Link inválido. Nenhum token encontrado.')
-      return
-    }
+    if (!token) return
     verifyEmail(token)
       .then(() => setStatus('success'))
       .catch((err: unknown) => {

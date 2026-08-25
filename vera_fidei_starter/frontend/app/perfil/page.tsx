@@ -1,15 +1,18 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   createApiKey,
+  deleteAccount,
+  downloadPersonalData,
   getApiKeys,
   getUser,
   logout,
   openBillingPortal,
   revokeApiKey,
+  syncBillingSubscription,
   type UserInfo,
 } from '@/lib/auth'
 import ProfileFavorites from '@/components/perfil/ProfileFavorites'
@@ -79,8 +82,10 @@ export default function PerfilPage() {
   const [favoriteTotal, setFavoriteTotal] = useState(0)
   const [profileNotice, setProfileNotice] = useState('')
   const [billingNotice, setBillingNotice] = useState('')
+  const [billingNoticeTone, setBillingNoticeTone] = useState<'info' | 'success' | 'error'>('info')
   const [billingLoading, setBillingLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const billingSyncStarted = useRef(false)
 
   const [keys, setKeys] = useState<ApiKeyEntry[]>([])
   const [keysLoading, setKeysLoading] = useState(false)
@@ -89,6 +94,12 @@ export default function PerfilPage() {
   const [showApiTools, setShowApiTools] = useState(false)
   const [modalKey, setModalKey] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [exportingData, setExportingData] = useState(false)
+  const [privacyNotice, setPrivacyNotice] = useState('')
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [deletingAccount, setDeletingAccount] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -124,6 +135,43 @@ export default function PerfilPage() {
       window.clearTimeout(timeoutId)
     }
   }, [router])
+
+  useEffect(() => {
+    if (!user || billingSyncStarted.current) return
+    const checkoutReturn = new URLSearchParams(window.location.search).get('assinatura')
+    if (checkoutReturn !== 'sucesso') return
+
+    billingSyncStarted.current = true
+    setBillingNoticeTone('info')
+    setBillingNotice('Confirmando o pagamento e ativando seu plano...')
+    setBillingLoading(true)
+
+    void (async () => {
+      try {
+        const result = await syncBillingSubscription()
+        const refreshedUser = await getUser()
+        if (refreshedUser) setUser(refreshedUser)
+
+        const effectiveStatus = refreshedUser?.billing_status ?? result.billing_status
+        const activated = result.synced || effectiveStatus === 'active' || effectiveStatus === 'trialing'
+        if (activated) {
+          const effectivePlan = refreshedUser?.plan ?? result.plan
+          setBillingNoticeTone('success')
+          setBillingNotice(`Pagamento confirmado. Plano ${PLAN_LABELS[effectivePlan] ?? effectivePlan} ativado.`)
+        } else {
+          setBillingNoticeTone('info')
+          setBillingNotice('O pagamento ainda está sendo confirmado. A atualização do plano será automática; atualize esta página em instantes.')
+        }
+      } catch {
+        setBillingNoticeTone('error')
+        setBillingNotice('Não foi possível confirmar a ativação agora. O pagamento não será repetido; atualize esta página em instantes.')
+      } finally {
+        setBillingLoading(false)
+        router.replace('/perfil', { scroll: false })
+        router.refresh()
+      }
+    })()
+  }, [router, user])
 
   const activeKeys = useMemo(() => keys.filter((key) => key.is_active).length, [keys])
   const currentPlanRank = planRank(user?.plan)
@@ -213,6 +261,7 @@ export default function PerfilPage() {
   async function handleManageBilling() {
     if (!user) return
     if (isOwner(user)) {
+      setBillingNoticeTone('info')
       setBillingNotice('Esta conta ja tem acesso total permanente.')
       return
     }
@@ -222,14 +271,52 @@ export default function PerfilPage() {
       const { url } = await openBillingPortal()
       window.location.assign(url)
     } catch (err: unknown) {
+      setBillingNoticeTone('error')
       setBillingNotice(err instanceof Error ? err.message : 'Erro ao abrir assinatura.')
       setBillingLoading(false)
     }
   }
 
-  function handleLogout() {
-    logout()
-    router.push('/')
+  async function handleLogout() {
+    await logout()
+    router.replace('/')
+    router.refresh()
+  }
+
+  async function handleExportData() {
+    setPrivacyNotice('')
+    setExportingData(true)
+    try {
+      const blob = await downloadPersonalData()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `vera-fidei-meus-dados-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setPrivacyNotice('Arquivo com seus dados gerado com sucesso.')
+    } catch (err: unknown) {
+      setPrivacyNotice(err instanceof Error ? err.message : 'Não foi possível exportar seus dados.')
+    } finally {
+      setExportingData(false)
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!user || isOwner(user)) return
+    setPrivacyNotice('')
+    setDeletingAccount(true)
+    try {
+      await deleteAccount(deletePassword, deleteConfirmation)
+      localStorage.removeItem(storageKey('avatar', user.id))
+      router.replace('/')
+      router.refresh()
+    } catch (err: unknown) {
+      setPrivacyNotice(err instanceof Error ? err.message : 'Não foi possível excluir a conta.')
+      setDeletingAccount(false)
+    }
   }
 
   if (loading) {
@@ -386,7 +473,15 @@ export default function PerfilPage() {
               </Link>
             )}
           </div>
-          {billingNotice && <p className="mt-3 text-xs text-vermelho">{billingNotice}</p>}
+          {billingNotice && (
+            <p
+              className={`mt-3 text-xs ${billingNoticeTone === 'error' ? 'text-vermelho' : billingNoticeTone === 'success' ? 'text-emerald-400' : 'text-dourado'}`}
+              role="status"
+              aria-live="polite"
+            >
+              {billingNotice}
+            </p>
+          )}
         </aside>
       </section>
 
@@ -438,7 +533,7 @@ export default function PerfilPage() {
                     href="mailto:vera.fidei661@gmail.com?subject=Vera.Fidei%20-%20suporte%20Magisterio"
                     className="rounded-md border border-dourado/40 px-3 py-2 text-xs text-dourado transition-colors hover:bg-dourado hover:text-fundo"
                   >
-                    Suporte prioritÃ¡rio
+                    Suporte prioritário
                   </a>
                   <Link
                     href="/contato"
@@ -522,6 +617,117 @@ export default function PerfilPage() {
       )}
 
       <ProfileHistory userPlan={user.plan} />
+
+      <section className="mt-6 rounded-lg border border-fundo-borda bg-fundo-card p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-texto-terciario">
+              Privacidade e dados
+            </p>
+            <h2 className="mt-1 font-eb-garamond text-xl text-texto">Controle da sua conta</h2>
+            <p className="mt-2 max-w-2xl text-xs leading-relaxed text-texto-terciario">
+              Baixe uma cópia dos dados associados à sua conta. O arquivo não contém senha,
+              tokens de acesso nem valores secretos de chaves de API.
+            </p>
+          </div>
+          <Link
+            href="/privacidade"
+            className="shrink-0 text-xs text-dourado transition-colors hover:text-dourado-claro"
+          >
+            Ler política de privacidade
+          </Link>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleExportData}
+            disabled={exportingData}
+            className="rounded-md border border-dourado/40 px-3 py-2 text-xs text-dourado transition-colors hover:bg-dourado hover:text-fundo disabled:opacity-50"
+          >
+            {exportingData ? 'Preparando arquivo...' : 'Exportar meus dados'}
+          </button>
+          {!isOwner(user) && !showDeleteAccount && (
+            <button
+              type="button"
+              onClick={() => {
+                setPrivacyNotice('')
+                setShowDeleteAccount(true)
+              }}
+              className="rounded-md border border-vermelho/50 px-3 py-2 text-xs text-vermelho transition-colors hover:bg-vermelho hover:text-white"
+            >
+              Excluir minha conta
+            </button>
+          )}
+        </div>
+
+        {isOwner(user) && (
+          <p className="mt-3 text-xs text-texto-terciario">
+            A conta proprietária está protegida contra exclusão acidental.
+          </p>
+        )}
+
+        {showDeleteAccount && !isOwner(user) && (
+          <div className="mt-5 rounded-md border border-vermelho/40 bg-vermelho/5 p-4">
+            <h3 className="text-sm font-semibold text-vermelho">Exclusão permanente</h3>
+            <p className="mt-2 text-xs leading-relaxed text-texto-terciario">
+              Esta ação remove perfil, favoritos, histórico de verificações, uso e chaves de API.
+              Se houver assinatura recorrente ativa, cancele-a primeiro na área de assinatura.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-texto-secundario">
+                Senha atual
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={deletePassword}
+                  onChange={(event) => setDeletePassword(event.target.value)}
+                  className="mt-1 w-full rounded-md border border-fundo-borda bg-fundo px-3 py-2 text-sm text-texto focus:border-vermelho focus:outline-none"
+                />
+              </label>
+              <label className="text-xs text-texto-secundario">
+                Digite EXCLUIR
+                <input
+                  type="text"
+                  autoComplete="off"
+                  value={deleteConfirmation}
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  className="mt-1 w-full rounded-md border border-fundo-borda bg-fundo px-3 py-2 text-sm text-texto focus:border-vermelho focus:outline-none"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deletingAccount || deletePassword.length < 6 || deleteConfirmation.trim().toUpperCase() !== 'EXCLUIR'}
+                className="rounded-md bg-vermelho px-3 py-2 text-xs font-semibold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+              >
+                {deletingAccount ? 'Excluindo...' : 'Excluir definitivamente'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteAccount(false)
+                  setDeletePassword('')
+                  setDeleteConfirmation('')
+                  setPrivacyNotice('')
+                }}
+                disabled={deletingAccount}
+                className="rounded-md border border-fundo-borda px-3 py-2 text-xs text-texto-secundario transition-colors hover:border-dourado hover:text-dourado disabled:opacity-40"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {privacyNotice && (
+          <p className="mt-3 text-xs text-texto-secundario" role="status">
+            {privacyNotice}
+          </p>
+        )}
+      </section>
 
       <div className="mt-6 flex justify-end">
         <button

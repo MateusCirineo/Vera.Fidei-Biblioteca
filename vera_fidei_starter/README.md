@@ -19,3 +19,16 @@ python -m venv .venv
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
+
+`requirements.txt` é a entrada editável para desenvolvimento. A imagem de
+produção usa o lock de Python 3.11 para Linux x86_64 e exige todos os hashes:
+
+```bash
+cd backend
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install --require-hashes -r requirements.lock
+```
+
+O comando de regeneração e os portões obrigatórios da entrega estão em
+`RELEASE_MANIFEST.md`.

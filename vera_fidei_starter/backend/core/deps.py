@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.plans import ensure_owner_access, has_min_plan
+from core.plans import ensure_owner_access, has_min_plan, is_owner_email
 from core.security import decode_token
 from models.database import SessionLocal, User
 
@@ -23,29 +23,66 @@ def _get_user_by_id(user_id: int) -> User:
     return user
 
 
-def get_current_user(authorization: str = Header(default="")) -> User:
-    if not authorization or not authorization.startswith("Bearer "):
+def _session_token(authorization: str, cookie_token: str | None) -> str:
+    if authorization:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token mal formatado.")
+        return authorization.removeprefix("Bearer ")
+    return cookie_token or ""
+
+
+def _user_from_session_token(token: str) -> User:
+    payload = decode_token(token)
+    try:
+        user_id = int(payload["sub"])
+        token_session_version = int(payload.get("sv", 0) or 0)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido ou expirado.",
+        ) from exc
+
+    user = _get_user_by_id(user_id)
+    current_session_version = int(getattr(user, "session_version", 0) or 0)
+    if token_session_version != current_session_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão revogada. Entre novamente.",
+        )
+    return user
+
+
+def get_current_user(
+    authorization: str = Header(default=""),
+    vf_token: str | None = Cookie(default=None),
+) -> User:
+    token = _session_token(authorization, vf_token)
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ausente ou mal formatado.")
-    token = authorization.removeprefix("Bearer ")
-    payload = decode_token(token)
-    user_id = int(payload["sub"])
-    return _get_user_by_id(user_id)
+    return _user_from_session_token(token)
 
 
-def get_optional_user(authorization: str = Header(default="")) -> User | None:
-    if not authorization:
+def get_optional_user(
+    authorization: str = Header(default=""),
+    vf_token: str | None = Cookie(default=None),
+) -> User | None:
+    token = _session_token(authorization, vf_token)
+    if not token:
         return None
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token mal formatado.")
-    token = authorization.removeprefix("Bearer ")
-    payload = decode_token(token)
-    user_id = int(payload["sub"])
-    return _get_user_by_id(user_id)
+    return _user_from_session_token(token)
+
+
+def require_owner(user: User = Depends(get_current_user)) -> User:
+    """Allow administrative operations only for the configured owner account."""
+    if not is_owner_email(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito ao administrador do Vera.Fidei.",
+        )
+    return user
 
 
 def require_min_plan(min_plan: str):
-    from fastapi import Depends
-
     def _check(user: User = Depends(get_current_user)) -> User:
         if not has_min_plan(user.plan, min_plan):
             raise HTTPException(

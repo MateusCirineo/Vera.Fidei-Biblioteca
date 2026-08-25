@@ -1,156 +1,126 @@
-import { useState } from 'react'
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useMemo, useState } from 'react'
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-type PrayerCategory = {
+import { colors } from '../lib/theme'
+
+type Prayer = {
   id: string
+  category: 'fundamentais' | 'marianas' | 'eucaristicas' | 'proteção'
   title: string
-  subtitle: string
-  icon: keyof typeof Ionicons.glyphMap
-  prayers: string[]
+  text: string
 }
 
-const categories: PrayerCategory[] = [
+const prayers: Prayer[] = [
   {
-    id: 'marianas',
-    title: 'Orações Marianas',
-    subtitle: 'Rosário, Angelus e devoções de Nossa Senhora',
-    icon: 'rose-outline',
-    prayers: ['Angelus', 'Regina Caeli', 'Salve Rainha', 'Consagração a Nossa Senhora'],
+    id: 'pai-nosso', category: 'fundamentais', title: 'Pai-Nosso',
+    text: 'Pai nosso que estais nos céus, santificado seja o vosso nome; venha a nós o vosso reino; seja feita a vossa vontade, assim na terra como no céu. O pão nosso de cada dia nos dai hoje; perdoai-nos as nossas ofensas, assim como nós perdoamos a quem nos tem ofendido; e não nos deixeis cair em tentação, mas livrai-nos do mal. Amém.',
   },
   {
-    id: 'diarias',
-    title: 'Roteiro de Orações Diárias',
-    subtitle: 'Manhã, tarde, noite e exame de consciência',
-    icon: 'time-outline',
-    prayers: ['Oferecimento do dia', 'Oração da manhã', 'Exame de consciência', 'Oração da noite'],
+    id: 'gloria', category: 'fundamentais', title: 'Glória ao Pai',
+    text: 'Glória ao Pai, ao Filho e ao Espírito Santo. Como era no princípio, agora e sempre. Amém.',
   },
   {
-    id: 'eucaristicas',
-    title: 'Orações Eucarísticas',
-    subtitle: 'Adoração, comunhão espiritual e ação de graças',
-    icon: 'sparkles-outline',
-    prayers: ['Comunhão espiritual', 'Ação de graças', 'Visita ao Santíssimo', 'Alma de Cristo'],
+    id: 'ave-maria', category: 'marianas', title: 'Ave-Maria',
+    text: 'Ave Maria, cheia de graça, o Senhor é convosco. Bendita sois vós entre as mulheres e bendito é o fruto do vosso ventre, Jesus. Santa Maria, Mãe de Deus, rogai por nós, pecadores, agora e na hora da nossa morte. Amém.',
   },
   {
-    id: 'santos',
-    title: 'Orações aos Santos',
-    subtitle: 'Intercessão e ladainhas tradicionais',
-    icon: 'person-outline',
-    prayers: ['São José', 'São Miguel Arcanjo', 'Santo Agostinho', 'Santo Tomás de Aquino'],
+    id: 'salve-rainha', category: 'marianas', title: 'Salve Rainha',
+    text: 'Salve, Rainha, Mãe de misericórdia, vida, doçura e esperança nossa, salve! A vós bradamos, os degredados filhos de Eva; a vós suspiramos, gemendo e chorando neste vale de lágrimas. Eia, pois, advogada nossa, esses vossos olhos misericordiosos a nós volvei; e depois deste desterro mostrai-nos Jesus, bendito fruto do vosso ventre. Ó clemente, ó piedosa, ó doce sempre Virgem Maria. Rogai por nós, santa Mãe de Deus, para que sejamos dignos das promessas de Cristo. Amém.',
   },
   {
-    id: 'liturgicas',
-    title: 'Sequências Litúrgicas',
-    subtitle: 'Orações e hinos ligados ao ano litúrgico',
-    icon: 'calendar-outline',
-    prayers: ['Veni Creator Spiritus', 'Victimae Paschali', 'Stabat Mater', 'Dies Irae'],
+    id: 'alma-cristo', category: 'eucaristicas', title: 'Alma de Cristo',
+    text: 'Alma de Cristo, santificai-me. Corpo de Cristo, salvai-me. Sangue de Cristo, inebriai-me. Água do lado de Cristo, lavai-me. Paixão de Cristo, confortai-me. Ó bom Jesus, ouvi-me. Dentro das vossas chagas, escondei-me. Não permitais que eu me separe de vós. Do espírito maligno, defendei-me. Na hora da minha morte, chamai-me e mandai-me ir para vós, para que com os vossos santos vos louve por todos os séculos dos séculos. Amém.',
   },
   {
-    id: 'doutores',
-    title: 'Orando com os Doutores da Igreja',
-    subtitle: 'Pontes entre oração, patrística e doutrina',
-    icon: 'library-outline',
-    prayers: ['Com Santo Agostinho', 'Com São Jerônimo', 'Com São Gregório Magno', 'Com Santa Teresa de Ávila'],
+    id: 'sao-miguel', category: 'proteção', title: 'São Miguel Arcanjo',
+    text: 'São Miguel Arcanjo, defendei-nos no combate; sede nosso refúgio contra as maldades e ciladas do demônio. Ordene-lhe Deus, instantemente o pedimos; e vós, Príncipe da Milícia Celeste, pela virtude divina, precipitai no inferno a Satanás e aos outros espíritos malignos que andam pelo mundo para perder as almas. Amém.',
   },
 ]
 
-const GOLD = '#c9a84c'
-const BG = '#111111'
-const CARD = '#1a1a1a'
-const BORDER = '#2a2a2a'
-const TEXT = '#f5f0e8'
-const MUTED = '#b8b0a0'
-const TERTIARY = '#706860'
-const WINE = '#3d1010'
+const categories = [
+  { id: 'todas', label: 'Todas' },
+  { id: 'fundamentais', label: 'Fundamentais' },
+  { id: 'marianas', label: 'Marianas' },
+  { id: 'eucaristicas', label: 'Eucarísticas' },
+  { id: 'proteção', label: 'Proteção' },
+] as const
 
 export default function OracoesScreen() {
-  const [active, setActive] = useState(categories[0].id)
-  const category = categories.find(item => item.id === active) ?? categories[0]
+  const [category, setCategory] = useState<(typeof categories)[number]['id']>('todas')
+  const [selected, setSelected] = useState<Prayer | null>(null)
+  const visible = useMemo(() => category === 'todas' ? prayers : prayers.filter(prayer => prayer.category === category), [category])
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.container}>
-      <View style={styles.intro}>
-        <Text style={styles.introKicker}>Espiritualidade diária</Text>
-        <Text style={styles.introTitle}>Orações</Text>
-        <Text style={styles.introText}>
-          Um roteiro prático para rezar, estudar e ligar cada devoção às fontes do acervo Vera Fidei.
-        </Text>
-      </View>
-
-      <View style={styles.list}>
-        {categories.map(item => {
-          const selected = item.id === active
-          return (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.categoryRow, selected && styles.categoryRowActive]}
-              onPress={() => setActive(item.id)}
-            >
-              <View style={[styles.iconBox, selected && styles.iconBoxActive]}>
-                <Ionicons name={item.icon} size={18} color={selected ? GOLD : MUTED} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.categoryTitle, selected && styles.categoryTitleActive]}>{item.title}</Text>
-                <Text style={styles.categorySubtitle}>{item.subtitle}</Text>
-              </View>
-              <Ionicons name="chevron-forward-outline" size={18} color={selected ? GOLD : TERTIARY} />
-            </TouchableOpacity>
-          )
-        })}
-      </View>
-
-      <View style={styles.detailCard}>
-        <View style={styles.detailHeader}>
-          <Ionicons name={category.icon} size={22} color={GOLD} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.detailTitle}>{category.title}</Text>
-            <Text style={styles.detailSubtitle}>{category.subtitle}</Text>
-          </View>
+    <View style={styles.root}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.intro}>
+          <Text style={styles.kicker}>Espiritualidade diária</Text>
+          <Text style={styles.title}>Orações</Text>
+          <Text style={styles.introText}>Orações tradicionais, cada uma com um único registro e texto completo.</Text>
         </View>
-        <View style={styles.prayerList}>
-          {category.prayers.map((prayer, index) => (
-            <TouchableOpacity key={prayer} style={styles.prayerItem}>
-              <Text style={styles.prayerIndex}>{String(index + 1).padStart(2, '0')}</Text>
-              <Text style={styles.prayerName}>{prayer}</Text>
-              <Ionicons name="bookmarks-outline" size={17} color={GOLD} />
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          {categories.map(item => (
+            <TouchableOpacity key={item.id} style={[styles.chip, category === item.id && styles.chipActive]} onPress={() => setCategory(item.id)}>
+              <Text style={[styles.chipText, category === item.id && styles.chipTextActive]}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <View style={styles.list}>
+          {visible.map((prayer, index) => (
+            <TouchableOpacity key={prayer.id} accessibilityRole="button" style={styles.prayerItem} onPress={() => setSelected(prayer)}>
+              <Text style={styles.index}>{String(index + 1).padStart(2, '0')}</Text>
+              <Text style={styles.prayerTitle}>{prayer.title}</Text>
+              <Ionicons name="chevron-forward-outline" size={18} color={colors.gold} />
             </TouchableOpacity>
           ))}
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+
+      <Modal visible={Boolean(selected)} animationType="slide" transparent onRequestClose={() => setSelected(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{selected?.title}</Text>
+              <TouchableOpacity accessibilityLabel="Fechar oração" onPress={() => setSelected(null)}>
+                <Ionicons name="close-outline" size={28} color={colors.gold} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.prayerContent}>
+              <Text selectable style={styles.prayerText}>{selected?.text}</Text>
+            </ScrollView>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setSelected(null)}><Text style={styles.closeText}>Concluir</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG },
-  container: { padding: 16, paddingBottom: 40, gap: 14 },
-  intro: { backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 8, padding: 16 },
-  introKicker: { fontSize: 11, fontWeight: '800', color: GOLD, textTransform: 'uppercase', letterSpacing: 0.8 },
-  introTitle: { fontSize: 28, fontWeight: '800', color: TEXT, marginTop: 3 },
-  introText: { fontSize: 14, color: MUTED, lineHeight: 20, marginTop: 5 },
-  list: { backgroundColor: CARD, borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden' },
-  categoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-  },
-  categoryRowActive: { backgroundColor: WINE },
-  iconBox: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
-  iconBoxActive: { backgroundColor: '#2a1f12' },
-  categoryTitle: { fontSize: 14, fontWeight: '700', color: TEXT },
-  categoryTitleActive: { color: GOLD },
-  categorySubtitle: { fontSize: 12, color: MUTED, marginTop: 2, lineHeight: 16 },
-  detailCard: { backgroundColor: CARD, borderRadius: 8, borderWidth: 1, borderColor: BORDER, padding: 14, gap: 12 },
-  detailHeader: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  detailTitle: { fontSize: 16, color: TEXT, fontWeight: '800' },
-  detailSubtitle: { fontSize: 12, color: MUTED, marginTop: 2 },
-  prayerList: { gap: 7 },
-  prayerItem: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10, backgroundColor: BG },
-  prayerIndex: { fontSize: 11, fontWeight: '800', color: GOLD, fontVariant: ['tabular-nums'] },
-  prayerName: { flex: 1, fontSize: 14, color: TEXT, fontWeight: '600' },
+  root: { flex: 1, backgroundColor: colors.background },
+  container: { padding: 15, paddingBottom: 42, gap: 12 },
+  intro: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 14 },
+  kicker: { color: colors.gold, fontWeight: '900', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.7 },
+  title: { color: colors.text, fontSize: 27, fontWeight: '900', marginTop: 3 },
+  introText: { color: colors.muted, lineHeight: 19, marginTop: 5 },
+  chips: { gap: 7, paddingRight: 10 },
+  chip: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 8 },
+  chipActive: { borderColor: '#6b5721', backgroundColor: colors.goldSoft },
+  chipText: { color: colors.muted, fontWeight: '700', fontSize: 12 },
+  chipTextActive: { color: colors.gold },
+  list: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 10, overflow: 'hidden' },
+  prayerItem: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  index: { color: colors.gold, fontSize: 11, fontWeight: '900' },
+  prayerTitle: { flex: 1, color: colors.text, fontWeight: '800' },
+  modalBackdrop: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end' },
+  modalCard: { maxHeight: '86%', minHeight: '56%', backgroundColor: colors.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 17 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalTitle: { flex: 1, color: colors.text, fontSize: 21, fontWeight: '900' },
+  prayerContent: { paddingVertical: 20 },
+  prayerText: { color: colors.text, fontSize: 18, lineHeight: 29 },
+  closeButton: { minHeight: 46, backgroundColor: colors.wine, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  closeText: { color: '#fff', fontWeight: '900' },
 })

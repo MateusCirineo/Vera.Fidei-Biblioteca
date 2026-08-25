@@ -1,0 +1,29 @@
+[Unit]
+Description=Vera.Fidei production health monitor
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=VERA_PROJECT_DIR=/opt/vera_fidei
+Environment=VERA_BACKUP_DIR=/var/backups/vera-fidei/postgres
+Environment=VERA_MONITOR_STATE_DIR=/var/lib/vera-fidei-monitor
+Environment=VERA_PUBLIC_URL=https://verafidei.oialfred.com/apresentacao
+Environment=VERA_DISK_LIMIT_PERCENT=80
+Environment=VERA_BACKUP_MAX_AGE_HOURS=36
+Environment=VERA_OFFSITE_SUCCESS_MARKER=/var/lib/vera-fidei/offsite-backup-success
+Environment=VERA_OFFSITE_MAX_AGE_HOURS=36
+StateDirectory=vera-fidei-monitor
+StateDirectoryMode=0700
+ExecStart=/opt/vera_fidei/ops/monitor_production.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=-/var/lib/vera-fidei/offsite-backup-success
+ReadWritePaths=/var/lib/vera-fidei-monitor
+
+[Install]
+WantedBy=multi-user.target

@@ -118,11 +118,10 @@ export default function SantosView({ books, today, upcoming }: SantosViewProps) 
   const [selectedSaint, setSelectedSaint] = useState<SaintCatalogEntry | null>(null)
   const [saintQuery, setSaintQuery] = useState('')
   const [dailyCitation, setDailyCitation] = useState<DailyCitationResponse | null>(null)
-  const [citationLoading, setCitationLoading] = useState(false)
+  const [citationLoading, setCitationLoading] = useState(Boolean(today.name))
 
   useEffect(() => {
     if (!today.name) return
-    setCitationLoading(true)
     getDailyCitation(today.name)
       .then(res => setDailyCitation(res.text ? res : null))
       .catch(() => setDailyCitation(null))
@@ -373,7 +372,7 @@ export default function SantosView({ books, today, upcoming }: SantosViewProps) 
           )}
 
           {/* ── Citação do dia do acervo ── */}
-          {(citationLoading || dailyCitation) && (
+          {(citationLoading || dailyCitation?.text) && (
             <div className="rounded-lg border border-dourado/25 bg-dourado/5 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-dourado">
                 Citação do dia — do acervo verificado
@@ -386,6 +385,11 @@ export default function SantosView({ books, today, upcoming }: SantosViewProps) 
                   <blockquote className="mt-3 border-l-2 border-dourado/40 pl-3 font-garamond text-lg italic leading-relaxed text-texto">
                     {dailyCitation.translation_text ?? dailyCitation.text}
                   </blockquote>
+                  {dailyCitation.source_fidelity_label && (
+                    <p className="mt-2 inline-flex rounded border border-emerald-700/35 bg-emerald-950/25 px-2 py-1 text-[10px] font-semibold text-emerald-300">
+                      {dailyCitation.source_fidelity_label}
+                    </p>
+                  )}
                   {dailyCitation.translation_text && dailyCitation.language && dailyCitation.language !== 'pt' && (
                     <p className="mt-2 border-l-2 border-fundo-borda pl-3 text-xs text-texto-terciario italic">
                       {dailyCitation.text}
@@ -405,7 +409,12 @@ export default function SantosView({ books, today, upcoming }: SantosViewProps) 
                     </div>
                     {dailyCitation.book_file_id != null && (
                       <Link
-                        href={`/viewer/pdf?file=${encodeURIComponent(getPdfUrl(dailyCitation.book_file_id!))}${dailyCitation.pdf_page ? `&page=${dailyCitation.pdf_page}` : ''}`}
+                        href={(() => {
+                          const params = new URLSearchParams({ file: getPdfUrl(dailyCitation.book_file_id!) })
+                          if (dailyCitation.pdf_page != null) params.set('page', String(dailyCitation.pdf_page))
+                          if (dailyCitation.text) params.set('quote', dailyCitation.text.replace(/\s+/g, ' ').slice(0, 700))
+                          return `/viewer/pdf?${params.toString()}`
+                        })()}
                         className="ml-auto rounded border border-dourado/30 px-2 py-1 text-[10px] font-medium text-dourado transition-colors hover:bg-dourado/10"
                       >
                         Ver na fonte

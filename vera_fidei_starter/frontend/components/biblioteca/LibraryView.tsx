@@ -19,7 +19,7 @@ import DocumentosSection from './DocumentosSection'
 import SantosObrasSection from './SantosObrasSection'
 import BookCard from './BookCard'
 import { searchAcervo, searchBible, getCatechismConcordance, getPdfUrl, ApiError, getSearchUsage } from '@/lib/api'
-import { getToken } from '@/lib/auth'
+import { getUser } from '@/lib/auth'
 import type {
   AcervoSearchResult,
   CatechismConcordanceResponse,
@@ -49,17 +49,19 @@ const CONTENT_ROLE_LABELS: Record<string, { label: string; cls: string }> = {
 }
 
 function SearchResultCard({ hit, query }: { hit: AcervoSearchResult; query: string }) {
+  const isPdfLocator = hit.source_fidelity === 'unverified_ocr'
   const translatedPassage = hit.translation_text?.trim() ?? ''
   const originalPassage = hit.text?.trim() ?? ''
-  const text = originalPassage || translatedPassage
-  const isPdfLocator = hit.source_fidelity === 'unverified_ocr'
+  // Defense in depth: even an older cached API response must not render
+  // unchecked OCR as the literal wording of an edition.
+  const text = isPdfLocator ? '' : (originalPassage || translatedPassage)
   const roleInfo = hit.content_role ? CONTENT_ROLE_LABELS[hit.content_role] : null
   const pdfHref = hit.book_file_id == null
     ? null
     : (() => {
         const params = new URLSearchParams({ file: getPdfUrl(hit.book_file_id!) })
         if (hit.pdf_page != null) params.set('page', String(hit.pdf_page))
-        const sourceExcerpt = originalPassage.replace(/\s+/g, ' ').slice(0, 700)
+        const sourceExcerpt = isPdfLocator ? '' : originalPassage.replace(/\s+/g, ' ').slice(0, 700)
         if (sourceExcerpt) params.set('quote', sourceExcerpt)
         return `/viewer/pdf?${params.toString()}`
       })()
@@ -648,10 +650,19 @@ export default function LibraryView({
   // ── Quota de busca ──
   const [searchUsage, setSearchUsage] = useState<SearchUsageInfo | null>(null)
 
-  const isLoggedIn = !!getToken()
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    getUser().then(user => {
+      if (active) setIsLoggedIn(Boolean(user))
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const loadSearchUsage = useCallback(async () => {
-    if (!getToken()) return
     try {
       const usage = await getSearchUsage()
       setSearchUsage(usage)
@@ -691,11 +702,12 @@ export default function LibraryView({
       // expansion (e.g. "Eucaristia" → "Eucharistia" for Migne Latin chunks).
       // For patrística, the backend also includes OCR locators as highlighted
       // excerpt cards. For todo o acervo, strict verified-text gate applies.
-      // Patrística: request up to 200 at once (OCR locators + source_text).
-      // Todo o acervo: strict page size with cursor pagination.
+      // Return the first cards quickly on mobile, then the cursor effect below
+      // continues loading the complete patristic result set in the background.
+      // A 200-row first response took several seconds on cellular devices.
       const isPatristica = acervoCollection === 'patristica'
       const res = await searchAcervo(trimmed, {
-        limit: isPatristica ? 200 : CONTENT_SEARCH_PAGE_SIZE,
+        limit: CONTENT_SEARCH_PAGE_SIZE,
         collection: isPatristica ? '' : 'all',
         quotesOnly: acervoMode !== 'semantico',
         signal: controller.signal,

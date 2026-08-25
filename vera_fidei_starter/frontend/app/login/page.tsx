@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import AuthShell from '@/components/auth/AuthShell'
 import { getUser, login } from '@/lib/auth'
 
@@ -15,20 +15,19 @@ function safeRedirectPath(value: string | null) {
 
 function LoginForm() {
   const params = useSearchParams()
+  const router = useRouter()
   const redirect = safeRedirectPath(params.get('redirect'))
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    setReady(true)
     getUser().then((user) => {
-      if (user) window.location.replace(redirect)
+      if (user) router.replace(redirect)
     })
-  }, [redirect])
+  }, [redirect, router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -36,7 +35,8 @@ function LoginForm() {
     setLoading(true)
     try {
       await login(email, password)
-      window.location.assign(redirect)
+      router.replace(redirect)
+      router.refresh()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao entrar')
       setLoading(false)
@@ -77,10 +77,10 @@ function LoginForm() {
 
       <button
         type="submit"
-        disabled={loading || !ready}
+        disabled={loading}
         className="rounded-lg bg-dourado py-2.5 text-sm font-medium text-fundo transition-colors hover:bg-dourado-claro disabled:opacity-50"
       >
-        {!ready ? 'Carregando...' : loading ? 'Entrando...' : 'Entrar'}
+        {loading ? 'Entrando...' : 'Entrar'}
       </button>
     </form>
   )

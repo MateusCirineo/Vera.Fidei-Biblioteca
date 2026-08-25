@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.api_keys import router as api_keys_router
 from api.routes.api_v1 import router as api_v1_router
+from api.routes.analytics import router as analytics_router
 from api.routes.auth import router as auth_router
 from api.routes.authors import router as authors_router
 from api.routes.billing import router as billing_router
@@ -21,13 +22,19 @@ from api.routes.institutions import router as institutions_router
 from api.routes.pdfs import router as pdfs_router
 from api.routes.search import router as search_router
 from core.auth import require_api_key
+from core.config import settings, validate_runtime_security
 from models.database import init_db
+
+_is_production = settings.vera_environment.strip().lower() in {"production", "prod"}
 
 app = FastAPI(
     title="Vera.fidei API",
-    version="0.1.0",
+    version="1.2.0",
     description="Backend do MVP do verificador de citacoes teologicas.",
     redirect_slashes=False,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 _cors_origins = os.getenv(
@@ -40,6 +47,7 @@ app.add_middleware(
     allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 app.include_router(
@@ -86,6 +94,12 @@ app.include_router(
     dependencies=[Depends(require_api_key)],
 )
 app.include_router(billing_router, prefix="/billing", tags=["Billing"])
+app.include_router(
+    analytics_router,
+    prefix="/analytics",
+    tags=["Analytics"],
+    dependencies=[Depends(require_api_key)],
+)
 app.include_router(api_v1_router, prefix="/v1", tags=["API Publica"])
 app.include_router(
     search_router,
@@ -100,13 +114,14 @@ def startup() -> None:
     import logging
 
     log = logging.getLogger(__name__)
+    validate_runtime_security()
     init_db()
     if os.getenv("VERIFIER_PRELOAD_SEMANTIC", "").lower() in {"1", "true", "yes"}:
         try:
-            from search.semantic_search import _get_model
+            from search.semantic_search import _get_query_model
 
-            _get_model()
-            log.info("[startup] embedding model loaded")
+            _get_query_model()
+            log.info("[startup] multilingual query model loaded")
         except Exception as e:
             log.warning("[startup] model load error (non-fatal): %s", e)
 

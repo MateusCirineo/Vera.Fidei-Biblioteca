@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Vera.Fidei PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 America/Sao_Paulo
+Persistent=true
+RandomizedDelaySec=15m
+Unit=vera-fidei-db-backup.service
+
+[Install]
+WantedBy=timers.target

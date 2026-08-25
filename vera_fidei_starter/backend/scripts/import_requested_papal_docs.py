@@ -437,7 +437,12 @@ def generate_pdf_with_edge(
 ) -> None:
     HTML_TMP_DIR.mkdir(parents=True, exist_ok=True)
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha1(f"{doc.year}:{doc.title}:{lang}".encode("utf-8")).hexdigest()[:10]
+    # This digest only creates a deterministic temporary filename; it is not a
+    # signature or credential primitive.
+    digest = hashlib.sha1(
+        f"{doc.year}:{doc.title}:{lang}".encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()[:10]
     safe_stem = f"vf_{doc.year}_{lang}_{digest}"
     html_path = HTML_TMP_DIR / f"{safe_stem}.html"
     temp_pdf_path = HTML_TMP_DIR / f"{safe_stem}.pdf"

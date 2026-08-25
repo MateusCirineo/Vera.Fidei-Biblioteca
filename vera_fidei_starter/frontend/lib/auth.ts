@@ -10,30 +10,13 @@ export interface UserInfo {
   billing_status?: string | null
   billing_current_period_end?: string | null
   billing_cancel_at_period_end?: boolean
-}
-
-function setToken(token: string): void {
-  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-  document.cookie = `vf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}${secure}`
-}
-
-export function getToken(): string {
-  if (typeof document === 'undefined') return ''
-  const match = document.cookie.match(/(?:^|; )vf_token=([^;]*)/)
-  return match ? decodeURIComponent(match[1]) : ''
-}
-
-export function clearToken(): void {
-  const secure = typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : ''
-  document.cookie = `vf_token=; Path=/; SameSite=Lax; Max-Age=0${secure}`
+  is_owner?: boolean
 }
 
 export function authBearerHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  const token = getToken()
   const apiKey = process.env.NEXT_PUBLIC_API_KEY ?? ''
   const headers: Record<string, string> = { ...extra }
   if (apiKey) headers['X-API-Key'] = apiKey
-  if (token) headers.Authorization = `Bearer ${token}`
   return headers
 }
 
@@ -43,29 +26,30 @@ async function readError(res: Response, fallback: string): Promise<Error> {
 }
 
 export async function register(name: string, email: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/register`, {
+  const res = await fetch(`${BASE}/auth/web-register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ name, email, password }),
   })
   if (!res.ok) throw await readError(res, 'Erro ao cadastrar')
-  const data = await res.json()
-  setToken(data.access_token)
 }
 
 export async function login(email: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/login`, {
+  const res = await fetch(`${BASE}/auth/web-login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ email, password }),
   })
   if (!res.ok) throw await readError(res, 'Credenciais inválidas')
-  const data = await res.json()
-  setToken(data.access_token)
 }
 
-export function logout(): void {
-  clearToken()
+export async function logout(): Promise<void> {
+  await fetch(`${BASE}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  }).catch(() => undefined)
 }
 
 export async function forgotPassword(email: string): Promise<void> {
@@ -97,25 +81,40 @@ export async function resendVerification(): Promise<void> {
   const res = await fetch(`${BASE}/auth/resend-verification`, {
     method: 'POST',
     headers: authBearerHeaders(),
+    credentials: 'include',
   })
   if (!res.ok) throw await readError(res, 'Erro ao reenviar verificação')
 }
 
 export async function getUser(): Promise<UserInfo | null> {
-  const token = getToken()
-  if (!token) return null
   try {
     const res = await fetch(`${BASE}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+      cache: 'no-store',
     })
-    if (!res.ok) {
-      clearToken()
-      return null
-    }
+    if (!res.ok) return null
     return res.json()
   } catch {
     return null
   }
+}
+
+export async function downloadPersonalData(): Promise<Blob> {
+  const res = await fetch(`${BASE}/auth/data-export`, {
+    credentials: 'include',
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao exportar seus dados')
+  return res.blob()
+}
+
+export async function deleteAccount(password: string, confirmation: string): Promise<void> {
+  const res = await fetch(`${BASE}/auth/account`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ password, confirmation }),
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao excluir a conta')
 }
 
 export async function getHistorico(page = 1, perPage = 20) {
@@ -146,7 +145,7 @@ export async function exportHistoricoExcel(): Promise<Blob> {
   const res = await fetch(`${BASE}/citations/historico/export.xlsx`, {
     headers: authBearerHeaders(),
   })
-  if (!res.ok) throw await readError(res, 'Erro ao exportar histÃ³rico')
+  if (!res.ok) throw await readError(res, 'Erro ao exportar histórico')
   return res.blob()
 }
 
@@ -255,6 +254,22 @@ export async function createCheckoutSession(plan: string, couponCode?: string): 
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await readError(res, 'Erro ao iniciar assinatura')
+  return res.json()
+}
+
+export interface BillingSyncResponse {
+  synced: boolean
+  plan: string
+  billing_status?: string | null
+}
+
+export async function syncBillingSubscription(): Promise<BillingSyncResponse> {
+  const res = await fetch(`${BASE}/billing/sync`, {
+    method: 'POST',
+    headers: authBearerHeaders(),
+    credentials: 'include',
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao confirmar a ativação da assinatura')
   return res.json()
 }
 

@@ -2,7 +2,7 @@ import BrandHeader from '@/components/BrandHeader'
 import OracoesView from '@/components/oracoes/OracoesView'
 
 export const revalidate = 43200
-const PRAYER_FETCH_TIMEOUT_MS = 900
+const PRAYER_FETCH_TIMEOUT_MS = 8_000
 
 type PrayerVersion = {
   lang: 'Português' | 'Latim' | 'Inglês'
@@ -36,6 +36,17 @@ type RemotePrayer = {
 type RemotePrayerResponse = {
   oracoes?: RemotePrayer[]
 }
+
+type PrayerPageData = {
+  groups: PrayerGroup[]
+  source: string
+  sourceUrl?: string
+  latestModified?: string
+  isFallback: boolean
+}
+
+let prayerDataCache: { value: PrayerPageData; expiresAt: number } | null = null
+let prayerDataInflight: Promise<PrayerPageData> | null = null
 
 const CANCAO_NOVA_PRAYERS_URL = 'https://liturgia.cancaonova.com/pb/json-oracoes/'
 
@@ -558,12 +569,49 @@ function createEmptyGroups(): Record<GroupCode, PrayerGroup> {
   }, {} as Record<GroupCode, PrayerGroup>)
 }
 
+function prayerFingerprint(value: string): string {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
 function buildPrayerGroups(remotePrayers: RemotePrayer[]): PrayerGroup[] {
   const groups = createEmptyGroups()
+  const uniqueByBody = new Map<
+    string,
+    { remotePrayer: RemotePrayer; index: number; title: string; text: string }
+  >()
 
   remotePrayers.forEach((remotePrayer, index) => {
     const title = remotePrayer.titulo?.trim() || `Oração ${index + 1}`
     const text = stripPrayerHtml(remotePrayer.texto ?? '')
+    const fingerprint = prayerFingerprint(text)
+    const key = fingerprint || `empty:${remotePrayer.id ?? remotePrayer.dia ?? index}`
+    const current = uniqueByBody.get(key)
+
+    // A fonte remota ocasionalmente publica o mesmo corpo sob dois títulos.
+    // Mantemos uma única oração e preferimos o título mais informativo.
+    if (!current || title.length > current.title.length) {
+      uniqueByBody.set(key, { remotePrayer, index, title, text })
+    }
+  })
+
+  const uniquePrayers = [...uniqueByBody.values()].sort((a, b) => a.index - b.index)
+  const titleTotals = new Map<string, number>()
+  uniquePrayers.forEach(({ title }) => {
+    const key = prayerFingerprint(title)
+    titleTotals.set(key, (titleTotals.get(key) ?? 0) + 1)
+  })
+  const titleOccurrences = new Map<string, number>()
+
+  uniquePrayers.forEach(({ remotePrayer, index, title, text }) => {
+    const titleKey = prayerFingerprint(title)
+    const occurrence = (titleOccurrences.get(titleKey) ?? 0) + 1
+    titleOccurrences.set(titleKey, occurrence)
+    const displayTitle = (titleTotals.get(titleKey) ?? 0) > 1
+      ? `${title} — versão ${occurrence}`
+      : title
     const code = categorizePrayer(title)
 
     const versions = mergeVersions([
@@ -576,7 +624,7 @@ function buildPrayerGroups(remotePrayers: RemotePrayer[]): PrayerGroup[] {
 
     groups[code].items.push({
       id: String(remotePrayer.id ?? remotePrayer.dia ?? `${code}-${index}`),
-      title,
+      title: displayTitle,
       modified: formatModifiedDate(remotePrayer.modified),
       source: 'Canção Nova - Liturgia Diária',
       versions,
@@ -591,19 +639,13 @@ function buildPrayerGroups(remotePrayers: RemotePrayer[]): PrayerGroup[] {
     .filter(group => group.items.length > 0)
 }
 
-async function getPrayerGroups(): Promise<{
-  groups: PrayerGroup[]
-  source: string
-  sourceUrl?: string
-  latestModified?: string
-  isFallback: boolean
-}> {
+async function fetchPrayerGroups(): Promise<PrayerPageData> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), PRAYER_FETCH_TIMEOUT_MS)
 
   try {
     const response = await fetch(CANCAO_NOVA_PRAYERS_URL, {
-      next: { revalidate },
+      cache: 'no-store',
       signal: controller.signal,
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -625,18 +667,44 @@ async function getPrayerGroups(): Promise<{
       latestModified: formatModifiedDate(latestModified),
       isFallback: false,
     }
-  } catch {
-    return {
-      groups: fallbackPrayerGroups,
-      source: 'Fallback local Vera.Fidei',
-      isFallback: true,
-    }
   } finally {
     clearTimeout(timeout)
   }
 }
 
-export default async function OracoesPage() {
+async function getPrayerGroups(): Promise<PrayerPageData> {
+  const now = Date.now()
+  if (prayerDataCache && prayerDataCache.expiresAt > now) {
+    return prayerDataCache.value
+  }
+  if (prayerDataInflight) return prayerDataInflight
+
+  prayerDataInflight = fetchPrayerGroups()
+    .then(value => {
+      prayerDataCache = {
+        value,
+        expiresAt: Date.now() + revalidate * 1_000,
+      }
+      return value
+    })
+    .catch(() => prayerDataCache?.value ?? {
+      groups: fallbackPrayerGroups,
+      source: 'Fallback local Vera.Fidei',
+      isFallback: true,
+    })
+    .finally(() => {
+      prayerDataInflight = null
+    })
+
+  return prayerDataInflight
+}
+
+export default async function OracoesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ grupo?: string; oracao?: string }>
+}) {
+  const { grupo, oracao } = await searchParams
   const { groups, source, sourceUrl, latestModified, isFallback } = await getPrayerGroups()
 
   return (
@@ -651,6 +719,8 @@ export default async function OracoesPage() {
         sourceUrl={sourceUrl}
         latestModified={latestModified}
         isFallback={isFallback}
+        initialGroupCode={grupo}
+        initialPrayerId={oracao}
       />
     </div>
   )

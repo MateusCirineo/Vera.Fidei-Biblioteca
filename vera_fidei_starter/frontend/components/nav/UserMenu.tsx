@@ -64,12 +64,13 @@ export default function UserMenu() {
     }
   }, [user])
 
-  function handleLogout() {
-    logout()
+  async function handleLogout() {
+    await logout()
     setUser(null)
     setAvatar('')
     setOpen(false)
-    router.push('/verificador')
+    router.replace('/verificador')
+    router.refresh()
   }
 
   if (!user) {
@@ -123,6 +124,15 @@ export default function UserMenu() {
           >
             Meu Histórico
           </Link>
+          {user.is_owner && (
+            <Link
+              href="/admin"
+              onClick={() => setOpen(false)}
+              className="block px-3 py-2 text-xs font-semibold text-dourado hover:bg-fundo transition-colors"
+            >
+              Administração
+            </Link>
+          )}
           <button
             onClick={handleLogout}
             className="w-full text-left px-3 py-2 text-xs text-texto-terciario hover:text-vermelho hover:bg-fundo transition-colors"

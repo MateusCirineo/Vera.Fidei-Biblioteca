@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover - optional fast PDF backend
 _log = logging.getLogger(__name__)
 from langdetect import detect, LangDetectException
 
-from models.database import SessionLocal, Chunk, Book, BookFile, Translation, init_db
+from models.database import SessionLocal, Chunk, Book, BookFile, Translation, VerifiedPassage, init_db
 from schemas.citation import VerifyCitationRequest, VerifyCitationResponse, MatchReference
 from search.text_search import TextSearchClient
 from search.semantic_search import SemanticSearchClient
@@ -21,6 +21,11 @@ from confidence.scorer import CombinedScorer
 from confidence.classifier import DeterministicClassifier
 from confidence.explainer import ResultExplainer
 from storage.pdf_storage import get_pdf_storage
+from services.source_fidelity_service import (
+    PUBLIC_SOURCE_FIDELITIES,
+    VerifiedPassageCandidate,
+    select_verified_passage,
+)
 from utils.language import (
     normalize_lang as _normalize_lang,
     detect_latin_heuristic,
@@ -156,6 +161,44 @@ def _response_author(attributed_to: str, author_match: bool, book, chunk=None) -
     if chunk is not None and getattr(chunk, "chunk_author", None):
         return chunk.chunk_author
     return book.author if book else None
+
+
+def _authoritative_source_text(db, chunk: Chunk, query: str, candidate_text: str) -> tuple[str, str] | None:
+    """Resolve the wording allowed to support a public verification result.
+
+    OCR can nominate a page, but only native PDF text or a literal page
+    transcription may be used to classify and quote a citation.
+    """
+    if (chunk.source_fidelity or "") in PUBLIC_SOURCE_FIDELITIES:
+        # An approved chunk must not lend its status to unverified neighbors
+        # that happened to be included in a broader search window.
+        return chunk.text, chunk.source_fidelity
+
+    if chunk.pdf_page is None:
+        return None
+    rows = (
+        db.query(VerifiedPassage)
+        .filter(
+            VerifiedPassage.book_id == chunk.book_id,
+            VerifiedPassage.pdf_page == chunk.pdf_page,
+        )
+        .all()
+    )
+    verified = select_verified_passage(
+        candidate_text,
+        query,
+        (
+            VerifiedPassageCandidate(
+                text=row.text,
+                language=row.language,
+                method=row.verification_method,
+            )
+            for row in rows
+        ),
+    )
+    if verified is None:
+        return None
+    return verified.text, "verified_transcription"
 
 # Marcadores de linguagem acadêmica moderna que NÃO aparecem em traduções patrísticas
 # autênticas. Lista conservadora: apenas termos que são anacrônicos de forma inequívoca.
@@ -356,8 +399,19 @@ def _resolve_pdf_path(stored_path: str) -> str | None:
 
 # ─── Busca de página real no PDF ─────────────────────────────────────────────
 
+_LAYOUT_HYPHEN_RE = re.compile(
+    r"(?<=[^\W\d_])[-\u00ad\u2010\u2011]\s*(?=[^\W\d_])",
+    flags=re.UNICODE,
+)
+
+
+def _remove_layout_hyphens(text: str) -> str:
+    """Join words split by PDF line-wrap hyphens for comparison only."""
+    return _LAYOUT_HYPHEN_RE.sub("", text)
+
 def _normalize_for_search(text: str) -> str:
     """Remove acentos, pontuacao/numero solto, normaliza espaços e converte para minúsculas."""
+    text = _remove_layout_hyphens(text)
     text = unicodedata.normalize("NFD", text)
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
     text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
@@ -528,6 +582,79 @@ def _normalize_ocr(text: str) -> str:
     return text
 
 
+def _normalize_for_search_with_offsets(text: str) -> tuple[str, list[int]]:
+    """Normalize ``text`` while retaining each output character's source offset.
+
+    ``_normalize_for_search`` deliberately removes accents, punctuation, page
+    numbers and repeated whitespace.  A normalized position therefore cannot be
+    converted back to the source with a single global ratio: the amount removed
+    before a match is not necessarily representative of the whole text.  This
+    helper mirrors that normalization and keeps an exact source index for every
+    character that survives it.
+    """
+    expanded: list[str] = []
+    offsets: list[int] = []
+    removed_layout_offsets = {
+        index
+        for match in _LAYOUT_HYPHEN_RE.finditer(text)
+        for index in range(match.start(), match.end())
+    }
+
+    for source_index, source_char in enumerate(text):
+        if source_index in removed_layout_offsets:
+            continue
+        for decomposed_char in unicodedata.normalize("NFD", source_char):
+            if unicodedata.category(decomposed_char) == "Mn":
+                continue
+            normalized_char = (
+                decomposed_char
+                if re.match(r"[\w\s]", decomposed_char, flags=re.UNICODE)
+                else " "
+            )
+            expanded.append(normalized_char)
+            offsets.append(source_index)
+
+    # Lowercase the complete string so contextual Unicode rules are preserved
+    # (for example Greek final sigma: ``ΟΣ`` -> ``ος``).  Lowercasing normally
+    # keeps the same length; the fallback retains the originating offset for
+    # every expanded lowercase code point.
+    expanded_text = "".join(expanded)
+    intermediate = expanded_text.lower()
+    if len(intermediate) != len(offsets):
+        expanded_offsets: list[int] = []
+        for char, source_index in zip(expanded, offsets):
+            expanded_offsets.extend([source_index] * len(char.lower()))
+        if len(expanded_offsets) < len(intermediate):
+            fallback_offset = expanded_offsets[-1] if expanded_offsets else 0
+            expanded_offsets.extend(
+                [fallback_offset] * (len(intermediate) - len(expanded_offsets))
+            )
+        offsets = expanded_offsets[: len(intermediate)]
+    expanded = list(intermediate)
+
+    # Keep indices stable by replacing isolated PDF page numbers in place.
+    for match in re.finditer(r"(?<!\w)\d{1,4}(?!\w)", intermediate):
+        for index in range(match.start(), match.end()):
+            expanded[index] = " "
+
+    normalized: list[str] = []
+    normalized_offsets: list[int] = []
+    pending_space_offset: int | None = None
+    for char, source_index in zip(expanded, offsets):
+        if char.isspace():
+            if normalized and pending_space_offset is None:
+                pending_space_offset = source_index
+            continue
+        if pending_space_offset is not None:
+            normalized.append(" ")
+            normalized_offsets.append(pending_space_offset)
+            pending_space_offset = None
+        normalized.append(char)
+        normalized_offsets.append(source_index)
+
+    return "".join(normalized), normalized_offsets
+
+
 def _extract_matching_excerpt(query: str, chunk_text: str) -> str:
     """
     Extrai do chunk_text apenas o trecho que corresponde à query,
@@ -539,19 +666,18 @@ def _extract_matching_excerpt(query: str, chunk_text: str) -> str:
     2. Percorre frases/linhas do chunk e encontra o centro de maior sobreposição.
     3. Retorna uma janela centrada nesse ponto, respeitando limites de frase.
     """
-    from difflib import SequenceMatcher
-
     norm_q = _normalize_for_search(_normalize_ocr(query))
-    norm_c = _normalize_for_search(chunk_text)
+    norm_c, source_offsets = _normalize_for_search_with_offsets(chunk_text)
 
     # Tentativa de substring exata após normalização OCR
-    if norm_q in norm_c:
+    if norm_q and norm_q in norm_c:
         start = norm_c.index(norm_q)
         end = start + len(norm_q)
-        # Mapeia de volta para o texto original (aproximado por proporção)
-        ratio = len(chunk_text) / max(len(norm_c), 1)
-        orig_start = max(0, int(start * ratio) - 20)
-        orig_end = min(len(chunk_text), int(end * ratio) + 20)
+        # Cada caractere normalizado aponta para sua posição real. Não use uma
+        # proporção global: pontuação/layout removidos antes da citação deslocam
+        # o recorte para outro parágrafo, embora a correspondência esteja certa.
+        orig_start = source_offsets[start]
+        orig_end = source_offsets[end - 1] + 1
         return chunk_text[orig_start:orig_end].strip()
 
     # Janela deslizante por tokens
@@ -830,12 +956,20 @@ class VerificationService:
                         )
                     db.commit()
 
-                chunks = db.query(Chunk).all()
                 es_count = self.text_search.es.count(index="vera_fidei_chunks").get("count", 0)
-                chroma_count = self.semantic_search.delta_collection.count()
+                # Public queries use the crash-safe flat index when the legacy
+                # Chroma fallback is disabled. In that mode Chroma is kept
+                # deliberately unopened at startup, so it must not trigger a
+                # full historical reindex (or crash on ``None``).
+                chroma_count = (
+                    self.semantic_search.delta_collection.count()
+                    if self.semantic_search.delta_collection is not None
+                    else 1
+                )
 
                 # Garantir que ES e ChromaDB estão indexados
                 if es_count == 0 or chroma_count == 0:
+                    chunks = db.query(Chunk).all()
                     for chunk in chunks:
                         book = db.get(Book, chunk.book_id)
                         translation_pt = db.query(Translation).filter(
@@ -916,6 +1050,8 @@ class VerificationService:
                 char_offset_end=120,
                 visual_anchor="col503",
                 sequence_index=0,
+                extraction_method="seed_verified",
+                source_fidelity="verified",
             )
             db.add(chunk)
             db.flush()
@@ -969,6 +1105,10 @@ class VerificationService:
             "chapter_or_section": chunk.chapter_or_section,
             "char_offset_start": chunk.char_offset_start,
             "char_offset_end": chunk.char_offset_end,
+            "extraction_method": chunk.extraction_method,
+            "source_fidelity": chunk.source_fidelity,
+            "fidelity_score": chunk.fidelity_score,
+            "is_quotable": (chunk.source_fidelity or "") in PUBLIC_SOURCE_FIDELITIES,
         }
         if translation_pt:
             doc["translation_text"] = translation_pt.text

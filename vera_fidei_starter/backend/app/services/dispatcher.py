@@ -8,8 +8,10 @@ class PipelineDispatcher:
     def __init__(self) -> None:
         self.registry = get_agent_registry()
 
-    def run(self, task: str) -> PipelineContext:
+    def run(self, task: str, *, initial_findings: dict | None = None) -> PipelineContext:
         ctx = PipelineContext(user_task=task)
+        if initial_findings:
+            ctx.findings.update(initial_findings)
 
         # O orchestrator define a missão e a ordem de execução
         orchestrator = self.registry["orchestrator"]

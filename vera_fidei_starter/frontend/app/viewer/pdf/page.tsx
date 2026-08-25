@@ -270,6 +270,7 @@ function PdfViewerInner() {
   const [placeholderH, setPlaceholderH] = useState(800)
   const [pageMetrics, setPageMetrics] = useState<PageMetric[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadProgress, setLoadProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
   const [pageInput, setPageInput] = useState(String(initialPage))
@@ -387,8 +388,11 @@ function PdfViewerInner() {
   useEffect(() => {
     if (!fileUrl || isMobile === null) return
     let cancelled = false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let loadTask: any = null
     async function load() {
       setLoading(true)
+      setLoadProgress(null)
       setError(null)
       setPdfDoc(null)
       setNumPages(0)
@@ -397,15 +401,21 @@ function PdfViewerInner() {
       const lib = await import('pdfjs-dist')
       lib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
-      // Use range requests so pdfjs starts rendering before the full PDF downloads.
-      // disableStream:false + rangeChunkSize lets pdfjs fetch only the pages
-      // visible in the viewport rather than downloading the whole file up front.
-      const loadTask = lib.getDocument({
+      // Fetch only the byte ranges needed by visible pages. Streaming and
+      // auto-fetch would otherwise continue downloading a 200MB+ volume after
+      // page 1 is already available.
+      loadTask = lib.getDocument({
         url: fileUrl,
-        rangeChunkSize: 65536,
+        rangeChunkSize: 524288,
         disableRange: false,
-        disableStream: false,
+        disableStream: true,
+        disableAutoFetch: true,
       })
+      loadTask.onProgress = ({ loaded, total }: { loaded: number; total?: number }) => {
+        if (!cancelled && total && total > 0) {
+          setLoadProgress(Math.min(100, Math.round((loaded / total) * 100)))
+        }
+      }
 
       const LOAD_TIMEOUT_MS = 120_000
       let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -419,6 +429,9 @@ function PdfViewerInner() {
       let doc: Awaited<typeof loadTask.promise>
       try {
         doc = await Promise.race([loadTask.promise, timeoutPromise])
+      } catch (loadError) {
+        await loadTask.destroy().catch(() => {})
+        throw loadError
       } finally {
         if (timeoutId !== null) clearTimeout(timeoutId)
       }
@@ -444,8 +457,18 @@ function PdfViewerInner() {
       setNumPages(doc.numPages)
       setLoading(false)
     }
-    load().catch((e) => { if (!cancelled) { setError(e?.message ?? 'Erro ao carregar PDF.'); setLoading(false) } })
-    return () => { cancelled = true }
+    load().catch((e) => {
+      if (!cancelled) {
+        const message = String(e?.message ?? '')
+        const authError = /\b(401|403)\b|unauthorized|forbidden/i.test(message)
+        setError(authError ? 'Sua sessão expirou. Entre novamente para abrir este PDF.' : (message || 'Erro ao carregar PDF.'))
+        setLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+      if (loadTask) void loadTask.destroy().catch(() => {})
+    }
   }, [fileUrl, isMobile])
 
   // Scroll para a página inicial após o PDF carregar
@@ -722,7 +745,11 @@ function PdfViewerInner() {
           <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
           <div>
             <p className="text-sm text-zinc-300 font-medium">Carregando PDF…</p>
-            <p className="mt-1 text-xs text-zinc-500">PDFs grandes podem levar alguns segundos na primeira abertura.</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {loadProgress != null
+                ? `Preparando a primeira página (${loadProgress}%)…`
+                : 'Preparando a primeira página sem baixar o volume inteiro…'}
+            </p>
           </div>
         </div>
       )}

@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=255)
 
 
 class LoginRequest(BaseModel):
@@ -22,7 +22,16 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str = Field(..., min_length=10)
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=8, max_length=255)
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(..., min_length=6, max_length=255)
+    confirmation: str = Field(..., min_length=7, max_length=20)
+
+
+class MobileWebSessionRequest(BaseModel):
+    redirect: str = Field(..., min_length=1, max_length=200)
 
 
 class ContactRequest(BaseModel):
@@ -48,5 +57,6 @@ class UserResponse(BaseModel):
     billing_status: str | None = None
     billing_current_period_end: datetime.datetime | None = None
     billing_cancel_at_period_end: bool | None = False
+    is_owner: bool = False
 
     model_config = {"from_attributes": True}

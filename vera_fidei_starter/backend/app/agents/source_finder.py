@@ -29,6 +29,7 @@ class SourceFinderAgent(BaseAgent):
         warnings: list[str] = []
         candidates: list[dict] = ctx.findings.get("search_candidates", [])
         attributed_to: str = ctx.findings.get("attributed_to", "")
+        query: str = ctx.findings.get("quote") or ctx.user_task
 
         if not candidates:
             ctx.findings["source"] = _NOT_FOUND.copy()
@@ -44,7 +45,7 @@ class SourceFinderAgent(BaseAgent):
         try:
             from models.database import SessionLocal, Chunk, Book
             from utils.author_detection import detect_author
-            from services.verification_service import _author_matches
+            from services.verification_service import _author_matches, _authoritative_source_text
         except ImportError as exc:
             ctx.findings["source"] = _NOT_FOUND.copy()
             return AgentResult(
@@ -63,11 +64,15 @@ class SourceFinderAgent(BaseAgent):
                     if chunk is None:
                         continue
                     book = chunk.book
+                    authoritative = _authoritative_source_text(db, chunk, query, chunk.text)
+                    if authoritative is None:
+                        continue
+                    authoritative_text, source_fidelity = authoritative
 
                     # Normaliza autor canônico
                     detected_author, score = detect_author(
                         book.canonical_title or book.title,
-                        chunk.text[:500],
+                        authoritative_text[:500],
                     )
                     canonical = detected_author or book.canonical_author or book.author
 
@@ -80,8 +85,9 @@ class SourceFinderAgent(BaseAgent):
                         "text_score": cand["text_score"],
                         "semantic_score": cand["semantic_score"],
                         "match_strategy": cand["match_strategy"],
-                        "excerpt": cand.get("excerpt") or chunk.text[:350],
-                        "full_text": chunk.text,
+                        "excerpt": authoritative_text[:350],
+                        "full_text": authoritative_text,
+                        "source_fidelity": source_fidelity,
                         "candidate_author": book.author,
                         "canonical_author": canonical,
                         "candidate_work": book.canonical_title or book.title,
@@ -146,6 +152,7 @@ class SourceFinderAgent(BaseAgent):
             "pdf_page": best["pdf_page"],
             "author_match": best["author_match"],
             "match_strategy": best["match_strategy"],
+            "source_fidelity": best["source_fidelity"],
             "observations": [
                 f"Candidato selecionado com score combinado {best['combined_score']:.2f}.",
                 f"Correspondência de autor: {'sim' if best['author_match'] else 'não confirmada'}.",

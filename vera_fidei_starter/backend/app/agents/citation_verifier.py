@@ -82,7 +82,8 @@ class CitationVerifierAgent(BaseAgent):
         # ── Similaridade textual normalizada ─────────────────────────
         norm_quote = _normalize(quote)
         norm_located = _normalize(located)
-        similarity = SequenceMatcher(None, norm_quote, norm_located).ratio()
+        contained = bool(norm_quote and norm_quote in norm_located)
+        similarity = 1.0 if contained else SequenceMatcher(None, norm_quote, norm_located).ratio()
 
         # ── Lexical anchor ────────────────────────────────────────────
         lexical_anchor = _compute_lexical_anchor(quote, located)
@@ -96,7 +97,7 @@ class CitationVerifierAgent(BaseAgent):
             pass  # Não crítico — continua sem
 
         # ── Correspondência exata (normalizada) ──────────────────────
-        exact_match = similarity >= 0.85
+        exact_match = contained or similarity >= 0.85
 
         # ── Author match ──────────────────────────────────────────────
         author_match = source.get("author_match", False)

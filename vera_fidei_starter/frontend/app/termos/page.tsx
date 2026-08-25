@@ -26,6 +26,14 @@ const sections = [
     title: '6. Disponibilidade e alterações',
     text: 'O serviço pode passar por manutenção, ajustes técnicos e mudanças de funcionalidades. O Vera.Fidei pode atualizar estes termos para refletir melhorias do produto, exigências legais ou alterações operacionais.',
   },
+  {
+    title: '7. Cancelamento, arrependimento e reembolso',
+    text: 'A assinatura pode ser cancelada pelo portal de cobrança disponível na conta. Solicitações de arrependimento ou reembolso podem ser enviadas pela página de contato e serão tratadas conforme a legislação brasileira aplicável, sem limitação dos direitos legalmente assegurados ao consumidor.',
+  },
+  {
+    title: '8. Legislação e atendimento',
+    text: 'Estes termos são regidos pela legislação brasileira. Dúvidas, solicitações sobre cobrança, exercício de direitos ou comunicações relacionadas ao serviço podem ser encaminhadas pela página de contato do Vera.Fidei.',
+  },
 ]
 
 export default function TermosPage() {
@@ -37,9 +45,8 @@ export default function TermosPage() {
       />
 
       <p className="rounded-lg border border-fundo-borda bg-fundo-card p-4 text-xs leading-relaxed text-texto-terciario">
-        Atualizado em 19 de junho de 2026. Este texto é uma base operacional
-        para o lançamento do app e pode ser revisado com apoio jurídico antes
-        de campanhas públicas maiores.
+        Atualizado em 24 de agosto de 2026. Esta é a versão vigente dos Termos
+        de Uso do Vera.Fidei.
       </p>
 
       <div className="mt-7 space-y-6">

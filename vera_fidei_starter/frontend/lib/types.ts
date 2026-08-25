@@ -68,6 +68,8 @@ export interface BookFile {
   editor: string | null
   translator: string | null
   created_at: string
+  start_page?: number
+  is_source_alias?: boolean
 }
 
 export type PatristicTradition = 'grega' | 'oriental' | 'latina' | 'portuguesa'

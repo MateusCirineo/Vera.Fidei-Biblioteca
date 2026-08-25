@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { deleteFavorite, listFavorites, saveFavorite } from '@/lib/api'
-import { getToken } from '@/lib/auth'
+import { useRouter } from 'next/navigation'
+import { ApiError, deleteFavorite, listFavorites, saveFavorite } from '@/lib/api'
 import type { FavoriteKind, FavoritePayload } from '@/lib/types'
 
 const favoriteIds = new Map<FavoriteKind, Set<string>>()
@@ -41,6 +41,7 @@ interface FavoriteButtonProps {
 }
 
 export default function FavoriteButton({ payload, compact = false }: FavoriteButtonProps) {
+  const router = useRouter()
   const [favorited, setFavorited] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -48,11 +49,6 @@ export default function FavoriteButton({ payload, compact = false }: FavoriteBut
 
   useEffect(() => {
     let cancelled = false
-    if (!getToken()) {
-      setLoading(false)
-      return
-    }
-
     loadFavoriteIds(payload.kind)
       .then((ids) => {
         if (!cancelled) setFavorited(ids.has(payload.item_id))
@@ -69,11 +65,6 @@ export default function FavoriteButton({ payload, compact = false }: FavoriteBut
 
   async function toggle() {
     setError('')
-    if (!getToken()) {
-      window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
-      return
-    }
-
     setBusy(true)
     try {
       const ids = await loadFavoriteIds(payload.kind)
@@ -89,7 +80,11 @@ export default function FavoriteButton({ payload, compact = false }: FavoriteBut
       favoriteIds.set(payload.kind, ids)
       emitFavoritesChanged()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erro ao atualizar favorito.')
+      if (err instanceof ApiError && err.status === 401) {
+        router.push(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+      } else {
+        setError(err instanceof Error ? err.message : 'Erro ao atualizar favorito.')
+      }
     } finally {
       setBusy(false)
       setLoading(false)

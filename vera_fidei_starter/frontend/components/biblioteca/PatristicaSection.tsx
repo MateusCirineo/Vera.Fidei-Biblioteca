@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Book, PatristicShelf, LibraryStructure } from '@/lib/types'
+import type { PatristicShelf, LibraryStructure } from '@/lib/types'
 import { normalizePublisherId, publisherForBook, publisherTabsForBooks } from '@/lib/publisher'
 import BookCard from './BookCard'
 
@@ -9,12 +9,6 @@ type TraditionTab = {
   id: PatristicShelf
   label: string
   description: string
-}
-
-type PublisherTab = {
-  id: string
-  label: string
-  count: number
 }
 
 const TRADITIONS: TraditionTab[] = [
@@ -44,50 +38,6 @@ const TRADITIONS: TraditionTab[] = [
     description: 'Traduções, edições vernáculas e materiais de apoio',
   },
 ]
-
-function normalizeKey(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-function publisherLabelFor(book: Book): string {
-  const label = (book.edition_label || book.source_label || '').trim()
-  const normalized = label
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-
-  if (normalized.includes('paulus')) return 'Paulus'
-  if (normalized.includes('familia')) return 'Editora Família'
-  if (label) return label
-  return 'Outras editoras'
-}
-
-function buildPublisherTabs(books: Book[]): PublisherTab[] {
-  const counts = new Map<string, PublisherTab>()
-  for (const book of books) {
-    const label = publisherLabelFor(book)
-    const id = normalizeKey(label)
-    const current = counts.get(id)
-    if (current) {
-      current.count += 1
-    } else {
-      counts.set(id, { id, label, count: 1 })
-    }
-  }
-
-  return [...counts.values()].sort((a, b) => {
-    if (a.label === 'Paulus') return -1
-    if (b.label === 'Paulus') return 1
-    if (a.label === 'Outras editoras') return 1
-    if (b.label === 'Outras editoras') return -1
-    return a.label.localeCompare(b.label, 'pt')
-  })
-}
 
 interface PatristicaSectionProps {
   patristica: LibraryStructure['patristica']

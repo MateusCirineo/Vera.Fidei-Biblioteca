@@ -942,7 +942,10 @@ def main() -> int:
     parser.add_argument("--only-folder", default=None, help="Restrict import to one top folder")
     parser.add_argument("--start-after-path", default=None, help="Resume after this source path")
     parser.add_argument("--limit", type=int, default=0, help="Maximum rows to process")
-    parser.add_argument("--log", default="/tmp/vera_drive_import.jsonl")
+    parser.add_argument(
+        "--log",
+        default=str(Path(tempfile.gettempdir()) / "vera_drive_import.jsonl"),
+    )
     parser.add_argument("--include-regex", default="", help="Only import source paths matching this regex")
     parser.add_argument("--exclude-regex", default="", help="Skip source paths matching this regex")
     parser.add_argument("--dry-run", action="store_true")

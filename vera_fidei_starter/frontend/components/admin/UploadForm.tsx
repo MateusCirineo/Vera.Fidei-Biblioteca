@@ -20,15 +20,16 @@ export default function UploadForm() {
   const [chunks, setChunks] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const processingBookId = state.status === 'processing' ? state.result.id : null
 
   // Polling de status enquanto está em "processing"
   useEffect(() => {
-    if (state.status !== 'processing') {
+    if (processingBookId === null) {
       if (pollRef.current) clearInterval(pollRef.current)
       return
     }
 
-    const bookId = state.result.id
+    const bookId = processingBookId
 
     pollRef.current = setInterval(async () => {
       try {
@@ -53,7 +54,7 @@ export default function UploadForm() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
-  }, [state.status])
+  }, [processingBookId])
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()

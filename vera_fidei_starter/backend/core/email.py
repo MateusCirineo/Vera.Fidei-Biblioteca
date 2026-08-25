@@ -30,7 +30,8 @@ def send_email(to: str, subject: str, html: str) -> bool:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # The endpoint is a source constant, never derived from user input.
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
             status = resp.status
         if status == 200:
             return True

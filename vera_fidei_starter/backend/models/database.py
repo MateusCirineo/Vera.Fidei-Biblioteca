@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import datetime
+import threading
 
-from sqlalchemy import create_engine, String, Integer, Boolean, ForeignKey, Text, DateTime, Date, UniqueConstraint
+from sqlalchemy import create_engine, String, Integer, Boolean, Float, ForeignKey, Text, DateTime, Date, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
 import json
@@ -27,6 +28,10 @@ class User(Base):
     billing_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     billing_current_period_end: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     billing_cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Incrementing this value invalidates every JWT issued with an older value.
+    # Existing tokens did not carry the claim and are treated as version zero,
+    # which keeps them compatible until the next password reset.
+    session_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
@@ -182,6 +187,38 @@ class SearchUsage(Base):
     user: Mapped["User"] = relationship()
 
 
+class SiteVisitor(Base):
+    """First-party, pseudonymous browser used for aggregate site metrics."""
+
+    __tablename__ = "site_visitors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    visitor_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    first_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False, index=True
+    )
+    last_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False, index=True
+    )
+    view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class SitePageView(Base):
+    """A route view without IP address, user-agent or account identity."""
+
+    __tablename__ = "site_page_views"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    visitor_id: Mapped[int] = mapped_column(
+        ForeignKey("site_visitors.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    path: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    viewed_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False, index=True
+    )
+
+
 class Book(Base):
     __tablename__ = "books"
 
@@ -244,12 +281,72 @@ class Chunk(Base):
     char_offset_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     char_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     visual_anchor: Mapped[str] = mapped_column(String(100), default="")
+    # OCR is never equivalent to a source-verified transcription. These fields
+    # keep the extraction origin explicit so public citation paths can fail
+    # closed instead of presenting machine guesses as words from the edition.
+    extraction_method: Mapped[str] = mapped_column(String(30), default="legacy_unknown")
+    source_fidelity: Mapped[str] = mapped_column(String(30), default="unverified")
+    fidelity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fidelity_reasons: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     book: Mapped["Book"] = relationship(back_populates="chunks")
     source_file: Mapped["BookFile | None"] = relationship(back_populates="chunks")
     translations: Mapped[list["Translation"]] = relationship(
         back_populates="chunk", cascade="all, delete-orphan"
     )
+
+
+class VerifiedPassage(Base):
+    """Literal transcription checked against one physical PDF page."""
+
+    __tablename__ = "verified_passages"
+    __table_args__ = (
+        UniqueConstraint("book_id", "pdf_page", "text_sha256", name="uq_verified_passage_source"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
+    book_file_id: Mapped[int | None] = mapped_column(ForeignKey("book_files.id", ondelete="CASCADE"), nullable=True)
+    pdf_page: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    language: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    verification_method: Mapped[str] = mapped_column(String(50), default="visual_pdf")
+    evidence_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+
+class VerifiedPageReview(Base):
+    """Audited full-page transcription checked against rendered PDF pixels."""
+
+    __tablename__ = "verified_page_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "book_id",
+            "pdf_page",
+            "text_sha256",
+            "pdf_sha256",
+            "render_pixel_sha256",
+            name="uq_verified_page_review_evidence",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"), nullable=False)
+    book_file_id: Mapped[int] = mapped_column(ForeignKey("book_files.id", ondelete="CASCADE"), nullable=False)
+    pdf_page: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    pdf_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    render_pixel_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    render_dpi: Mapped[int] = mapped_column(Integer, nullable=False)
+    language: Mapped[str] = mapped_column(String(30), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(255), nullable=False)
+    reviewed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    verification_method: Mapped[str] = mapped_column(String(50), default="visual_pdf")
+    evidence_ref: Mapped[str] = mapped_column(String(500), nullable=False)
+    manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
 
 class BookFile(Base):
@@ -285,13 +382,20 @@ class Translation(Base):
 
 engine = create_engine(settings.database_url, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+_init_db_lock = threading.Lock()
+_init_db_complete = False
 
 
 def init_db(reset: bool = False) -> None:
-    if reset:
-        Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    _migrate_add_library_columns()
+    global _init_db_complete
+    with _init_db_lock:
+        if _init_db_complete and not reset:
+            return
+        if reset:
+            Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        _migrate_add_library_columns()
+        _init_db_complete = True
 
 
 def _migrate_add_library_columns() -> None:
@@ -307,6 +411,10 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS is_ecumenical BOOLEAN",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS document_status VARCHAR(50)",
         "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS chunk_author VARCHAR(255)",
+        "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS extraction_method VARCHAR(30) DEFAULT 'legacy_unknown'",
+        "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS source_fidelity VARCHAR(30) DEFAULT 'unverified'",
+        "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS fidelity_score DOUBLE PRECISION",
+        "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS fidelity_reasons TEXT",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS volume_number INTEGER",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS ingest_status VARCHAR(30)",
         "ALTER TABLE books ADD COLUMN IF NOT EXISTS ingest_error TEXT",
@@ -319,10 +427,11 @@ def _migrate_add_library_columns() -> None:
         # Indexes for performance — critical for COUNT queries run per-book/per-author
         "CREATE INDEX IF NOT EXISTS idx_chunks_book_id ON chunks(book_id)",
         "CREATE INDEX IF NOT EXISTS idx_chunks_chunk_author ON chunks(chunk_author)",
+        "CREATE INDEX IF NOT EXISTS idx_chunks_source_fidelity ON chunks(source_fidelity)",
         "CREATE INDEX IF NOT EXISTS idx_books_canonical_author ON books(canonical_author)",
         "CREATE INDEX IF NOT EXISTS idx_books_library_section ON books(library_section)",
         # Tabela de usuários
-        "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, password_hash VARCHAR(255) NOT NULL, plan VARCHAR(30) DEFAULT 'fiel', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, password_hash VARCHAR(255) NOT NULL, plan VARCHAR(30) DEFAULT 'fiel', is_active BOOLEAN DEFAULT TRUE, session_version INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT NOW())",
         "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_provider VARCHAR(30)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_customer_id VARCHAR(255)",
@@ -330,6 +439,7 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_status VARCHAR(50)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_current_period_end TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_cancel_at_period_end BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0",
         "CREATE INDEX IF NOT EXISTS idx_users_billing_customer_id ON users(billing_customer_id)",
         "CREATE INDEX IF NOT EXISTS idx_users_billing_subscription_id ON users(billing_subscription_id)",
         "UPDATE users SET plan = 'magisterio', billing_status = 'owner', billing_cancel_at_period_end = FALSE WHERE lower(email) = 'mateuscirineo@gmail.com'",
@@ -369,6 +479,28 @@ def _migrate_add_library_columns() -> None:
         "CREATE TABLE IF NOT EXISTS search_usage (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, usage_date DATE NOT NULL, count INTEGER DEFAULT 0)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_search_usage_user_date ON search_usage(user_id, usage_date)",
         "CREATE INDEX IF NOT EXISTS idx_search_usage_date ON search_usage(usage_date)",
+        # First-party aggregate analytics. The random browser token itself is
+        # never stored; only its one-way hash is retained. IP and user-agent
+        # are deliberately excluded from the schema.
+        "CREATE TABLE IF NOT EXISTS site_visitors (id SERIAL PRIMARY KEY, visitor_hash VARCHAR(64) UNIQUE NOT NULL, first_seen_at TIMESTAMP NOT NULL DEFAULT NOW(), last_seen_at TIMESTAMP NOT NULL DEFAULT NOW(), view_count INTEGER NOT NULL DEFAULT 0, last_path VARCHAR(255))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_site_visitors_hash ON site_visitors(visitor_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_site_visitors_first_seen ON site_visitors(first_seen_at)",
+        "CREATE INDEX IF NOT EXISTS idx_site_visitors_last_seen ON site_visitors(last_seen_at)",
+        "CREATE TABLE IF NOT EXISTS site_page_views (id SERIAL PRIMARY KEY, visitor_id INTEGER NOT NULL REFERENCES site_visitors(id) ON DELETE CASCADE, path VARCHAR(255) NOT NULL, viewed_at TIMESTAMP NOT NULL DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_site_page_views_visitor ON site_page_views(visitor_id)",
+        "CREATE INDEX IF NOT EXISTS idx_site_page_views_path ON site_page_views(path)",
+        "CREATE INDEX IF NOT EXISTS idx_site_page_views_viewed_at ON site_page_views(viewed_at)",
+        # Literal page transcriptions are the only OCR-derived text allowed to
+        # claim source fidelity in public citation paths.
+        "CREATE TABLE IF NOT EXISTS verified_passages (id SERIAL PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, book_file_id INTEGER REFERENCES book_files(id) ON DELETE CASCADE, pdf_page INTEGER NOT NULL, text TEXT NOT NULL, text_sha256 VARCHAR(64) NOT NULL, language VARCHAR(30), verification_method VARCHAR(50) DEFAULT 'visual_pdf', evidence_ref VARCHAR(500), created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_verified_passage_source ON verified_passages(book_id, pdf_page, text_sha256)",
+        "CREATE INDEX IF NOT EXISTS idx_verified_passage_lookup ON verified_passages(book_id, pdf_page)",
+        # Full-page reviews retain enough evidence to prove exactly which PDF,
+        # rendered pixels and transcription were approved. Independent OCR
+        # consensus is intentionally not accepted as visual review.
+        "CREATE TABLE IF NOT EXISTS verified_page_reviews (id SERIAL PRIMARY KEY, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, book_file_id INTEGER NOT NULL REFERENCES book_files(id) ON DELETE CASCADE, pdf_page INTEGER NOT NULL, text TEXT NOT NULL, text_sha256 VARCHAR(64) NOT NULL, pdf_sha256 VARCHAR(64) NOT NULL, render_pixel_sha256 VARCHAR(64) NOT NULL, render_dpi INTEGER NOT NULL, language VARCHAR(30) NOT NULL, reviewer VARCHAR(255) NOT NULL, reviewed_at TIMESTAMP NOT NULL, verification_method VARCHAR(50) DEFAULT 'visual_pdf', evidence_ref VARCHAR(500) NOT NULL, manifest_sha256 VARCHAR(64) NOT NULL, created_at TIMESTAMP DEFAULT NOW())",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_verified_page_review_evidence ON verified_page_reviews(book_id, pdf_page, text_sha256, pdf_sha256, render_pixel_sha256)",
+        "CREATE INDEX IF NOT EXISTS idx_verified_page_review_lookup ON verified_page_reviews(book_id, pdf_page)",
     ]
     with engine.begin() as conn:
         for sql in migrations:

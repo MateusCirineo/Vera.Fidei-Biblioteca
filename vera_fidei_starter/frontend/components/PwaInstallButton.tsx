@@ -26,8 +26,10 @@ export default function PwaInstallButton() {
   const [appleMobile, setAppleMobile] = useState(false)
 
   useEffect(() => {
-    setInstalled(isStandalone())
-    setAppleMobile(isAppleMobile())
+    const syncEnvironment = window.setTimeout(() => {
+      setInstalled(isStandalone())
+      setAppleMobile(isAppleMobile())
+    }, 0)
 
     function handleBeforeInstallPrompt(event: Event) {
       event.preventDefault()
@@ -45,6 +47,7 @@ export default function PwaInstallButton() {
     window.addEventListener('appinstalled', handleInstalled)
 
     return () => {
+      window.clearTimeout(syncEnvironment)
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleInstalled)
     }

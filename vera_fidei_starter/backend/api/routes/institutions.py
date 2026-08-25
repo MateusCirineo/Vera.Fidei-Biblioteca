@@ -176,7 +176,7 @@ def update_member_role(
         if not inst:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="VocÃª nÃ£o possui uma instituiÃ§Ã£o.",
+                detail="Você não possui uma instituição.",
             )
         member = (
             db.query(InstitutionMember)
@@ -187,7 +187,7 @@ def update_member_role(
             .first()
         )
         if not member:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nÃ£o encontrado.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro não encontrado.")
         if member.user_id == current_user.id and role != "admin":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -217,7 +217,7 @@ def remove_member(
         if not inst:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="VocÃª nÃ£o possui uma instituiÃ§Ã£o.",
+                detail="Você não possui uma instituição.",
             )
         member = (
             db.query(InstitutionMember)
@@ -228,11 +228,11 @@ def remove_member(
             .first()
         )
         if not member:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro nÃ£o encontrado.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membro não encontrado.")
         if member.user_id == current_user.id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="NÃ£o Ã© possÃ­vel remover o administrador principal.",
+                detail="Não é possível remover o administrador principal.",
             )
         db.delete(member)
         db.commit()

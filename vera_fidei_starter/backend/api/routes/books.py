@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import functools
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
 
-from models.database import SessionLocal, Book, Chunk, BookFile
+from core.deps import require_owner
+from models.database import SessionLocal, Book, Chunk, BookFile, User
 from schemas.book import BookCreate, BookResponse, BookFileResponse, IngestPDFResponse, AutoIngestResponse, BookStatusResponse
 from services.ingestion_service import get_processing_state
 from services.ingestion_service import IngestionService
@@ -26,11 +27,45 @@ def _get_ingestion_service() -> IngestionService:
 
 
 def _chunk_count(db, book_id: int) -> int:
-    return db.query(func.count(Chunk.id)).filter(Chunk.book_id == book_id).scalar() or 0
+    return (
+        db.query(func.count(Chunk.id))
+        .filter(Chunk.book_id == book_id, func.length(func.trim(Chunk.text)) > 0)
+        .scalar()
+        or 0
+    )
+
+
+def _book_files_for_response(db, book_id: int) -> list[BookFileResponse]:
+    own_files = db.query(BookFile).filter(BookFile.book_id == book_id).order_by(BookFile.id).all()
+    if own_files:
+        return [BookFileResponse.model_validate(file) for file in own_files]
+
+    # Obras lógicas podem apontar para a página exata de um volume-fonte sem
+    # duplicar o mesmo BookFile no catálogo. É o caso de tratados individuais
+    # contidos em volumes PL/PG/PO.
+    aliases: dict[int, tuple[BookFile, int]] = {}
+    rows = (
+        db.query(BookFile, Chunk.pdf_page)
+        .join(Chunk, Chunk.book_file_id == BookFile.id)
+        .filter(Chunk.book_id == book_id, BookFile.book_id != book_id)
+        .order_by(BookFile.id, Chunk.pdf_page)
+        .all()
+    )
+    for file, page in rows:
+        current = aliases.get(file.id)
+        start_page = max(1, int(page or 1))
+        if current is None or start_page < current[1]:
+            aliases[file.id] = (file, start_page)
+    return [
+        BookFileResponse.model_validate(file).model_copy(
+            update={"start_page": page, "is_source_alias": True}
+        )
+        for file, page in aliases.values()
+    ]
 
 
 def _book_to_response(db, b: Book) -> BookResponse:
-    files = db.query(BookFile).filter(BookFile.book_id == b.id).all()
+    files = _book_files_for_response(db, b.id)
     return BookResponse(
         id=b.id,
         collection=b.collection,
@@ -53,7 +88,7 @@ def _book_to_response(db, b: Book) -> BookResponse:
         volume_number=b.volume_number,
         ingest_status=b.ingest_status,
         ingest_error=b.ingest_error,
-        files=[BookFileResponse.model_validate(f) for f in files] if files else None,
+        files=files or None,
     )
 
 
@@ -79,6 +114,7 @@ def list_books() -> list[BookResponse]:
         # Batch: chunk counts e files em 2 queries (evita N+1)
         chunk_counts: dict[int, int] = dict(
             db.query(Chunk.book_id, func.count(Chunk.id))
+            .filter(func.length(func.trim(Chunk.text)) > 0)
             .group_by(Chunk.book_id)
             .all()
         )
@@ -117,7 +153,10 @@ def list_books() -> list[BookResponse]:
 
 
 @router.post("", response_model=BookResponse, status_code=201)
-def create_book(payload: BookCreate) -> BookResponse:
+def create_book(
+    payload: BookCreate,
+    _current_user: User = Depends(require_owner),
+) -> BookResponse:
     with SessionLocal() as db:
         duplicate = (
             db.query(Book)
@@ -183,6 +222,7 @@ async def ingest_auto(
     title_override: str | None = Form(None),
     editor: str | None = Form(None),
     translator: str | None = Form(None),
+    _current_user: User = Depends(require_owner),
 ) -> AutoIngestResponse:
     """
     Upload zero-input: extrai texto, detecta autor/título/coleção/idioma,
@@ -230,7 +270,10 @@ def get_book(book_id: int) -> BookResponse:
 
 
 @router.delete("/{book_id}")
-def delete_book(book_id: int) -> Response:
+def delete_book(
+    book_id: int,
+    _current_user: User = Depends(require_owner),
+) -> Response:
     """Remove um livro e todos os seus chunks, arquivos e entradas de índice."""
     service = _get_ingestion_service()
     service.delete_book(book_id)
@@ -247,6 +290,7 @@ def update_book_file_metadata(
     book_id: int,
     file_id: int,
     payload: BookFileMetaUpdate,
+    _current_user: User = Depends(require_owner),
 ) -> dict:
     """Atualiza editor e tradutor de um BookFile existente."""
     with SessionLocal() as db:
@@ -266,6 +310,7 @@ async def ingest_pdf(
     volume_number: int | None = Form(None),
     editor: str | None = Form(None),
     translator: str | None = Form(None),
+    _current_user: User = Depends(require_owner),
 ) -> IngestPDFResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="O arquivo enviado deve ser um PDF.")

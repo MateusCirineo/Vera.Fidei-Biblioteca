@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pdf2image
@@ -12,20 +13,28 @@ import pytesseract
 
 DIGITAL_THRESHOLD = 50
 OCR_LANG_FALLBACKS = (
-    "fra+lat+grc+eng",
-    "lat+grc+por+eng",
-    "fra+lat+eng",
-    "fra+eng",
     "lat+eng",
+    "lat+grc+eng",
     "lat+por+eng",
+    "fra+lat+eng",
+    "grc+lat+eng",
+    "fra+por+lat+eng",
+    "fra+lat+grc+eng",
+    "lat+por",
     "por+eng",
+    "fra+eng",
     "fra",
     "eng",
 )
-OCR_DPI_FALLBACKS = (150, 125, 100)
+OCR_DPI_FALLBACKS = (220, 180, 150)
 OCR_PAGE_TIMEOUT_SECONDS = 120
 OCR_GOOD_TEXT_CHARS = 80
 OCR_MAX_WORKERS = 2
+# PSM 3 detects columns. PSM 6 treated a full Migne page as one text block
+# and interleaved the left and right columns word by word.
+OCR_PSM_MODES = ("--psm 3", "--psm 4", "--psm 6", "--psm 11")
+OCR_OEM_MODE = "1"
+OCR_CACHE_VERSION = "layout-v2-220dpi"
 
 # Paths resolved relative to the repository root, with Linux container fallbacks.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -76,12 +85,42 @@ class PDFExtractor:
 
     def _is_digital(self, pdf_path: str) -> bool:
         with pdfplumber.open(pdf_path) as pdf:
+            if self._looks_scanned(pdf.pages[:8]):
+                return False
             # Check the first pages; covers and indexes can be empty.
             for page in pdf.pages[:8]:
                 sample = page.extract_text() or ""
                 if self._has_usable_digital_text(sample):
                     return True
         return self._has_poppler_sample_text(pdf_path)
+
+    def _looks_scanned(self, pages) -> bool:
+        """Conservatively detect full-page scans, including hidden OCR layers.
+
+        A searchable OCR overlay is still OCR; it must not be promoted to
+        source text merely because ``extract_text`` returns many characters.
+        """
+        sampled = 0
+        full_page_images = 0
+        for page in pages:
+            width = float(getattr(page, "width", 0) or 0)
+            height = float(getattr(page, "height", 0) or 0)
+            page_area = width * height
+            if page_area <= 0:
+                continue
+            sampled += 1
+            for image in getattr(page, "images", ()) or ():
+                x0 = float(image.get("x0", 0) or 0)
+                x1 = float(image.get("x1", x0) or x0)
+                top = float(image.get("top", 0) or 0)
+                bottom = float(image.get("bottom", top) or top)
+                image_area = max(0.0, x1 - x0) * max(0.0, bottom - top)
+                if image_area / page_area >= 0.55:
+                    full_page_images += 1
+                    break
+        if sampled < 2:
+            return False
+        return full_page_images >= max(2, math.ceil(sampled * 0.40))
 
     def _has_usable_digital_text(self, sample: str) -> bool:
         text = (sample or "").strip()
@@ -133,7 +172,12 @@ class PDFExtractor:
         pages = []
         with pdfplumber.open(pdf_path) as pdf:
             for i, page in enumerate(pdf.pages, start=1):
-                pages.append({"page_number": i, "text": page.extract_text() or ""})
+                pages.append({
+                    "page_number": i,
+                    "text": page.extract_text() or "",
+                    "extraction_method": "digital_text",
+                    "source_fidelity": "source_text",
+                })
         return pages
 
     def _extract_digital_poppler(self, pdf_path: str) -> list[dict]:
@@ -170,7 +214,12 @@ class PDFExtractor:
             total_pages = len(parts)
 
         return [
-            {"page_number": page_num, "text": parts[page_num - 1] if page_num <= len(parts) else ""}
+            {
+                "page_number": page_num,
+                "text": parts[page_num - 1] if page_num <= len(parts) else "",
+                "extraction_method": "digital_text",
+                "source_fidelity": "source_text",
+            }
             for page_num in range(1, total_pages + 1)
         ]
 
@@ -222,7 +271,15 @@ class PDFExtractor:
                     )
 
         return [
-            {"page_number": page_num, "text": page_texts.get(page_num, "")}
+            {
+                "page_number": page_num,
+                "text": page_texts.get(page_num, ""),
+                "extraction_method": "ocr",
+                # OCR output remains an internal discovery aid until a human
+                # or an authoritative transcription verifies it against the
+                # rendered page. It must not become a public quotation.
+                "source_fidelity": "unverified_ocr",
+            }
             for page_num in range(1, total_pages + 1)
         ]
 
@@ -298,25 +355,27 @@ class PDFExtractor:
             return None
 
     def _ocr_image_path(self, image_path: str, page_num: int) -> str:
-        tessdata_config = f'--tessdata-dir "{TESSDATA_DIR}"' if os.path.isdir(TESSDATA_DIR) else ""
+        base_config = "--oem 1" if OCR_OEM_MODE else ""
+        if os.path.isdir(TESSDATA_DIR):
+            base_config = f"{base_config} --tessdata-dir \"{TESSDATA_DIR}\""
         best_text = ""
         last_error: Exception | None = None
-
         for lang in OCR_LANG_FALLBACKS:
-            try:
-                text = pytesseract.image_to_string(
-                    image_path,
-                    lang=lang,
-                    config=tessdata_config,
-                    timeout=OCR_PAGE_TIMEOUT_SECONDS,
-                )
-                if len(text.strip()) > len(best_text.strip()):
-                    best_text = text
-                if len(text.strip()) >= OCR_GOOD_TEXT_CHARS:
-                    return text
-            except Exception as exc:
-                last_error = exc
-                print(f"[ocr] page={page_num} failed lang={lang}: {exc}")
+            for mode in OCR_PSM_MODES:
+                try:
+                    text = pytesseract.image_to_string(
+                        image_path,
+                        lang=lang,
+                        config=f"{base_config} {mode}".strip(),
+                        timeout=OCR_PAGE_TIMEOUT_SECONDS,
+                    )
+                    if len(text.strip()) > len(best_text.strip()):
+                        best_text = text
+                    if len(text.strip()) >= OCR_GOOD_TEXT_CHARS:
+                        return text
+                except Exception as exc:
+                    last_error = exc
+                    print(f"[ocr] page={page_num} failed lang={lang} mode={mode}: {exc}")
 
         if best_text.strip():
             return best_text
@@ -335,7 +394,10 @@ class PDFExtractor:
         return os.path.join(OCR_CACHE_DIR, self._pdf_cache_key(pdf_path))
 
     def _pdf_cache_key(self, pdf_path: str) -> str:
-        hasher = hashlib.sha1()
+        # SHA-1 is sufficient for a non-security OCR cache key.  Mark that
+        # intent explicitly so security tooling cannot mistake it for signing.
+        hasher = hashlib.sha1(usedforsecurity=False)
+        hasher.update(OCR_CACHE_VERSION.encode("ascii"))
         with open(pdf_path, "rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
                 hasher.update(chunk)

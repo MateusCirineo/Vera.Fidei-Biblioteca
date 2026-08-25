@@ -222,6 +222,7 @@ export default function BookDetail({ book }: { book: Book }) {
                     {file.volume_number && <span>Vol. {file.volume_number}</span>}
                     {file.editor && <span>Ed. {file.editor}</span>}
                     {file.translator && <span>Trad. {file.translator}</span>}
+                    {file.is_source_alias && <span>Localização no volume-fonte</span>}
                     <span>{new Date(file.created_at).toLocaleDateString('pt-BR')}</span>
                   </div>
                 </div>
@@ -237,7 +238,8 @@ export default function BookDetail({ book }: { book: Book }) {
                       </Link>
                     )}
                     <Link
-                      href={`/visualizar/${file.id}`}
+                      href={`/viewer/pdf?file=${encodeURIComponent(`/api/pdfs/${file.id}`)}&page=${file.start_page ?? 1}`}
+                      prefetch
                       className="rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
                     >
                       Ler PDF

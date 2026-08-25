@@ -23,8 +23,8 @@ function ResetForm() {
       setError('As senhas não coincidem.')
       return
     }
-    if (password.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres.')
+    if (password.length < 8) {
+      setError('A senha deve ter pelo menos 8 caracteres.')
       return
     }
     if (!token) {
@@ -80,7 +80,7 @@ function ResetForm() {
           onChange={(e) => setPassword(e.target.value)}
           required
           autoComplete="new-password"
-          minLength={6}
+          minLength={8}
           className="w-full rounded-lg border border-fundo-borda bg-fundo px-3 py-2.5 text-sm text-texto transition-colors placeholder:text-texto-terciario focus:border-dourado focus:outline-none"
         />
       </div>
@@ -92,7 +92,7 @@ function ResetForm() {
           onChange={(e) => setConfirm(e.target.value)}
           required
           autoComplete="new-password"
-          minLength={6}
+          minLength={8}
           className="w-full rounded-lg border border-fundo-borda bg-fundo px-3 py-2.5 text-sm text-texto transition-colors placeholder:text-texto-terciario focus:border-dourado focus:outline-none"
         />
       </div>

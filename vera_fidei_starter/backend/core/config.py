@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 dias
     owner_email: str = "mateuscirineo@gmail.com"
+    vera_environment: str = "development"
     site_url: str = "https://verafidei.oialfred.com"
     usage_reset_timezone: str = "America/Sao_Paulo"
 
@@ -33,6 +34,35 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from: str = "Vera.Fidei <noreply@verafidei.oialfred.com>"
     support_email: str = "vera.fidei661@gmail.com"
+
+    # Instagram (Graph API) — publicação do card diário
+    instagram_access_token: str = ""
+    instagram_business_account_id: str = ""
+    instagram_graph_api_version: str = "v21.0"
+    # Publicar exige as duas chaves abaixo. O padrão seguro é somente gerar
+    # prévias; a ativação vem depois da aprovação visual do template.
+    instagram_publish_enabled: bool = False
+    instagram_credentials_rotated_at: str = ""
+    # Exceção efêmera e explícita para uma única execução manual. Nunca deve
+    # ser gravada em .env nem utilizada pelo agendador.
+    instagram_allow_exposed_credentials_once: bool = False
+    instagram_schedule_enabled: bool = False
+    instagram_schedule_timezone: str = "America/Sao_Paulo"
+
+    # Deploy do servidor (Hetzner) — hospeda publicamente as imagens do card diário
+    deploy_ssh_host: str = ""
+    deploy_ssh_user: str = "root"
+    deploy_ssh_password: str = ""
+    deploy_ssh_key_path: str = ""
+    deploy_ssh_known_hosts: str = ""
+    deploy_social_cards_dir: str = "/var/www/verafidei-social-cards"
+    deploy_social_cards_public_base_url: str = "https://verafidei.oialfred.com/social-cards"
+
+    # Identidade visual e auditoria do Instagram
+    social_body_font_path: str = "C:/Windows/Fonts/ARLRDBD.TTF"
+    social_output_dir: str = "scripts/output/instagram"
+    social_ledger_path: str = "data/social/instagram_posts.jsonl"
+    social_style_approval_path: str = "data/social/style.approval.json"
 
     # Billing
     billing_provider: str = "stripe"
@@ -57,3 +87,13 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_runtime_security() -> None:
+    if settings.vera_environment.strip().lower() not in {"production", "prod"}:
+        return
+    secret = settings.jwt_secret.strip()
+    if secret == "CHANGE_ME_IN_PRODUCTION" or len(secret) < 32:
+        raise RuntimeError("JWT_SECRET seguro e obrigatorio em producao.")
+    if not settings.owner_email.strip():
+        raise RuntimeError("OWNER_EMAIL e obrigatorio em producao.")

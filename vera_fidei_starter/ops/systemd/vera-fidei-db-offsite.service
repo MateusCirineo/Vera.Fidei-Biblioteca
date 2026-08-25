@@ -1,0 +1,25 @@
+[Unit]
+Description=Encrypted off-site Vera.Fidei PostgreSQL backup
+Wants=network-online.target
+After=network-online.target vera-fidei-db-backup.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=VERA_BACKUP_DIR=/var/backups/vera-fidei/postgres
+Environment=VERA_OFFSITE_STAGE_DIR=/var/backups/vera-fidei/offsite-stage
+Environment=VERA_BACKUP_RECIPIENT_FILE=/etc/vera-fidei/backup-recipient.pub
+Environment=VERA_OFFSITE_REMOTE=vera_drive:vera-fidei/backups/postgres-encrypted
+Environment=VERA_OFFSITE_SUCCESS_MARKER=/var/lib/vera-fidei/offsite-backup-success
+ExecStartPre=/usr/bin/install -d -m 0700 /var/backups/vera-fidei/offsite-stage
+ExecStartPre=/usr/bin/install -d -m 0700 /var/lib/vera-fidei
+ExecStart=/opt/vera_fidei/ops/backup_postgres_offsite.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/etc/vera-fidei/backup-recipient.pub /root/.config/rclone
+ReadWritePaths=/var/backups/vera-fidei/offsite-stage /var/lib/vera-fidei
+
+[Install]
+WantedBy=multi-user.target

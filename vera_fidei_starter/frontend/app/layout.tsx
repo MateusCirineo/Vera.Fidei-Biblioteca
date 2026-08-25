@@ -4,6 +4,7 @@ import './globals.css'
 import PwaRegister from '@/components/PwaRegister'
 import AppSplash from '@/components/AppSplash'
 import AppChrome from '@/components/AppChrome'
+import SiteAnalytics from '@/components/SiteAnalytics'
 
 const ebGaramond = EB_Garamond({
   variable: '--font-eb-garamond',
@@ -84,6 +85,7 @@ export default function RootLayout({
     >
       <body className="flex flex-col min-h-dvh bg-fundo text-texto antialiased">
         <PwaRegister />
+        <SiteAnalytics />
         <AppSplash />
         <AppChrome>{children}</AppChrome>
       </body>

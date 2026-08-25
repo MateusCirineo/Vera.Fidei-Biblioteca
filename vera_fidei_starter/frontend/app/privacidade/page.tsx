@@ -3,14 +3,16 @@ import BrandHeader from '@/components/BrandHeader'
 
 const dataItems = [
   'Dados de cadastro, como nome, e-mail e informações da conta.',
-  'Histórico de uso do app, incluindo verificações, limites e plano ativo.',
+  'Histórico de verificações, favoritos, contagem de buscas, limites e plano ativo.',
+  'Textos religiosos enviados ao verificador ou salvos como favoritos podem revelar interesses ou convicções religiosas e recebem tratamento compatível com essa sensibilidade.',
   'Dados técnicos necessários para segurança, autenticação, logs e prevenção de abuso.',
+  'Métricas próprias de acesso por navegador, usando identificador aleatório em cookie. Para essa medição não armazenamos endereço IP, identificação da conta, navegador ou termos pesquisados.',
   'Dados de pagamento processados pela Stripe; o Vera.Fidei não armazena número completo de cartão.',
 ]
 
 const rights = [
   'Confirmar se há tratamento de dados pessoais.',
-  'Acessar, corrigir ou solicitar eliminação quando aplicável.',
+  'Acessar, exportar, corrigir ou solicitar eliminação quando aplicável.',
   'Solicitar informações sobre compartilhamento e tratamento.',
   'Revogar consentimentos quando esta for a base usada.',
 ]
@@ -24,7 +26,7 @@ export default function PrivacidadePage() {
       />
 
       <p className="rounded-lg border border-fundo-borda bg-fundo-card p-4 text-xs leading-relaxed text-texto-terciario">
-        Atualizada em 19 de junho de 2026. Esta política foi estruturada com
+        Atualizada em 21 de agosto de 2026. Esta política foi estruturada com
         base na LGPD e em orientações públicas da Autoridade Nacional de
         Proteção de Dados.
       </p>
@@ -53,7 +55,9 @@ export default function PrivacidadePage() {
           Os dados são usados para criar e proteger contas, autenticar usuários,
           entregar a biblioteca e o verificador, controlar limites de uso,
           processar assinaturas, responder solicitações de suporte e melhorar a
-          estabilidade do serviço.
+          estabilidade do serviço. Métricas agregadas permitem acompanhar acessos
+          e uso das funções sem identificar pessoalmente os visitantes. O conteúdo pesquisado não é vendido nem usado
+          para publicidade comportamental.
         </p>
       </section>
 
@@ -94,7 +98,11 @@ export default function PrivacidadePage() {
           acesso indevido, perda ou alteração de dados. As informações são
           mantidas pelo tempo necessário para operar o serviço, cumprir
           obrigações legais, resolver disputas e preservar a segurança da
-          plataforma.
+          plataforma. Quando a conta é excluída, os dados operacionais vinculados
+          a ela são removidos do banco ativo. Registros que precisem ser mantidos
+          por obrigação legal, prevenção a fraude ou defesa de direitos poderão
+          ser conservados pelo prazo estritamente necessário. Backups seguem seu
+          ciclo protegido de retenção e não retornam ao uso normal do produto.
         </p>
       </section>
 
@@ -103,13 +111,20 @@ export default function PrivacidadePage() {
           Solicitações
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-texto-secundario">
-          Para exercer direitos de privacidade ou pedir esclarecimentos, use a
-          página de contato.
+          Usuários autenticados podem exportar seus dados ou excluir a conta
+          diretamente no Perfil. Para correção, oposição, portabilidade ou outros
+          esclarecimentos, use a página de contato.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Link
-            href="/contato"
+            href="/perfil"
             className="rounded-md bg-dourado px-4 py-2.5 text-sm font-semibold text-fundo transition-colors hover:bg-dourado-claro"
+          >
+            Gerenciar meus dados
+          </Link>
+          <Link
+            href="/contato"
+            className="rounded-md border border-fundo-borda px-4 py-2.5 text-sm font-semibold text-texto-secundario transition-colors hover:border-dourado hover:text-dourado"
           >
             Entrar em contato
           </Link>

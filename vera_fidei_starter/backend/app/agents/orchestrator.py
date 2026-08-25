@@ -9,7 +9,9 @@ class OrchestratorAgent(BaseAgent):
     def run(self, ctx: PipelineContext) -> AgentResult:
         task = ctx.user_task.lower()
 
-        if any(kw in task for kw in ("pdf", "upload", "upar", "ingest", "ingerir", "importar", "patrologia", "pg", "pl", "po", "concilio", "concílio", "ecumenico", "ecuménico")):
+        if any(kw in task for kw in ("instagram", "carrossel", "postar", "publicação", "publicar post", "rede social")):
+            mission = self._social_mission(ctx)
+        elif any(kw in task for kw in ("pdf", "upload", "upar", "ingest", "ingerir", "importar", "patrologia", "pg", "pl", "po", "concilio", "concílio", "ecumenico", "ecuménico")):
             mission = self._pdf_ingestion_mission(ctx)
         elif any(
             kw in task
@@ -49,6 +51,65 @@ class OrchestratorAgent(BaseAgent):
             data=mission,
             notes=["Missao criada com sucesso.", f"execution_id: {ctx.execution_id}"],
         )
+
+    def _social_mission(self, ctx: PipelineContext) -> dict:
+        return {
+            "task": ctx.user_task,
+            "objective": "Selecionar, validar, diagramar e, quando autorizado, publicar um carrossel rastreável no Instagram.",
+            "scope": [
+                "selecionar um trecho português não publicado",
+                "vincular autor, obra, edição e página ao mesmo chunk",
+                "exigir retrato previamente aprovado do autor correto",
+                "usar o padrão visual fornecido pelo proprietário",
+                "gerar capa, citação com fonte e CTA",
+                "parar para aprovação enquanto o estilo não estiver homologado",
+                "publicar somente pela API oficial e registrar o ID remoto",
+            ],
+            "out_of_scope": [
+                "seguir, curtir ou comentar automaticamente",
+                "inventar traduções, referências ou imagens de santos",
+                "publicar com credenciais antigas ou template não aprovado",
+            ],
+            "agents": [
+                "planner",
+                "social_source_agent",
+                "social_consistency_agent",
+                "social_copy_agent",
+                "social_art_agent",
+                "social_approval_agent",
+                "social_publish_agent",
+            ],
+            "execution_order": [
+                "planner",
+                "social_source_agent",
+                "social_consistency_agent",
+                "social_copy_agent",
+                "social_art_agent",
+                "social_approval_agent",
+                "social_publish_agent",
+            ],
+            "dependencies": {
+                "social_source_agent": ["planner"],
+                "social_consistency_agent": ["social_source_agent"],
+                "social_copy_agent": ["social_consistency_agent"],
+                "social_art_agent": ["social_copy_agent"],
+                "social_approval_agent": ["social_art_agent"],
+                "social_publish_agent": ["social_approval_agent"],
+            },
+            "risks": [
+                "trecho editorial ou índice ser confundido com citação",
+                "autor, obra ou imagem divergirem",
+                "repetição de conteúdo já publicado",
+                "mudança silenciosa do template ou da fonte",
+            ],
+            "done_definition": [
+                "fonte coerente e auditável",
+                "três artes visualmente verificadas",
+                "nenhuma publicação sem aprovação e credenciais rotacionadas",
+                "publicação remota registrada quando autorizada",
+            ],
+            "execution_id": ctx.execution_id,
+        }
 
     def _pdf_ingestion_mission(self, ctx: PipelineContext) -> dict:
         return {
