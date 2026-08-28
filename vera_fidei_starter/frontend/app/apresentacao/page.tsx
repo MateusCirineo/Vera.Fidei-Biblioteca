@@ -88,11 +88,11 @@ const collectionItems = [
 ]
 
 const planItems = [
-  { nome: 'Fiel', preco: 'Grátis', desc: '10 verificações/mês · 5 buscas/dia compartilhadas' },
+  { nome: 'Fiel', preco: 'Grátis', desc: 'Biblioteca completa e PDFs · 10 verificações/mês · 5 buscas/dia' },
   { nome: 'Catequista', preco: 'R$ 9,90/mês', desc: '25 verificações/mês · 20 buscas/dia compartilhadas · Laudos em PDF' },
-  { nome: 'Apologeta', preco: 'R$ 29,99/mês', desc: '50 verificações/mês · 50 buscas/dia compartilhadas · PDFs digitalizados', destaque: true },
-  { nome: 'Patrístico', preco: 'R$ 59,99/mês', desc: '100 verificações/mês · 100 buscas/dia compartilhadas · PDFs digitalizados e painel institucional' },
-  { nome: 'Magistério', preco: 'R$ 99,99/mês', desc: 'Tudo ilimitado · PDFs digitalizados · API dedicada' },
+  { nome: 'Apologeta', preco: 'R$ 29,99/mês', desc: '50 verificações/mês · 50 buscas/dia · análise de tradução', destaque: true },
+  { nome: 'Patrístico', preco: 'R$ 59,99/mês', desc: '100 verificações/mês · 100 buscas/dia · painel institucional' },
+  { nome: 'Magistério', preco: 'R$ 99,99/mês', desc: 'Tudo ilimitado · integrações · API dedicada' },
 ]
 
 function LineIcon({ name, className = 'h-5 w-5' }: { name: IconName; className?: string }) {

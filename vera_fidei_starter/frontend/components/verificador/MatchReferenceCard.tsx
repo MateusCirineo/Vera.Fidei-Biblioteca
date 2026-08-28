@@ -128,10 +128,10 @@ export default function MatchReferenceCard({
       )}
       {reference.pdf_file_id && !canOpenPdf && (
         <Link
-          href="/planos"
+          href="/login?redirect=/verificador"
           className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-fundo-borda px-3 py-1.5 text-xs font-medium text-texto-terciario transition-colors hover:border-dourado hover:text-dourado"
         >
-          PDF completo no Apologeta
+          Entrar para abrir o PDF
         </Link>
       )}
     </div>

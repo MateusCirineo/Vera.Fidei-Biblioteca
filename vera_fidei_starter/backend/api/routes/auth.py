@@ -13,7 +13,7 @@ from sqlalchemy import func
 
 from core.deps import get_current_user, require_owner
 from core.email import send_email
-from core.plans import ensure_owner_access, has_min_plan, initial_plan_for_email, is_owner_email, normalize_email
+from core.plans import ensure_owner_access, initial_plan_for_email, is_owner_email, normalize_email
 from core.config import settings
 from core.security import create_access_token, hash_password, verify_password
 from models.database import (
@@ -181,11 +181,7 @@ def _mobile_bearer_user(authorization: str = Header(default="")) -> User:
 
 
 def _mobile_pdf_user(current_user: User = Depends(_mobile_bearer_user)) -> User:
-    if not has_min_plan(current_user.plan, "apologeta"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="O visualizador de PDFs requer o plano Apologeta ou superior.",
-        )
+    """Every authenticated account, including Fiel, has full library PDF access."""
     return current_user
 
 

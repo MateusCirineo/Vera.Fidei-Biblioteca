@@ -1,4 +1,5 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+const AUTH_REQUEST_TIMEOUT_MS = 15_000
 export const AUTH_STATE_CHANGED_EVENT = 'vf:auth-state-changed'
 export const PROFILE_AVATAR_CHANGED_EVENT = 'vf:profile-avatar-changed'
 
@@ -52,6 +53,37 @@ async function readError(res: Response, fallback: string): Promise<Error> {
   return new Error(err.detail ?? fallback)
 }
 
+async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('O login demorou demais. Verifique sua conexão e tente novamente.')
+    }
+    throw error
+  } finally {
+    globalThis.clearTimeout(timeoutId)
+  }
+}
+
+async function requestCurrentUser(): Promise<UserInfo> {
+  const res = await fetchAuth(`${BASE}/auth/me`, {
+    credentials: 'include',
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('O login foi aceito, mas a sessão não pôde ser confirmada. Tente novamente.')
+    }
+    throw await readError(res, 'Não foi possível confirmar sua sessão.')
+  }
+  const user = await res.json() as UserInfo
+  return { ...user, avatar_url: resolveAvatarUrl(user.avatar_url) }
+}
+
 export async function register(name: string, email: string, password: string): Promise<void> {
   const res = await fetch(`${BASE}/auth/web-register`, {
     method: 'POST',
@@ -63,15 +95,17 @@ export async function register(name: string, email: string, password: string): P
   notifyAuthStateChanged()
 }
 
-export async function login(email: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/web-login`, {
+export async function login(email: string, password: string): Promise<UserInfo> {
+  const res = await fetchAuth(`${BASE}/auth/web-login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({ email, password }),
   })
   if (!res.ok) throw await readError(res, 'Credenciais inválidas')
+  const user = await requestCurrentUser()
   notifyAuthStateChanged()
+  return user
 }
 
 export async function logout(): Promise<void> {
@@ -118,13 +152,7 @@ export async function resendVerification(): Promise<void> {
 
 export async function getUser(): Promise<UserInfo | null> {
   try {
-    const res = await fetch(`${BASE}/auth/me`, {
-      credentials: 'include',
-      cache: 'no-store',
-    })
-    if (!res.ok) return null
-    const user = await res.json() as UserInfo
-    return { ...user, avatar_url: resolveAvatarUrl(user.avatar_url) }
+    return await requestCurrentUser()
   } catch {
     return null
   }

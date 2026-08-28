@@ -39,6 +39,7 @@ PLAN_FEATURES = {
         "confidence_result",
         "recent_history",
         "library_access",
+        "digitized_pdfs",
     },
     "catequista": {
         "basic_verification",
@@ -48,6 +49,7 @@ PLAN_FEATURES = {
         "pdf_reports",
         "exact_reference",
         "full_history",
+        "digitized_pdfs",
     },
     "apologeta": {
         "basic_verification",

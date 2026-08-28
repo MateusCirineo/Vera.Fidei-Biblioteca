@@ -31,7 +31,7 @@ export const PLAY_PLAN_DETAILS: Record<PaidPlanKey, PlayPlanDetails> = {
     label: 'Apologeta',
     audience: 'Pesquisa e defesa da fé',
     verificationLimit: '50 verificações por mês',
-    features: ['Tudo do Catequista', 'Acesso aos PDFs', 'Contexto patrístico mais completo'],
+    features: ['Tudo do Catequista', 'Análise de tradução', 'Contexto patrístico mais completo'],
   },
   patristico: {
     label: 'Patrístico',

@@ -10,13 +10,6 @@ import type { Book } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
 import { publisherForBook, UNKNOWN_PUBLISHER } from '@/lib/publisher'
 
-const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
-
-function hasPlan(userPlan: string | undefined, min: string): boolean {
-  if (!userPlan) return false
-  return PLAN_ORDER.indexOf(userPlan) >= PLAN_ORDER.indexOf(min)
-}
-
 function sourceNameFor(book: Book): string {
   const publisher = publisherForBook(book, book.canonical_author ?? book.author)
   if (publisher !== UNKNOWN_PUBLISHER) return publisher
@@ -49,8 +42,8 @@ export default function BookDetail({ book }: { book: Book }) {
   }, [book.id])
   const hasPdf = (book.files?.length ?? 0) > 0
   const isIndexed = (book.chunk_count ?? 0) > 0
-  const canOpenPdf = hasPlan(user?.plan, 'apologeta')
-  const lockedPdfHref = user ? '/planos' : `/login?redirect=/biblioteca/${book.id}`
+  const canOpenPdf = Boolean(user)
+  const lockedPdfHref = `/login?redirect=/biblioteca/${book.id}`
   const sourceName = sourceNameFor(book)
   const referenceLine = referenceLineFor(book)
   const referenceItems = [
@@ -250,7 +243,7 @@ export default function BookDetail({ book }: { book: Book }) {
                     href={lockedPdfHref}
                     className="shrink-0 rounded-md border border-fundo-borda px-3 py-1.5 text-xs font-medium text-texto-terciario transition-colors hover:border-dourado hover:text-dourado"
                   >
-                    {user ? 'PDF no Apologeta' : 'Entrar para ler'}
+                    Entrar para ler
                   </Link>
                 )}
               </div>

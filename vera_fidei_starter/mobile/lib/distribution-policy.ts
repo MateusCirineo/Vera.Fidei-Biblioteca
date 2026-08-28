@@ -29,12 +29,18 @@ export function subscriptionGatePolicy(
   mode: DistributionMode,
   resource: SubscriptionResource,
 ): SubscriptionGatePolicy {
+  if (resource === 'pdf') {
+    return {
+      title: 'Entre para abrir o PDF',
+      message: 'A biblioteca completa, incluindo os PDFs digitalizados, está disponível para todas as contas, inclusive o plano Fiel.',
+      showPlansAction: false,
+    }
+  }
+
   if (mode === 'reader') {
-    const resourceLabel = resource === 'pdf'
-      ? 'A leitura do PDF digitalizado'
-      : resource === 'verification'
-        ? 'Esta verificação'
-        : 'Esta pesquisa'
+    const resourceLabel = resource === 'verification'
+      ? 'Esta verificação'
+      : 'Esta pesquisa'
     return {
       title: 'Assinatura necessária',
       message: `${resourceLabel} requer uma assinatura ativa com acesso a este recurso.`,
@@ -43,11 +49,9 @@ export function subscriptionGatePolicy(
   }
 
   if (mode === 'play') {
-    const resourceLabel = resource === 'pdf'
-      ? 'A leitura do PDF digitalizado'
-      : resource === 'verification'
-        ? 'Esta verificação'
-        : 'Esta pesquisa'
+    const resourceLabel = resource === 'verification'
+      ? 'Esta verificação'
+      : 'Esta pesquisa'
     return {
       title: 'Assinatura necessária',
       message: `${resourceLabel} requer uma assinatura ativa. Conheça os planos disponíveis no Google Play.`,
@@ -55,13 +59,6 @@ export function subscriptionGatePolicy(
     }
   }
 
-  if (resource === 'pdf') {
-    return {
-      title: 'PDF completo no Apologeta',
-      message: 'A localização continua visível. Para abrir a edição digitalizada, conheça o plano Apologeta.',
-      showPlansAction: true,
-    }
-  }
   if (resource === 'verification') {
     return {
       title: 'Limite do plano atingido',

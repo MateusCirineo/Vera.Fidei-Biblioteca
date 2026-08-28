@@ -119,13 +119,10 @@ class MobileWebSessionTests(unittest.TestCase):
             self.assertIs(auth._mobile_bearer_user("Bearer native.jwt"), user)
         get_user.assert_called_once_with(authorization="Bearer native.jwt", vf_token=None)
 
-    def test_pdf_plan_gate_is_enforced_server_side(self) -> None:
-        with self.assertRaises(HTTPException) as forbidden:
-            auth._mobile_pdf_user(SimpleNamespace(plan="catequista"))
-        self.assertEqual(forbidden.exception.status_code, 403)
-
-        apologeta = SimpleNamespace(plan="apologeta")
-        self.assertIs(auth._mobile_pdf_user(apologeta), apologeta)
+    def test_pdf_access_is_available_to_every_authenticated_plan(self) -> None:
+        for plan in ("fiel", "catequista", "apologeta", "patristico", "magisterio"):
+            user = SimpleNamespace(plan=plan)
+            self.assertIs(auth._mobile_pdf_user(user), user)
 
     def test_custom_access_token_lifetime_is_fifteen_minutes(self) -> None:
         before = datetime.datetime.utcnow()

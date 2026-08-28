@@ -8,10 +8,12 @@ test('normaliza planos desconhecidos para Fiel', () => {
   assert.equal(planLabel(null), 'Fiel')
 })
 
-test('libera PDF somente a partir do Apologeta', () => {
-  assert.equal(canOpenLibraryPdf('fiel'), false)
-  assert.equal(canOpenLibraryPdf('catequista'), false)
+test('libera PDF para todos os planos autenticados, inclusive Fiel', () => {
+  assert.equal(canOpenLibraryPdf('fiel'), true)
+  assert.equal(canOpenLibraryPdf('catequista'), true)
   assert.equal(canOpenLibraryPdf('apologeta'), true)
   assert.equal(canOpenLibraryPdf('patristico'), true)
   assert.equal(canOpenLibraryPdf('magisterio'), true)
+  assert.equal(canOpenLibraryPdf(null), false)
+  assert.equal(canOpenLibraryPdf('desconhecido'), false)
 })

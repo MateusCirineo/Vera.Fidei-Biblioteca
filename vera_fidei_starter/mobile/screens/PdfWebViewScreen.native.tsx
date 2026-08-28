@@ -268,9 +268,7 @@ export default function PdfWebViewScreen({ route, navigation }: { route: any; na
             setError(
               isAccount
                 ? 'Sua conta não tem acesso a esta página.'
-                : DISTRIBUTION_MODE !== 'direct'
-                  ? 'A leitura do PDF digitalizado requer uma assinatura ativa com acesso a este recurso.'
-                  : 'O PDF completo requer o plano Apologeta ou superior.',
+                : 'Não foi possível autorizar este PDF com a sessão atual. Entre novamente e tente de novo.',
             )
           } else {
             setError(`O visualizador respondeu com erro ${statusCode}.`)

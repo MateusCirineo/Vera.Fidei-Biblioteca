@@ -111,7 +111,7 @@ export default function VerificationResult({
                   reference={result.reference}
                   quote={originalQuery ?? undefined}
                   fallbackQuote={result.matched_excerpt ?? undefined}
-                  canOpenPdf={hasPlan(userPlan, 'apologeta')}
+                  canOpenPdf={hasPlan(userPlan, 'fiel')}
                 />
               ) : (
                 <>
@@ -119,7 +119,7 @@ export default function VerificationResult({
                     reference={result.reference}
                     quote={originalQuery ?? undefined}
                     fallbackQuote={result.matched_excerpt ?? undefined}
-                    canOpenPdf={hasPlan(userPlan, 'apologeta')}
+                    canOpenPdf={hasPlan(userPlan, 'fiel')}
                   />
                   <p className="text-xs text-texto-terciario pl-1">
                     Fonte primária não disponível no acervo atual.

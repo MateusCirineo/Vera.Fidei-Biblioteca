@@ -12,7 +12,8 @@ export function normalizedPlan(plan: string | null | undefined): string {
 }
 
 export function canOpenLibraryPdf(plan: string | null | undefined): boolean {
-  return PLAN_LEVEL[normalizedPlan(plan)] >= PLAN_LEVEL.apologeta
+  const value = plan?.trim().toLowerCase()
+  return Boolean(value && value in PLAN_LEVEL)
 }
 
 export function planLabel(plan: string | null | undefined): string {

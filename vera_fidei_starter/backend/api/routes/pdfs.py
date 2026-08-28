@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
-from core.deps import require_min_plan
+from core.deps import get_current_user
 from models.database import BookFile, SessionLocal, User
 from storage.pdf_storage import get_pdf_storage
 
@@ -14,7 +14,7 @@ router = APIRouter()
 def serve_pdf(
     file_id: int,
     request: Request,
-    current_user: User = Depends(require_min_plan("apologeta")),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     with SessionLocal() as db:
         book_file = db.get(BookFile, file_id)

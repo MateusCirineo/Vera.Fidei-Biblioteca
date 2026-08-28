@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import AuthShell from '@/components/auth/AuthShell'
 import { getUser, login } from '@/lib/auth'
 
@@ -10,33 +10,42 @@ function safeRedirectPath(value: string | null) {
   if (!value || !value.startsWith('/') || value.startsWith('//')) {
     return '/perfil'
   }
+  const pathname = value.split(/[?#]/, 1)[0].replace(/\/+$/, '') || '/'
+  if (['/login', '/cadastro', '/esqueci-senha', '/redefinir-senha', '/verificar-email'].includes(pathname)) {
+    return '/perfil'
+  }
   return value
 }
 
 function LoginForm() {
   const params = useSearchParams()
-  const router = useRouter()
   const redirect = safeRedirectPath(params.get('redirect'))
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    let active = true
     getUser().then((user) => {
-      if (user) router.replace(redirect)
+      if (active && user) window.location.replace(redirect)
     })
-  }, [redirect, router])
+    return () => {
+      active = false
+    }
+  }, [redirect])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setSuccess('')
     setLoading(true)
     try {
       await login(email, password)
-      router.replace(redirect)
-      router.refresh()
+      setSuccess('Conta confirmada. Abrindo seu perfil...')
+      window.location.replace(redirect)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao entrar')
       setLoading(false)
@@ -74,13 +83,21 @@ function LoginForm() {
       </div>
 
       {error && <p className="text-xs text-vermelho">{error}</p>}
+      {success && (
+        <p role="status" className="text-xs text-dourado">
+          {success}{' '}
+          <a href={redirect} className="underline">
+            Continuar
+          </a>
+        </p>
+      )}
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || Boolean(success)}
         className="rounded-lg bg-dourado py-2.5 text-sm font-medium text-fundo transition-colors hover:bg-dourado-claro disabled:opacity-50"
       >
-        {loading ? 'Entrando...' : 'Entrar'}
+        {success ? 'Conta confirmada' : loading ? 'Entrando...' : 'Entrar'}
       </button>
     </form>
   )

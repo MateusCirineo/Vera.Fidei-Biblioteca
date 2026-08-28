@@ -52,22 +52,26 @@ test('cada modo encaminha planos apenas para a superficie de cobranca permitida'
   assert.equal(plansRouteForMode('play', 'web'), null)
   assert.equal(plansRouteForMode('play', undefined), null)
 
-  for (const resource of ['pdf', 'verification', 'search'] as const) {
+  for (const resource of ['verification', 'search'] as const) {
     const policy = subscriptionGatePolicy('play', resource)
     assert.equal(policy.showPlansAction, true)
     assert.match(policy.message, /Google Play/i)
     assert.doesNotMatch(policy.message, /stripe|checkout|https?:/i)
   }
+  const pdfPolicy = subscriptionGatePolicy('play', 'pdf')
+  assert.equal(pdfPolicy.showPlansAction, false)
+  assert.match(pdfPolicy.message, /todas as contas/i)
 })
 
 test('avisos do reader informam assinatura sem CTA ou link', () => {
-  for (const resource of ['pdf', 'verification', 'search'] as const) {
+  for (const resource of ['verification', 'search'] as const) {
     const policy = subscriptionGatePolicy('reader', resource)
     assert.equal(policy.showPlansAction, false)
     assert.match(policy.message, /assinatura ativa/i)
     assert.doesNotMatch(policy.message, /ver planos|compr|checkout|stripe|https?:/i)
   }
-  assert.equal(subscriptionGatePolicy('direct', 'pdf').showPlansAction, true)
+  assert.equal(subscriptionGatePolicy('reader', 'pdf').showPlansAction, false)
+  assert.equal(subscriptionGatePolicy('direct', 'pdf').showPlansAction, false)
 })
 
 test('reader limita a WebView aos caminhos indispensáveis do PDF', () => {
