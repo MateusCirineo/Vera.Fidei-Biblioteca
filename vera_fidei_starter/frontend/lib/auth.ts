@@ -151,6 +151,29 @@ export async function removeProfileAvatar(): Promise<void> {
   if (!res.ok) throw await readError(res, 'Erro ao remover a foto do perfil')
 }
 
+function legacyAvatarDataUrlToBlob(dataUrl: string): Blob {
+  const commaIndex = dataUrl.indexOf(',')
+  if (commaIndex < 0) throw new Error('Foto local inválida')
+
+  const metadata = dataUrl.slice(5, commaIndex).split(';')
+  if (!metadata.some((part) => part.toLowerCase() === 'base64')) {
+    throw new Error('Formato da foto local não suportado')
+  }
+
+  let mediaType = (metadata[0] || '').trim().toLowerCase()
+  if (mediaType === 'image/jpg' || mediaType === 'image/pjpeg') {
+    mediaType = 'image/jpeg'
+  }
+  if (!mediaType.startsWith('image/')) throw new Error('Foto local inválida')
+
+  const binary = atob(dataUrl.slice(commaIndex + 1).replace(/\s/g, ''))
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return new Blob([bytes], { type: mediaType })
+}
+
 export async function migrateLegacyProfileAvatar(user: UserInfo): Promise<string> {
   if (typeof window === 'undefined') return user.avatar_url ?? ''
 
@@ -163,7 +186,8 @@ export async function migrateLegacyProfileAvatar(user: UserInfo): Promise<string
   if (!legacyAvatar.startsWith('data:image/')) return ''
 
   try {
-    const blob = await fetch(legacyAvatar).then((response) => response.blob())
+    // Decode locally: fetch(data:) is blocked by the production connect-src CSP.
+    const blob = legacyAvatarDataUrlToBlob(legacyAvatar)
     const saved = await uploadProfileAvatar(blob)
     localStorage.removeItem(key)
     window.dispatchEvent(new CustomEvent(PROFILE_AVATAR_CHANGED_EVENT, {

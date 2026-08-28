@@ -1,9 +1,11 @@
 'use client'
 
-import { type ReactNode, useMemo, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useMemo, useState } from 'react'
 import FavoriteButton from '@/components/favorites/FavoriteButton'
+import PrayerCategoryIcon from '@/components/oracoes/PrayerCategoryIcon'
 import IconMedallion from '@/components/ui/IconMedallion'
 import SurfaceCard from '@/components/ui/SurfaceCard'
+import { searchPrayerGroups } from '@/lib/prayer-search'
 
 type PrayerVersion = {
   lang: 'Português' | 'Latim' | 'Inglês'
@@ -50,6 +52,8 @@ type PrayerIconName =
   | 'mary'
   | 'music'
   | 'prayer'
+  | 'search'
+  | 'close'
   | 'scroll'
   | 'star'
   | 'sun'
@@ -93,6 +97,8 @@ function LineIcon({ name, className = '' }: { name: PrayerIconName; className?: 
       )
     case 'chevron':
       return <svg {...common}><path d="m9 5 7 7-7 7" /></svg>
+    case 'close':
+      return <svg {...common}><path d="m6 6 12 12M18 6 6 18" /></svg>
     case 'cross':
       return (
         <svg {...common}>
@@ -170,28 +176,14 @@ function LineIcon({ name, className = '' }: { name: PrayerIconName; className?: 
           <path d="M8.8 8V3.8A1.8 1.8 0 0 1 10.6 2v8M15.2 8V3.8A1.8 1.8 0 0 0 13.4 2v8M7 21h10" />
         </svg>
       )
+    case 'search':
+      return (
+        <svg {...common}>
+          <circle cx="10.8" cy="10.8" r="6.8" />
+          <path d="m16 16 4.5 4.5" />
+        </svg>
+      )
   }
-}
-
-const GROUP_ICONS: Record<string, PrayerIconName> = {
-  MARIA: 'mary',
-  DIV: 'cross',
-  JOSE: 'lily',
-  EUCA: 'chalice',
-  ESP: 'dove',
-  NOV: 'candle',
-  VIACR: 'cross',
-  SEQ: 'music',
-  DOUT: 'scroll',
-  DIARIA: 'sun',
-  BIBLIA: 'book',
-  BASE: 'prayer',
-  SANTOS: 'star',
-  SANTAS: 'star',
-}
-
-function groupIcon(code: string): PrayerIconName {
-  return GROUP_ICONS[code] ?? 'prayer'
 }
 
 function BackButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
@@ -286,6 +278,7 @@ export default function OracoesView({
   const initialGroup = groups.find(group => group.code === initialGroupCode) ?? null
   const [activeCode, setActiveCode] = useState<string | null>(initialGroup?.code ?? null)
   const [activePrayerId, setActivePrayerId] = useState<string | null>(initialGroup ? (initialPrayerId ?? null) : null)
+  const [searchQuery, setSearchQuery] = useState('')
   const activeGroup = groups.find(group => group.code === activeCode) ?? null
   const activePrayer = activeGroup?.items.find(item => item.id === activePrayerId) ?? null
 
@@ -307,6 +300,33 @@ export default function OracoesView({
     return (['Português', 'Latim', 'Inglês'] as PrayerVersion['lang'][])
       .map(lang => ({ lang, count: stats.get(lang) ?? 0 }))
   }, [groups])
+
+  const searchResults = useMemo(
+    () => searchPrayerGroups(groups, searchQuery),
+    [groups, searchQuery]
+  )
+  const hasSearch = searchQuery.trim().length > 0
+  const matchedVersionCount = searchResults.reduce(
+    (sum, result) => sum + result.matchedLanguages.length,
+    0
+  )
+
+  function clearSearch() {
+    setSearchQuery('')
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape' && searchQuery) {
+      event.preventDefault()
+      clearSearch()
+    }
+  }
+
+  function openSearchResult(groupCode: string, itemId: string) {
+    setActiveCode(groupCode)
+    setActivePrayerId(itemId)
+    clearSearch()
+  }
 
   return (
     <>
@@ -369,6 +389,133 @@ export default function OracoesView({
             </div>
           </section>
 
+          <section className="mb-5" aria-labelledby="prayer-search-label">
+            <SurfaceCard tone="gold" className="p-3 sm:p-4">
+              <label
+                id="prayer-search-label"
+                htmlFor="prayer-search"
+                className="block font-garamond text-lg font-medium text-texto"
+              >
+                Pesquisar orações
+              </label>
+              <p id="prayer-search-help" className="mt-1 text-xs leading-relaxed text-texto-terciario">
+                Busque pelo título, categoria, fonte, idioma ou por palavras do texto.
+              </p>
+
+              <div className="relative mt-3">
+                <LineIcon
+                  name="search"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-dourado"
+                />
+                <input
+                  id="prayer-search"
+                  type="search"
+                  value={searchQuery}
+                  onChange={event => setSearchQuery(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  aria-describedby="prayer-search-help prayer-search-status"
+                  aria-controls="prayer-search-results"
+                  placeholder="Ex.: Eucaristia, Ave Maria, gratia plena"
+                  autoComplete="off"
+                  className="min-h-12 w-full rounded-lg border border-dourado/25 bg-fundo/80 py-2.5 pl-10 pr-11 text-sm text-texto outline-none transition-[border-color,box-shadow] placeholder:text-texto-terciario/75 focus:border-dourado/55 focus:shadow-[0_0_0_3px_rgba(201,168,76,0.1)]"
+                />
+                {hasSearch && (
+                  <button
+                    type="button"
+                    onClick={clearSearch}
+                    aria-label="Limpar pesquisa de orações"
+                    title="Limpar pesquisa (Esc)"
+                    className="absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-texto-terciario transition-colors hover:bg-dourado/10 hover:text-dourado focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dourado/50"
+                  >
+                    <LineIcon name="close" className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              <p
+                id="prayer-search-status"
+                className="mt-2 min-h-5 text-xs text-texto-terciario"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {hasSearch
+                  ? `${searchResults.length} ${searchResults.length === 1 ? 'oração encontrada' : 'orações encontradas'}${matchedVersionCount > 0 ? ` · correspondência em ${matchedVersionCount} ${matchedVersionCount === 1 ? 'versão' : 'versões'}` : ''}`
+                  : `${totalPrayers} orações disponíveis`}
+              </p>
+            </SurfaceCard>
+
+            {hasSearch && (
+              <div id="prayer-search-results" className="mt-3" role="region" aria-label="Resultados da pesquisa de orações">
+                {searchResults.length > 0 ? (
+                  <ul className="space-y-2.5">
+                    {searchResults.map(result => (
+                      <li key={result.key}>
+                        <SurfaceCard interactive className="group p-0">
+                          <button
+                            type="button"
+                            onClick={() => openSearchResult(result.groupCode, result.itemId)}
+                            className="grid min-h-[82px] w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-3 text-left outline-none transition-colors focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:px-4"
+                          >
+                            <IconMedallion size="sm" className="shrink-0 self-start sm:self-center">
+                              <PrayerCategoryIcon code={result.groupCode} />
+                            </IconMedallion>
+                            <span className="min-w-0">
+                              <span className="block font-garamond text-lg font-medium leading-tight text-texto">
+                                {result.itemTitle}
+                              </span>
+                              <span className="mt-1 block text-xs font-medium text-dourado">
+                                {result.groupTitle}
+                              </span>
+                              {result.excerpt && (
+                                <span className="mt-1.5 block text-xs leading-relaxed text-texto-terciario">
+                                  {result.excerpt}
+                                </span>
+                              )}
+                              <span className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-texto-terciario">
+                                {result.languages.map(language => (
+                                  <span
+                                    key={language}
+                                    className={`rounded-full border px-2 py-0.5 ${result.matchedLanguages.includes(language) ? 'border-dourado/35 bg-dourado/10 text-dourado' : 'border-fundo-borda bg-fundo/60'}`}
+                                  >
+                                    {language}
+                                  </span>
+                                ))}
+                                {result.source && <span>· {result.source}</span>}
+                              </span>
+                            </span>
+                            <LineIcon
+                              name="chevron"
+                              className="h-4 w-4 shrink-0 text-dourado/70 transition-transform group-hover:translate-x-0.5"
+                            />
+                          </button>
+                        </SurfaceCard>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <SurfaceCard tone="transparent" className="px-4 py-6 text-center">
+                    <IconMedallion size="md" className="mx-auto">
+                      <LineIcon name="search" />
+                    </IconMedallion>
+                    <p className="mt-3 font-garamond text-lg text-texto">
+                      Nenhuma oração encontrada
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-texto-terciario">
+                      Tente outra palavra, um idioma, uma categoria ou um trecho da oração.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={clearSearch}
+                      className="mt-4 inline-flex min-h-10 items-center rounded-md border border-dourado/30 px-3 py-2 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dourado/50"
+                    >
+                      Limpar pesquisa
+                    </button>
+                  </SurfaceCard>
+                )}
+              </div>
+            )}
+          </section>
+
           <nav className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {groups.map(group => (
               <SurfaceCard key={group.code} interactive className="group p-0">
@@ -378,26 +525,28 @@ export default function OracoesView({
                     setActiveCode(group.code)
                     setActivePrayerId(null)
                   }}
-                  className="flex min-h-[76px] w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-texto-secundario outline-none transition-colors hover:text-texto focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:px-4"
+                  className="grid min-h-[88px] w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-3 text-left text-sm text-texto-secundario outline-none transition-colors hover:text-texto focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:min-h-[96px] sm:px-4 sm:py-3.5"
                 >
                   <IconMedallion size="md" className="shrink-0">
-                    <LineIcon name={groupIcon(group.code)} />
+                    <PrayerCategoryIcon code={group.code} />
                   </IconMedallion>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-garamond text-lg font-medium leading-tight text-texto">
+                    <span className="block font-garamond text-lg font-medium leading-tight text-texto">
                       {group.title}
                     </span>
-                    <span className="mt-1 block truncate text-xs text-texto-terciario">
+                    <span className="mt-1 block text-xs leading-relaxed text-texto-terciario">
                       {group.description}
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-full border border-dourado/25 bg-dourado/5 px-2.5 py-1 font-mono text-xs text-dourado">
-                    {group.items.length}
+                  <span className="flex shrink-0 items-center gap-1.5 self-center">
+                    <span className="inline-flex min-w-9 justify-center rounded-full border border-dourado/25 bg-dourado/5 px-2 py-1 font-mono text-xs text-dourado">
+                      {group.items.length}
+                    </span>
+                    <LineIcon
+                      name="chevron"
+                      className="h-4 w-4 shrink-0 text-dourado/70 transition-transform group-hover:translate-x-0.5"
+                    />
                   </span>
-                  <LineIcon
-                    name="chevron"
-                    className="h-4 w-4 shrink-0 text-dourado/70 transition-transform group-hover:translate-x-0.5"
-                  />
                 </button>
               </SurfaceCard>
             ))}
@@ -419,7 +568,7 @@ export default function OracoesView({
               </BackButton>
               <div className="flex items-start gap-3.5">
                 <IconMedallion size="lg" className="shrink-0">
-                  <LineIcon name={groupIcon(activeGroup.code)} />
+                  <PrayerCategoryIcon code={activeGroup.code} />
                 </IconMedallion>
                 <div className="min-w-0 flex-1">
                   <p className="font-garamond text-2xl font-medium leading-tight text-texto">
@@ -480,7 +629,7 @@ export default function OracoesView({
               </BackButton>
               <div className="flex items-start gap-3.5">
                 <IconMedallion size="lg" className="shrink-0">
-                  <LineIcon name={groupIcon(activeGroup.code)} />
+                  <PrayerCategoryIcon code={activeGroup.code} />
                 </IconMedallion>
                 <div className="min-w-0 flex-1">
                   <p className="font-garamond text-2xl font-medium leading-tight text-texto sm:text-3xl">
