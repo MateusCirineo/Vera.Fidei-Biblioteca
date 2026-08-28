@@ -19,40 +19,51 @@ export default function UploadForm() {
   const [file, setFile] = useState<File | null>(null)
   const [chunks, setChunks] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const processingBookId = state.status === 'processing' ? state.result.id : null
 
   // Polling de status enquanto está em "processing"
   useEffect(() => {
     if (processingBookId === null) {
-      if (pollRef.current) clearInterval(pollRef.current)
+      if (pollRef.current) clearTimeout(pollRef.current)
       return
     }
 
     const bookId = processingBookId
 
-    pollRef.current = setInterval(async () => {
+    let cancelled = false
+
+    const poll = async () => {
+      let finished = false
       try {
         const s = await getBookStatus(bookId)
+        if (cancelled) return
         setChunks(s.chunks_indexed)
         if (s.status === 'done') {
-          clearInterval(pollRef.current!)
+          finished = true
           setState((prev) =>
             prev.status === 'processing'
               ? { status: 'done', result: { ...prev.result, chunks_indexed: s.chunks_indexed } }
               : prev,
           )
         } else if (s.status === 'error') {
-          clearInterval(pollRef.current!)
+          finished = true
           setState({ status: 'error', message: 'Falha na indexação em background.' })
         }
       } catch {
         // silencia erros de rede durante polling
+      } finally {
+        if (!cancelled && !finished) {
+          pollRef.current = setTimeout(poll, 3000)
+        }
       }
-    }, 3000)
+    }
+
+    pollRef.current = setTimeout(poll, 0)
 
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      cancelled = true
+      if (pollRef.current) clearTimeout(pollRef.current)
     }
   }, [processingBookId])
 

@@ -150,6 +150,7 @@ export default function PlanosPage() {
       } else {
         setBillingError(msg)
       }
+    } finally {
       setBusyPlan('')
     }
   }
@@ -162,6 +163,7 @@ export default function PlanosPage() {
       window.location.assign(url)
     } catch (err: unknown) {
       setBillingError(err instanceof Error ? err.message : 'Erro ao abrir assinatura.')
+    } finally {
       setBusyPlan('')
     }
   }

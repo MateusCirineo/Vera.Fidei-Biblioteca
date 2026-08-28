@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getAdminMetrics, type AdminMetricCount, type AdminMetricsResponse } from '@/lib/api'
 
@@ -36,8 +36,11 @@ export default function AdminMetrics() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const requestInFlight = useRef(false)
 
   const load = useCallback(async (initial = false) => {
+    if (requestInFlight.current) return
+    requestInFlight.current = true
     if (initial) setLoading(true)
     else setRefreshing(true)
     try {
@@ -47,6 +50,7 @@ export default function AdminMetrics() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível carregar as métricas.')
     } finally {
+      requestInFlight.current = false
       setLoading(false)
       setRefreshing(false)
     }

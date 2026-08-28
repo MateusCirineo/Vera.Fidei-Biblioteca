@@ -32,7 +32,7 @@ _is_production = settings.vera_environment.strip().lower() in {"production", "pr
 
 app = FastAPI(
     title="Vera.fidei API",
-    version="1.2.0",
+    version="1.3.0",
     description="Backend do MVP do verificador de citacoes teologicas.",
     redirect_slashes=False,
     docs_url=None if _is_production else "/docs",

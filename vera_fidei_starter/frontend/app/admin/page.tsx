@@ -11,6 +11,7 @@ export default async function AdminPage() {
   const response = await fetch(`${INTERNAL_API}/auth/admin`, {
     cache: 'no-store',
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
   }).catch(() => null)
   if (!response?.ok) redirect('/perfil?admin=negado')
 

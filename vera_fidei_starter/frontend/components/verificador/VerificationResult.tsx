@@ -8,6 +8,7 @@ import StatusBadge from './StatusBadge'
 import MatchReferenceCard from './MatchReferenceCard'
 import { getAcademicRefUrl } from '@/lib/api'
 import { authBearerHeaders } from '@/lib/auth'
+import { LONG_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '@/lib/http'
 
 const PLAN_ORDER = ['fiel', 'catequista', 'apologeta', 'patristico', 'magisterio']
 
@@ -32,7 +33,10 @@ export default function VerificationResult({
     setExportBusy(format)
     try {
       const url = getAcademicRefUrl(result.history_id, format)
-      const res = await fetch(url, { headers: authBearerHeaders() })
+      const res = await fetchWithTimeout(url, { headers: authBearerHeaders() }, {
+        timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+        timeoutMessage: 'A referência demorou demais para ser gerada. Tente novamente.',
+      })
       if (!res.ok) throw new Error('Erro ao gerar referência')
       const text = await res.text()
       const ext = format === 'bibtex' ? 'bib' : format === 'ris' ? 'ris' : 'txt'

@@ -4,6 +4,51 @@ As mudanças relevantes do Vera Fidei são registradas neste arquivo. A
 identidade exata de cada entrega e as evidências dos testes ficam no manifesto
 da respectiva versão.
 
+## [1.3.0] - 2026-08-28
+
+Este corte atualiza somente a PWA e a API. O aplicativo Expo/Android não recebe
+nova versão nem novos artefatos nesta release; a publicação na Play Store
+continua condicionada ao runbook e à homologação descritos na documentação.
+
+### Adicionado
+
+- Preparação do Google Play Billing com validação autoritativa no backend,
+  confirmação de compras, RTDN, reconciliação, troca de plano e proteção contra
+  cobrança simultânea pelo Stripe e pela loja. A integração permanece
+  desabilitada por padrão até a homologação externa.
+- Nova apresentação pública, imagens de fontes primárias e retratos dos santos
+  com proveniência controlada.
+- Artes fornecidas para as categorias de orações, busca própria e testes de
+  correspondência de título e texto.
+- Sincronização persistente do avatar entre dispositivos e atualização dos
+  cabeçalhos quando a autenticação ou a imagem do perfil muda.
+
+### Alterado
+
+- A busca de orações passou a considerar somente o nome e o corpo da oração,
+  sem produzir resultados por referências ou notas associadas.
+- A citação diária passou a rejeitar bibliografias, prefácios, notas editoriais
+  e outros trechos que não constituem citação do santo.
+- O login passou a confirmar a sessão com o backend antes da navegação, a
+  comunicar sucesso e a concluir a entrada por navegação integral.
+- A política de acesso a PDFs passou a permitir a biblioteca completa também
+  para contas do plano gratuito Fiel.
+- A apresentação, as páginas de santos e orações e o perfil foram refinados
+  para uso responsivo na PWA.
+- As dependências do projeto Expo foram alinhadas aos patches atuais do SDK 57.
+  O bundle Android foi validado, mas nenhum novo APK/AAB faz parte deste corte.
+
+### Corrigido
+
+- Requisições de cadastro, login, recuperação de conta, avatar,
+  verificador, pesquisa, administração e assinatura agora encerram por sucesso,
+  erro, cancelamento ou tempo excedido, inclusive quando o corpo HTTP deixa de
+  responder depois dos cabeçalhos.
+- Abertura, renderização e busca em PDFs possuem prazo, cancelamento, mensagem
+  recuperável e nova tentativa, preservando o streaming dos arquivos grandes.
+- O armazenamento offline trata IndexedDB bloqueado, abortado ou sem resposta
+  sem retornar gravação parcial nem manter a interface em carregamento infinito.
+
 ## [1.2.0] - 2026-08-25
 
 ### Adicionado

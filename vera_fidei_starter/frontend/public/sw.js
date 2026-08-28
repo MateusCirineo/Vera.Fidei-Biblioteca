@@ -1,8 +1,43 @@
-const CACHE_NAME = 'vera-fidei-pwa-v13'
+const CACHE_NAME = 'vera-fidei-pwa-v14'
 const APP_SHELL = [
   '/offline.html',
   '/icons/icon-192.png',
 ]
+const NETWORK_TIMEOUT_MS = 10_000
+
+async function fetchWithNetworkTimeout(request) {
+  const controller = new AbortController()
+  let timeoutId
+  let timedOut = false
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+      reject(new Error('Tempo de rede excedido'))
+    }, NETWORK_TIMEOUT_MS)
+  })
+  try {
+    const response = await Promise.race([
+      fetch(request, { signal: controller.signal }),
+      timeout,
+    ])
+
+    // fetch() termina nos cabeçalhos. Para navegação e assets do shell, o
+    // corpo também precisa caber no prazo; caso contrário a PWA poderia ficar
+    // indefinidamente em branco mesmo depois de receber HTTP 200.
+    const body = await Promise.race([response.arrayBuffer(), timeout])
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    })
+  } catch (error) {
+    if (timedOut) throw new Error('Tempo de rede excedido')
+    throw error
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -53,7 +88,7 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       if (request.mode === 'navigate') {
         try {
-          return await fetch(request)
+          return await fetchWithNetworkTimeout(request)
         } catch {
           return caches.match('/offline.html')
         }
@@ -62,7 +97,7 @@ self.addEventListener('fetch', (event) => {
       const cached = await caches.match(request)
 
       try {
-        const response = await fetch(request)
+        const response = await fetchWithNetworkTimeout(request)
 
         if (
           response.ok &&

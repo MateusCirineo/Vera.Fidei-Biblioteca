@@ -1,5 +1,12 @@
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  LONG_REQUEST_TIMEOUT_MS,
+  fetchWithTimeout,
+} from './http.ts'
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
-const AUTH_REQUEST_TIMEOUT_MS = 15_000
+const AUTH_REQUEST_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS
+const BILLING_REQUEST_TIMEOUT_MS = 20_000
 export const AUTH_STATE_CHANGED_EVENT = 'vf:auth-state-changed'
 export const PROFILE_AVATAR_CHANGED_EVENT = 'vf:profile-avatar-changed'
 
@@ -53,30 +60,34 @@ async function readError(res: Response, fallback: string): Promise<Error> {
   return new Error(err.detail ?? fallback)
 }
 
-async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS)
-
-  try {
-    return await fetch(input, { ...init, signal: controller.signal })
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error('O login demorou demais. Verifique sua conexão e tente novamente.')
-    }
-    throw error
-  } finally {
-    globalThis.clearTimeout(timeoutId)
-  }
+async function fetchAuth(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  options: { timeoutMs?: number; timeoutMessage?: string } = {},
+): Promise<Response> {
+  return fetchWithTimeout(
+    input,
+    {
+      ...init,
+      credentials: init.credentials ?? 'include',
+    },
+    {
+      timeoutMs: options.timeoutMs ?? AUTH_REQUEST_TIMEOUT_MS,
+      timeoutMessage: options.timeoutMessage,
+    },
+  )
 }
 
-async function requestCurrentUser(): Promise<UserInfo> {
+async function requestCurrentUser(
+  sessionFailureMessage = 'O login foi aceito, mas a sessão não pôde ser confirmada. Tente novamente.',
+): Promise<UserInfo> {
   const res = await fetchAuth(`${BASE}/auth/me`, {
     credentials: 'include',
     cache: 'no-store',
   })
   if (!res.ok) {
     if (res.status === 401) {
-      throw new Error('O login foi aceito, mas a sessão não pôde ser confirmada. Tente novamente.')
+      throw new Error(sessionFailureMessage)
     }
     throw await readError(res, 'Não foi possível confirmar sua sessão.')
   }
@@ -84,15 +95,19 @@ async function requestCurrentUser(): Promise<UserInfo> {
   return { ...user, avatar_url: resolveAvatarUrl(user.avatar_url) }
 }
 
-export async function register(name: string, email: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/web-register`, {
+export async function register(name: string, email: string, password: string): Promise<UserInfo> {
+  const res = await fetchAuth(`${BASE}/auth/web-register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({ name, email, password }),
   })
   if (!res.ok) throw await readError(res, 'Erro ao cadastrar')
+  const user = await requestCurrentUser(
+    'A conta foi criada, mas a sessão não pôde ser confirmada. Entre com seu e-mail e senha.',
+  )
   notifyAuthStateChanged()
+  return user
 }
 
 export async function login(email: string, password: string): Promise<UserInfo> {
@@ -101,6 +116,8 @@ export async function login(email: string, password: string): Promise<UserInfo> 
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({ email, password }),
+  }, {
+    timeoutMessage: 'O login demorou demais. Verifique sua conexão e tente novamente.',
   })
   if (!res.ok) throw await readError(res, 'Credenciais inválidas')
   const user = await requestCurrentUser()
@@ -109,7 +126,7 @@ export async function login(email: string, password: string): Promise<UserInfo> 
 }
 
 export async function logout(): Promise<void> {
-  await fetch(`${BASE}/auth/logout`, {
+  await fetchAuth(`${BASE}/auth/logout`, {
     method: 'POST',
     credentials: 'include',
   }).catch(() => undefined)
@@ -117,7 +134,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function forgotPassword(email: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/forgot-password`, {
+  const res = await fetchAuth(`${BASE}/auth/forgot-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -126,7 +143,7 @@ export async function forgotPassword(email: string): Promise<void> {
 }
 
 export async function resetPassword(token: string, password: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/reset-password`, {
+  const res = await fetchAuth(`${BASE}/auth/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, password }),
@@ -135,14 +152,14 @@ export async function resetPassword(token: string, password: string): Promise<vo
 }
 
 export async function verifyEmail(token: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/verify-email/${encodeURIComponent(token)}`, {
+  const res = await fetchAuth(`${BASE}/auth/verify-email/${encodeURIComponent(token)}`, {
     method: 'POST',
   })
   if (!res.ok) throw await readError(res, 'Erro ao verificar e-mail')
 }
 
 export async function resendVerification(): Promise<void> {
-  const res = await fetch(`${BASE}/auth/resend-verification`, {
+  const res = await fetchAuth(`${BASE}/auth/resend-verification`, {
     method: 'POST',
     headers: authBearerHeaders(),
     credentials: 'include',
@@ -159,11 +176,14 @@ export async function getUser(): Promise<UserInfo | null> {
 }
 
 export async function uploadProfileAvatar(file: Blob): Promise<{ avatar_url: string }> {
-  const res = await fetch(`${BASE}/auth/avatar`, {
+  const res = await fetchAuth(`${BASE}/auth/avatar`, {
     method: 'PUT',
     headers: { 'Content-Type': file.type || 'application/octet-stream' },
     credentials: 'include',
     body: file,
+  }, {
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'O envio da foto demorou demais. Verifique sua conexão e tente novamente.',
   })
   if (!res.ok) throw await readError(res, 'Erro ao salvar a foto do perfil')
 
@@ -172,7 +192,7 @@ export async function uploadProfileAvatar(file: Blob): Promise<{ avatar_url: str
 }
 
 export async function removeProfileAvatar(): Promise<void> {
-  const res = await fetch(`${BASE}/auth/avatar`, {
+  const res = await fetchAuth(`${BASE}/auth/avatar`, {
     method: 'DELETE',
     credentials: 'include',
   })
@@ -229,15 +249,15 @@ export async function migrateLegacyProfileAvatar(user: UserInfo): Promise<string
 }
 
 export async function downloadPersonalData(): Promise<Blob> {
-  const res = await fetch(`${BASE}/auth/data-export`, {
+  const res = await fetchAuth(`${BASE}/auth/data-export`, {
     credentials: 'include',
-  })
+  }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })
   if (!res.ok) throw await readError(res, 'Erro ao exportar seus dados')
   return res.blob()
 }
 
 export async function deleteAccount(password: string, confirmation: string): Promise<void> {
-  const res = await fetch(`${BASE}/auth/account`, {
+  const res = await fetchAuth(`${BASE}/auth/account`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -247,7 +267,7 @@ export async function deleteAccount(password: string, confirmation: string): Pro
 }
 
 export async function getHistorico(page = 1, perPage = 20) {
-  const res = await fetch(`${BASE}/citations/historico?page=${page}&per_page=${perPage}`, {
+  const res = await fetchAuth(`${BASE}/citations/historico?page=${page}&per_page=${perPage}`, {
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
   })
   if (!res.ok) throw new Error('Erro ao carregar histórico')
@@ -255,7 +275,7 @@ export async function getHistorico(page = 1, perPage = 20) {
 }
 
 export async function deleteHistoricoEntry(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/citations/historico/${id}`, {
+  const res = await fetchAuth(`${BASE}/citations/historico/${id}`, {
     method: 'DELETE',
     headers: authBearerHeaders(),
   })
@@ -263,17 +283,17 @@ export async function deleteHistoricoEntry(id: number): Promise<void> {
 }
 
 export async function downloadHistoricoLaudo(id: number): Promise<Blob> {
-  const res = await fetch(`${BASE}/citations/historico/${id}/laudo`, {
+  const res = await fetchAuth(`${BASE}/citations/historico/${id}/laudo`, {
     headers: authBearerHeaders(),
-  })
+  }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })
   if (!res.ok) throw await readError(res, 'Erro ao baixar laudo')
   return res.blob()
 }
 
 export async function exportHistoricoExcel(): Promise<Blob> {
-  const res = await fetch(`${BASE}/citations/historico/export.xlsx`, {
+  const res = await fetchAuth(`${BASE}/citations/historico/export.xlsx`, {
     headers: authBearerHeaders(),
-  })
+  }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })
   if (!res.ok) throw await readError(res, 'Erro ao exportar histórico')
   return res.blob()
 }
@@ -281,13 +301,13 @@ export async function exportHistoricoExcel(): Promise<Blob> {
 export const exportHistoricoCsv = exportHistoricoExcel
 
 export async function getApiKeys() {
-  const res = await fetch(`${BASE}/api-keys`, { headers: authBearerHeaders() })
+  const res = await fetchAuth(`${BASE}/api-keys`, { headers: authBearerHeaders() })
   if (!res.ok) throw new Error('Erro ao listar API keys')
   return res.json()
 }
 
 export async function createApiKey(label: string): Promise<{ key: string }> {
-  const res = await fetch(`${BASE}/api-keys`, {
+  const res = await fetchAuth(`${BASE}/api-keys`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ label }),
@@ -297,7 +317,7 @@ export async function createApiKey(label: string): Promise<{ key: string }> {
 }
 
 export async function revokeApiKey(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/api-keys/${id}`, {
+  const res = await fetchAuth(`${BASE}/api-keys/${id}`, {
     method: 'DELETE',
     headers: authBearerHeaders(),
   })
@@ -305,7 +325,7 @@ export async function revokeApiKey(id: number): Promise<void> {
 }
 
 export async function getInstituicao() {
-  const res = await fetch(`${BASE}/instituicao`, {
+  const res = await fetchAuth(`${BASE}/instituicao`, {
     headers: authBearerHeaders({ 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }),
   })
   if (!res.ok) throw new Error('Sem instituicao')
@@ -313,7 +333,7 @@ export async function getInstituicao() {
 }
 
 export async function getMembrosInstituicao() {
-  const res = await fetch(`${BASE}/instituicao/membros`, {
+  const res = await fetchAuth(`${BASE}/instituicao/membros`, {
     headers: authBearerHeaders({ 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }),
   })
   if (!res.ok) throw new Error('Erro ao carregar membros')
@@ -321,7 +341,7 @@ export async function getMembrosInstituicao() {
 }
 
 export async function criarInstituicao(name: string) {
-  const res = await fetch(`${BASE}/instituicao`, {
+  const res = await fetchAuth(`${BASE}/instituicao`, {
     method: 'POST',
     headers: authBearerHeaders({
       'Content-Type': 'application/json',
@@ -334,7 +354,7 @@ export async function criarInstituicao(name: string) {
 }
 
 export async function convidarMembro(email: string) {
-  const res = await fetch(`${BASE}/instituicao/convidar`, {
+  const res = await fetchAuth(`${BASE}/instituicao/convidar`, {
     method: 'POST',
     headers: authBearerHeaders({
       'Content-Type': 'application/json',
@@ -346,7 +366,7 @@ export async function convidarMembro(email: string) {
 }
 
 export async function atualizarPapelMembro(memberId: number, role: string) {
-  const res = await fetch(`${BASE}/instituicao/membros/${memberId}`, {
+  const res = await fetchAuth(`${BASE}/instituicao/membros/${memberId}`, {
     method: 'PATCH',
     headers: authBearerHeaders({
       'Content-Type': 'application/json',
@@ -359,7 +379,7 @@ export async function atualizarPapelMembro(memberId: number, role: string) {
 }
 
 export async function removerMembro(memberId: number): Promise<void> {
-  const res = await fetch(`${BASE}/instituicao/membros/${memberId}`, {
+  const res = await fetchAuth(`${BASE}/instituicao/membros/${memberId}`, {
     method: 'DELETE',
     headers: authBearerHeaders({ 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }),
   })
@@ -367,7 +387,7 @@ export async function removerMembro(memberId: number): Promise<void> {
 }
 
 export async function getRelatorio() {
-  const res = await fetch(`${BASE}/instituicao/relatorio`, {
+  const res = await fetchAuth(`${BASE}/instituicao/relatorio`, {
     headers: authBearerHeaders({ 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY ?? '' }),
   })
   if (!res.ok) throw new Error('Erro ao carregar relatório')
@@ -377,10 +397,13 @@ export async function getRelatorio() {
 export async function createCheckoutSession(plan: string, couponCode?: string): Promise<{ url: string }> {
   const body: Record<string, string> = { plan }
   if (couponCode?.trim()) body.coupon_code = couponCode.trim().toUpperCase()
-  const res = await fetch(`${BASE}/billing/checkout`, {
+  const res = await fetchAuth(`${BASE}/billing/checkout`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
+  }, {
+    timeoutMs: BILLING_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A abertura do pagamento demorou demais. Tente novamente; nenhuma cobrança foi repetida.',
   })
   if (!res.ok) throw await readError(res, 'Erro ao iniciar assinatura')
   return res.json()
@@ -393,19 +416,25 @@ export interface BillingSyncResponse {
 }
 
 export async function syncBillingSubscription(): Promise<BillingSyncResponse> {
-  const res = await fetch(`${BASE}/billing/sync`, {
+  const res = await fetchAuth(`${BASE}/billing/sync`, {
     method: 'POST',
     headers: authBearerHeaders(),
     credentials: 'include',
+  }, {
+    timeoutMs: BILLING_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A confirmação do pagamento demorou demais. Seu plano será atualizado automaticamente.',
   })
   if (!res.ok) throw await readError(res, 'Erro ao confirmar a ativação da assinatura')
   return res.json()
 }
 
 export async function openBillingPortal(): Promise<{ url: string }> {
-  const res = await fetch(`${BASE}/billing/portal`, {
+  const res = await fetchAuth(`${BASE}/billing/portal`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  }, {
+    timeoutMs: BILLING_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A abertura do portal demorou demais. Verifique sua conexão e tente novamente.',
   })
   if (!res.ok) throw await readError(res, 'Erro ao abrir portal de assinatura')
   return res.json()
@@ -426,7 +455,7 @@ export interface PixSubscriptionRequest {
 }
 
 export async function getPixSubscriptionRequest(ref: string): Promise<PixSubscriptionRequest> {
-  const res = await fetch(`${BASE}/billing/pix/${encodeURIComponent(ref)}`, {
+  const res = await fetchAuth(`${BASE}/billing/pix/${encodeURIComponent(ref)}`, {
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
   })
   if (!res.ok) throw await readError(res, 'Assinatura Pix não encontrada')

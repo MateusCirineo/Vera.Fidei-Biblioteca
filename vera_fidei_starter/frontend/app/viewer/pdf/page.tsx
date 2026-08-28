@@ -31,6 +31,9 @@ type PageMetric = {
   height: number
 }
 
+const PDF_SEARCH_TIMEOUT_MS = 120_000
+const PDF_PAGE_RENDER_TIMEOUT_MS = 45_000
+
 // ─── Utilitários de texto ────────────────────────────────────────────────────
 
 function normalizeText(text: string): string {
@@ -126,6 +129,8 @@ function PdfPageCanvas({
   const overlayRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [rendered, setRendered] = useState(false)
+  const [renderError, setRenderError] = useState('')
+  const [renderAttempt, setRenderAttempt] = useState(0)
 
   // Aciona render quando a página se aproxima do viewport
   useEffect(() => {
@@ -155,9 +160,29 @@ function PdfPageCanvas({
   useEffect(() => {
     if (!rendered || !pdfDoc) return
     let cancelled = false
+    let timedOut = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    let removeAbortListener = () => {}
+    const controller = new AbortController()
+    let renderTask: { promise: Promise<unknown>; cancel: () => void } | null = null
+    const interrupted = new Promise<never>((_, reject) => {
+      const onAbort = () => reject(new DOMException('Renderização cancelada.', 'AbortError'))
+      controller.signal.addEventListener('abort', onAbort, { once: true })
+      removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort)
+      timeoutId = setTimeout(() => {
+        timedOut = true
+        try {
+          renderTask?.cancel()
+        } catch {
+          // A tarefa pode ter terminado entre o deadline e cancel().
+        }
+        controller.abort()
+      }, PDF_PAGE_RENDER_TIMEOUT_MS)
+    })
 
     async function renderPage() {
-      const page = await pdfDoc.getPage(pageNum)
+      setRenderError('')
+      const page = await Promise.race([pdfDoc.getPage(pageNum), interrupted])
       if (cancelled) return
       const viewport = page.getViewport({ scale })
       const canvas = canvasRef.current
@@ -176,13 +201,15 @@ function PdfPageCanvas({
 
       const ctx = canvas.getContext('2d')!
       ctx.scale(dpr, dpr)
-      await page.render({ canvasContext: ctx, viewport }).promise
+      const currentRenderTask = page.render({ canvasContext: ctx, viewport })
+      renderTask = currentRenderTask
+      await Promise.race([currentRenderTask.promise, interrupted])
       if (cancelled) return
 
       const activeQuote = quote || fallbackQuote
       const activeSearch = searchTerm?.trim()
       if (activeQuote || activeSearch) {
-        const textContent = await page.getTextContent()
+        const textContent = await Promise.race([page.getTextContent(), interrupted])
         const items = (textContent.items as PdfTextItem[]).filter((i) => i.str)
         const { parts, fullNormalized } = buildJoinedText(items)
         const addHighlight = (
@@ -230,16 +257,55 @@ function PdfPageCanvas({
       }
     }
 
-    renderPage().catch(() => {})
-    return () => { cancelled = true }
-  }, [rendered, pdfDoc, pdfjsLib, pageNum, scale, quote, fallbackQuote, searchTerm, activeSearchPage, activeSearchOccurrence])
+    void renderPage().catch((error) => {
+      if (cancelled) return
+      const wasCancelled = error instanceof DOMException && error.name === 'AbortError'
+      if (wasCancelled && !timedOut) return
+      setRenderError(timedOut
+        ? `A página ${pageNum} demorou demais para carregar.`
+        : `Não foi possível carregar a página ${pageNum}.`)
+    }).finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+      removeAbortListener()
+    })
+    return () => {
+      cancelled = true
+      controller.abort()
+      try {
+        renderTask?.cancel()
+      } catch {
+        // A renderização já terminou.
+      }
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+      removeAbortListener()
+    }
+  }, [rendered, pdfDoc, pdfjsLib, pageNum, scale, quote, fallbackQuote, searchTerm, activeSearchPage, activeSearchOccurrence, renderAttempt])
 
   return (
-    <div ref={wrapRef} className="relative w-full">
+    <div
+      ref={wrapRef}
+      className="relative w-full"
+      style={rendered ? { minHeight: placeholderHeight } : undefined}
+    >
       {rendered ? (
         <>
           <canvas ref={canvasRef} className="block" style={{ imageRendering: 'auto' }} />
           <div ref={overlayRef} className="pointer-events-none absolute left-0 top-0" />
+          {renderError && (
+            <div
+              role="alert"
+              className="absolute inset-0 z-10 flex min-h-40 flex-col items-center justify-center gap-3 bg-zinc-950/95 px-6 text-center text-sm text-zinc-200"
+            >
+              <span>{renderError}</span>
+              <button
+                type="button"
+                className="rounded border border-amber-500/60 px-3 py-2 text-amber-300"
+                onClick={() => setRenderAttempt((attempt) => attempt + 1)}
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
         </>
       ) : (
         // Placeholder com altura estimada para manter scroll correto
@@ -286,6 +352,9 @@ function PdfViewerInner() {
 
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const searchAbortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => () => searchAbortRef.current?.abort(), [])
 
   const estimatePageHeight = useCallback((index: number, targetScale = scale) => {
     const metric = pageMetrics[index] ?? pageMetrics[0]
@@ -388,6 +457,7 @@ function PdfViewerInner() {
   useEffect(() => {
     if (!fileUrl || isMobile === null) return
     let cancelled = false
+    const loadController = new AbortController()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let loadTask: any = null
     async function load() {
@@ -419,26 +489,38 @@ function PdfViewerInner() {
 
       const LOAD_TIMEOUT_MS = 120_000
       let timeoutId: ReturnType<typeof setTimeout> | null = null
+      let removeAbortListener = () => {}
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(
           () => reject(new Error('O PDF demorou muito para carregar. Tente novamente em alguns segundos.')),
           LOAD_TIMEOUT_MS,
         )
       })
+      const cancelledPromise = new Promise<never>((_, reject) => {
+        const onAbort = () => reject(new DOMException('Carregamento cancelado.', 'AbortError'))
+        if (loadController.signal.aborted) {
+          onAbort()
+          return
+        }
+        loadController.signal.addEventListener('abort', onAbort, { once: true })
+        removeAbortListener = () => loadController.signal.removeEventListener('abort', onAbort)
+      })
 
       let doc: Awaited<typeof loadTask.promise>
+      let firstPage: Awaited<ReturnType<typeof doc.getPage>>
       try {
-        doc = await Promise.race([loadTask.promise, timeoutPromise])
+        doc = await Promise.race([loadTask.promise, timeoutPromise, cancelledPromise])
+        firstPage = await Promise.race([doc.getPage(1), timeoutPromise, cancelledPromise])
       } catch (loadError) {
         await loadTask.destroy().catch(() => {})
         throw loadError
       } finally {
         if (timeoutId !== null) clearTimeout(timeoutId)
+        removeAbortListener()
       }
       if (cancelled) return
 
       // Calcula escala automática pela largura da tela (mobile) ou fixa (desktop)
-      const firstPage = await doc.getPage(1)
       const baseVp = firstPage.getViewport({ scale: 1 })
       const firstMetric = { width: baseVp.width, height: baseVp.height }
       const autoScale = isMobile ? window.innerWidth / baseVp.width : 1.5
@@ -467,6 +549,7 @@ function PdfViewerInner() {
     })
     return () => {
       cancelled = true
+      loadController.abort()
       if (loadTask) void loadTask.destroy().catch(() => {})
     }
   }, [fileUrl, isMobile])
@@ -540,13 +623,32 @@ function PdfViewerInner() {
     setSubmittedSearchText(term)
     if (!term || !pdfDoc || numPages <= 0) return
 
+    searchAbortRef.current?.abort()
+    const controller = new AbortController()
+    searchAbortRef.current = controller
+    let timedOut = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    let removeAbortListener = () => {}
+    const interrupted = new Promise<never>((_, reject) => {
+      const onAbort = () => reject(new DOMException('Busca cancelada.', 'AbortError'))
+      controller.signal.addEventListener('abort', onAbort, { once: true })
+      removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort)
+      timeoutId = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, PDF_SEARCH_TIMEOUT_MS)
+    })
+
     setSearching(true)
     try {
       const normalizedTerm = normalizeText(term)
       const found: SearchResult[] = []
       for (let pageNum = 1; pageNum <= numPages; pageNum += 1) {
-        const page = await pdfDoc.getPage(pageNum)
-        const textContent = await page.getTextContent()
+        if (pageNum === 1 || pageNum % 10 === 0 || pageNum === numPages) {
+          setSearchMessage(`Buscando na página ${pageNum} de ${numPages}...`)
+        }
+        const page = await Promise.race([pdfDoc.getPage(pageNum), interrupted])
+        const textContent = await Promise.race([page.getTextContent(), interrupted])
         const items = (textContent.items as PdfTextItem[]).filter((item) => item.str)
         const rawText = items
           .map((item) => item.str)
@@ -577,11 +679,24 @@ function PdfViewerInner() {
       } else {
         setSearchMessage('Nenhum resultado encontrado neste PDF.')
       }
-    } catch {
-      setSearchMessage('Não foi possível buscar o texto neste PDF.')
+    } catch (error) {
+      if (timedOut) {
+        setSearchMessage('A busca no PDF excedeu dois minutos. Refine o termo e tente novamente.')
+      } else if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+        setSearchMessage('Busca cancelada.')
+      } else {
+        setSearchMessage('Não foi possível buscar o texto neste PDF.')
+      }
     } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+      removeAbortListener()
+      if (searchAbortRef.current === controller) searchAbortRef.current = null
       setSearching(false)
     }
+  }
+
+  function cancelPdfSearch() {
+    searchAbortRef.current?.abort()
   }
 
   function moveSearch(delta: number) {
@@ -654,8 +769,13 @@ function PdfViewerInner() {
                 placeholder="Buscar palavra ou trecho"
                 className="h-9 min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-400"
               />
-              <button type="submit" disabled={searching || !searchText.trim() || !pdfDoc} className="h-9 rounded bg-amber-400 px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-amber-300 disabled:opacity-40">
-                {searching ? '...' : 'Buscar'}
+              <button
+                type={searching ? 'button' : 'submit'}
+                onClick={searching ? cancelPdfSearch : undefined}
+                disabled={!searching && (!searchText.trim() || !pdfDoc)}
+                className="h-9 rounded bg-amber-400 px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-amber-300 disabled:opacity-40"
+              >
+                {searching ? 'Cancelar' : 'Buscar'}
               </button>
             </form>
           )}
@@ -675,7 +795,7 @@ function PdfViewerInner() {
           <form onSubmit={handleSearchSubmit} className="flex min-w-0 flex-1 items-center gap-1 sm:max-w-sm">
             <label htmlFor="pdf-search-input" className="sr-only">Buscar no texto</label>
             <input id="pdf-search-input" type="search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Buscar palavra ou trecho" className="h-8 min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-400" />
-            <button type="submit" disabled={searching || !searchText.trim() || !pdfDoc} className="h-8 rounded bg-amber-400 px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-amber-300 disabled:opacity-40">{searching ? 'Buscando...' : 'Buscar'}</button>
+            <button type={searching ? 'button' : 'submit'} onClick={searching ? cancelPdfSearch : undefined} disabled={!searching && (!searchText.trim() || !pdfDoc)} className="h-8 rounded bg-amber-400 px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-amber-300 disabled:opacity-40">{searching ? 'Cancelar' : 'Buscar'}</button>
           </form>
           <div className="flex items-center gap-1">
             <button onClick={() => zoomBy(-0.2)} className="w-8 h-8 flex items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 active:scale-95 text-lg font-light">−</button>

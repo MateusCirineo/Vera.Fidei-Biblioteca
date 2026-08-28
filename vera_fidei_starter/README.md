@@ -61,7 +61,7 @@ Parta da tag anotada da versão e crie os arquivos de ambiente apenas no
 servidor. Eles não pertencem ao Git:
 
 ```bash
-git checkout v1.2.0
+git checkout v1.3.0
 cp deployment.env.example .env
 # configurar .env e backend/.env.production com os valores reais
 docker compose config --quiet

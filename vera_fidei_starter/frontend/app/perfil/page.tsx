@@ -303,6 +303,7 @@ export default function PerfilPage() {
     } catch (err: unknown) {
       setBillingNoticeTone('error')
       setBillingNotice(err instanceof Error ? err.message : 'Erro ao abrir assinatura.')
+    } finally {
       setBillingLoading(false)
     }
   }
@@ -345,6 +346,7 @@ export default function PerfilPage() {
       router.refresh()
     } catch (err: unknown) {
       setPrivacyNotice(err instanceof Error ? err.message : 'Não foi possível excluir a conta.')
+    } finally {
       setDeletingAccount(false)
     }
   }

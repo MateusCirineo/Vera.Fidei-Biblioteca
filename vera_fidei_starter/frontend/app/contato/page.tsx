@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import BrandHeader from '@/components/BrandHeader'
+import { fetchWithTimeout } from '@/lib/http'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
 
@@ -44,10 +45,12 @@ export default function ContatoPage() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch(`${BASE}/auth/contact`, {
+      const res = await fetchWithTimeout(`${BASE}/auth/contact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, subject, message }),
+      }, {
+        timeoutMessage: 'O envio da mensagem demorou demais. Verifique sua conexão e tente novamente.',
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))

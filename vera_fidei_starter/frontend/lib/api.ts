@@ -1,4 +1,10 @@
 import { authBearerHeaders } from './auth'
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  LONG_REQUEST_TIMEOUT_MS,
+  RequestTimeoutError,
+  fetchWithTimeout,
+} from './http'
 import type {
   Book,
   AuthorCatalogEntry,
@@ -17,6 +23,9 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
+const SEARCH_REQUEST_TIMEOUT_MS = 25_000
+const USAGE_REQUEST_TIMEOUT_MS = 10_000
+const PDF_UPLOAD_TIMEOUT_MS = 30 * 60_000
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return API_KEY ? { 'X-API-Key': API_KEY, ...extra } : extra
@@ -52,49 +61,77 @@ async function readApiError(res: Response, fallback: string): Promise<ApiError> 
   }
 }
 
+async function fetchApi(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  options: { timeoutMs?: number; timeoutMessage?: string } = {},
+): Promise<Response> {
+  try {
+    return await fetchWithTimeout(
+      input,
+      {
+        ...init,
+        credentials: init.credentials ?? 'include',
+      },
+      {
+        timeoutMs: options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+        timeoutMessage: options.timeoutMessage,
+      },
+    )
+  } catch (error) {
+    if (error instanceof RequestTimeoutError) {
+      throw new ApiError(error.message, error.status)
+    }
+    throw error
+  }
+}
+
 export async function verifyCitation(
   quote: string,
   attributed_to: string,
   language?: string
 ): Promise<VerifyCitationResponse> {
-  const res = await fetch(`${BASE}/citations/verify-citation`, {
+  const res = await fetchApi(`${BASE}/citations/verify-citation`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ quote, attributed_to, language: language || null }),
+  }, {
+    timeoutMs: LONG_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A verificação demorou demais. Verifique sua conexão e tente novamente.',
   })
   if (!res.ok) throw await readApiError(res, 'Erro ao verificar citação')
   return res.json()
 }
 
 export async function getVerificationUsage(): Promise<VerificationUsage> {
-  const res = await fetch(`${BASE}/citations/usage`, {
+  const res = await fetchApi(`${BASE}/citations/usage`, {
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
-  })
+  }, { timeoutMs: USAGE_REQUEST_TIMEOUT_MS })
   if (!res.ok) throw await readApiError(res, 'Erro ao carregar uso das verificações')
   return res.json()
 }
 
 export async function listBooks(): Promise<Book[]> {
-  const res = await fetch(`${BASE}/books`, { next: { revalidate: 300 }, headers: authHeaders() })
+  const res = await fetchApi(`${BASE}/books`, { next: { revalidate: 300 }, headers: authHeaders() })
   if (!res.ok) throw new Error('Erro ao carregar obras')
   return res.json()
 }
 
 export async function listAuthorsCatalog(): Promise<AuthorCatalogEntry[]> {
-  const res = await fetch(`${BASE}/authors/catalog`, { next: { revalidate: 300 }, headers: authHeaders() })
+  const res = await fetchApi(`${BASE}/authors/catalog`, { next: { revalidate: 300 }, headers: authHeaders() })
   if (!res.ok) throw new Error('Erro ao carregar catálogo de autores')
   return res.json()
 }
 
 export async function getBook(id: number): Promise<Book> {
-  const res = await fetch(`${BASE}/books/${id}`, { cache: 'no-store', headers: authHeaders() })
+  const res = await fetchApi(`${BASE}/books/${id}`, { cache: 'no-store', headers: authHeaders() })
   if (!res.ok) throw new Error('Obra não encontrada')
   return res.json()
 }
 
 export async function listFavorites(kind?: FavoriteKind): Promise<FavoriteListResponse> {
   const query = kind ? `?kind=${encodeURIComponent(kind)}` : ''
-  const res = await fetch(`${BASE}/favorites${query}`, {
+  const res = await fetchApi(`${BASE}/favorites${query}`, {
     cache: 'no-store',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
   })
@@ -103,7 +140,7 @@ export async function listFavorites(kind?: FavoriteKind): Promise<FavoriteListRe
 }
 
 export async function saveFavorite(payload: FavoritePayload): Promise<FavoriteItem> {
-  const res = await fetch(`${BASE}/favorites`, {
+  const res = await fetchApi(`${BASE}/favorites`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
@@ -113,7 +150,7 @@ export async function saveFavorite(payload: FavoritePayload): Promise<FavoriteIt
 }
 
 export async function deleteFavorite(kind: FavoriteKind, itemId: string): Promise<void> {
-  const res = await fetch(`${BASE}/favorites/${kind}/${encodeURIComponent(itemId)}`, {
+  const res = await fetchApi(`${BASE}/favorites/${kind}/${encodeURIComponent(itemId)}`, {
     method: 'DELETE',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
   })
@@ -146,7 +183,14 @@ export async function ingestAuto(
   if (titleOverride?.trim()) form.append('title_override', titleOverride.trim())
   if (editor?.trim()) form.append('editor', editor.trim())
   if (translator?.trim()) form.append('translator', translator.trim())
-  const res = await fetch(`${BASE}/books/ingest-auto`, { method: 'POST', body: form, headers: authBearerHeaders() })
+  const res = await fetchApi(`${BASE}/books/ingest-auto`, {
+    method: 'POST',
+    body: form,
+    headers: authBearerHeaders(),
+  }, {
+    timeoutMs: PDF_UPLOAD_TIMEOUT_MS,
+    timeoutMessage: 'O envio do PDF excedeu 30 minutos. Verifique a conexão antes de tentar novamente.',
+  })
   if (!res.ok) {
     const err = await res.text()
     throw new Error(err || 'Erro ao ingerir PDF')
@@ -157,13 +201,13 @@ export async function ingestAuto(
 export async function getBookStatus(
   bookId: number,
 ): Promise<{ book_id: number; status: string; chunks_indexed: number; ingest_error?: string | null }> {
-  const res = await fetch(`${BASE}/books/${bookId}/status`, { cache: 'no-store', headers: authHeaders() })
+  const res = await fetchApi(`${BASE}/books/${bookId}/status`, { cache: 'no-store', headers: authHeaders() })
   if (!res.ok) throw new Error('Erro ao consultar status')
   return res.json()
 }
 
 export async function deleteBook(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/books/${id}`, { method: 'DELETE', headers: authBearerHeaders() })
+  const res = await fetchApi(`${BASE}/books/${id}`, { method: 'DELETE', headers: authBearerHeaders() })
   if (!res.ok) {
     const err = await res.text()
     throw new Error(err || 'Erro ao excluir livro')
@@ -176,7 +220,7 @@ export async function updateBookFileMeta(
   editor: string | null,
   translator: string | null,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/books/${bookId}/files/${fileId}/metadata`, {
+  const res = await fetchApi(`${BASE}/books/${bookId}/files/${fileId}/metadata`, {
     method: 'PATCH',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ editor, translator }),
@@ -184,48 +228,6 @@ export async function updateBookFileMeta(
   if (!res.ok) {
     const err = await res.text()
     throw new Error(err || 'Erro ao atualizar metadados')
-  }
-}
-
-const SEARCH_REQUEST_TIMEOUT_MS = 25_000
-const USAGE_REQUEST_TIMEOUT_MS = 10_000
-
-async function fetchWithTimeout(
-  input: RequestInfo | URL,
-  init: RequestInit = {},
-  timeoutMs = SEARCH_REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController()
-  const parentSignal = init.signal
-  let timedOut = false
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
-
-  const abortFromParent = () => controller.abort(parentSignal?.reason)
-  if (parentSignal?.aborted) {
-    abortFromParent()
-  } else {
-    parentSignal?.addEventListener('abort', abortFromParent, { once: true })
-  }
-
-  const request = fetch(input, { ...init, credentials: 'include', signal: controller.signal })
-  const timeout = new Promise<Response>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      timedOut = true
-      controller.abort()
-      reject(new ApiError('A busca demorou demais. Tente novamente.', 408))
-    }, timeoutMs)
-  })
-
-  try {
-    return await Promise.race([request, timeout])
-  } catch (error) {
-    if (timedOut && !(error instanceof ApiError)) {
-      throw new ApiError('A busca demorou demais. Tente novamente.', 408)
-    }
-    throw error
-  } finally {
-    if (timeoutId !== null) clearTimeout(timeoutId)
-    parentSignal?.removeEventListener('abort', abortFromParent)
   }
 }
 
@@ -267,7 +269,7 @@ export interface AdminCouponsResponse {
 
 export async function getAdminCoupons(prefix = 'COLEGIO'): Promise<AdminCouponsResponse> {
   const params = new URLSearchParams({ prefix, limit: '500' })
-  const res = await fetch(`${BASE}/billing/admin/coupons?${params.toString()}`, {
+  const res = await fetchApi(`${BASE}/billing/admin/coupons?${params.toString()}`, {
     cache: 'no-store',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
   })
@@ -284,7 +286,7 @@ export interface CreateAdminCouponInput {
 }
 
 export async function createAdminCoupon(payload: CreateAdminCouponInput): Promise<AdminCoupon> {
-  const res = await fetch(`${BASE}/billing/admin/coupons`, {
+  const res = await fetchApi(`${BASE}/billing/admin/coupons`, {
     method: 'POST',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
@@ -351,7 +353,7 @@ export interface AdminMetricsResponse {
 }
 
 export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
-  const res = await fetch(`${BASE}/analytics/admin/metrics`, {
+  const res = await fetchApi(`${BASE}/analytics/admin/metrics`, {
     cache: 'no-store',
     credentials: 'include',
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
@@ -382,9 +384,12 @@ export async function searchAcervo(
   if (options.patristicLimit) params.set('patristic_limit', String(options.patristicLimit))
   if (options.quotesOnly) params.set('quotes_only', 'true')
   if (options.cursor) params.set('cursor', options.cursor)
-  const res = await fetchWithTimeout(`${BASE}/search/chunks?${params}`, {
+  const res = await fetchApi(`${BASE}/search/chunks?${params}`, {
     headers: authBearerHeaders(),
     signal: options.signal,
+  }, {
+    timeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A busca demorou demais. Tente novamente.',
   })
   if (!res.ok) throw await readApiError(res, 'Erro na busca do acervo')
   return res.json()
@@ -396,25 +401,32 @@ export async function searchBible(
   signal?: AbortSignal,
 ): Promise<AcervoSearchResponse> {
   const params = new URLSearchParams({ ref, limit: String(limit) })
-  const res = await fetchWithTimeout(`${BASE}/search/bible?${params}`, {
+  const res = await fetchApi(`${BASE}/search/bible?${params}`, {
     headers: authBearerHeaders(),
     signal,
+  }, {
+    timeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A busca demorou demais. Tente novamente.',
   })
   if (!res.ok) throw await readApiError(res, 'Erro na busca bíblica')
   return res.json()
 }
 
 export async function getSearchUsage(): Promise<SearchUsageInfo> {
-  const res = await fetchWithTimeout(`${BASE}/search/usage`, {
+  const res = await fetchApi(`${BASE}/search/usage`, {
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
-  }, USAGE_REQUEST_TIMEOUT_MS)
+  }, { timeoutMs: USAGE_REQUEST_TIMEOUT_MS })
   if (!res.ok) throw await readApiError(res, 'Erro ao carregar uso de busca')
   return res.json()
 }
 
 export async function getDailyCitation(author: string): Promise<DailyCitationResponse> {
   const params = new URLSearchParams({ author })
-  const res = await fetch(`${BASE}/search/daily-citation?${params}`, { headers: authHeaders() })
+  const res = await fetchApi(`${BASE}/search/daily-citation?${params}`, {
+    headers: authHeaders(),
+  }, {
+    timeoutMessage: 'A citação do dia demorou demais para carregar. Tente novamente.',
+  })
   if (!res.ok) throw await readApiError(res, 'Erro ao carregar citação do dia')
   return res.json()
 }
@@ -425,7 +437,12 @@ export function getAcademicRefUrl(historyId: number, format: 'bibtex' | 'abnt' |
 
 export async function getCccCommentary(article: number, limit = 12): Promise<CccCommentaryResponse> {
   const params = new URLSearchParams({ article: String(article), limit: String(limit) })
-  const res = await fetch(`${BASE}/search/ccc-commentary?${params}`, { headers: authBearerHeaders() })
+  const res = await fetchApi(`${BASE}/search/ccc-commentary?${params}`, {
+    headers: authBearerHeaders(),
+  }, {
+    timeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A busca demorou demais. Tente novamente.',
+  })
   if (!res.ok) throw await readApiError(res, 'Erro ao buscar comentário patrístico')
   return res.json()
 }
@@ -438,9 +455,12 @@ export async function getCatechismConcordance(
     article: String(article),
     patristic_limit: String(options.patristicLimit ?? 8),
   })
-  const res = await fetchWithTimeout(`${BASE}/search/catechism-concordance?${params}`, {
+  const res = await fetchApi(`${BASE}/search/catechism-concordance?${params}`, {
     headers: authBearerHeaders(),
     signal: options.signal,
+  }, {
+    timeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+    timeoutMessage: 'A busca demorou demais. Tente novamente.',
   })
   if (!res.ok) throw await readApiError(res, 'Erro ao consultar a concordância dos catecismos')
   return res.json()

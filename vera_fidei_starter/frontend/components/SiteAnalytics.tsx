@@ -2,22 +2,27 @@
 
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
+import { fetchWithTimeout } from '@/lib/http'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
 const HEARTBEAT_MS = 60_000
+const ANALYTICS_TIMEOUT_MS = 8_000
 
 function send(path: string, event: 'view' | 'heartbeat') {
   if (path === '/admin' || path.startsWith('/admin/')) return
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  void fetch(`${API_BASE}/analytics/event`, {
+  void fetchWithTimeout(`${API_BASE}/analytics/event`, {
     method: 'POST',
     headers,
     credentials: 'include',
     keepalive: true,
     body: JSON.stringify({ path, event }),
-  }).catch(() => undefined)
+  }, {
+    timeoutMs: ANALYTICS_TIMEOUT_MS,
+    timeoutMessage: 'A telemetria demorou demais.',
+  }).then((response) => response.text()).catch(() => undefined)
 }
 
 export default function SiteAnalytics() {

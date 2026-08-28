@@ -30,10 +30,10 @@ export default function CadastroPage() {
     setLoading(true)
     try {
       await register(name, email, password)
-      router.replace('/perfil')
-      router.refresh()
+      window.location.replace('/perfil')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao cadastrar')
+    } finally {
       setLoading(false)
     }
   }

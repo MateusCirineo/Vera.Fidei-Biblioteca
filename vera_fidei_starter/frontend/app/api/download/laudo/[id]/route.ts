@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { LONG_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '@/lib/http'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
@@ -17,13 +18,13 @@ export async function GET(
     return NextResponse.json({ detail: 'Laudo invalido.' }, { status: 400 })
   }
 
-  const res = await fetch(`${BASE}/citations/historico/${id}/laudo`, {
+  const res = await fetchWithTimeout(`${BASE}/citations/historico/${id}/laudo`, {
     headers: {
       'X-API-Key': API_KEY,
       Authorization: `Bearer ${token}`,
     },
     cache: 'no-store',
-  })
+  }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })
 
   if (!res.ok) {
     const detail = await res.text().catch(() => 'Erro ao baixar laudo.')

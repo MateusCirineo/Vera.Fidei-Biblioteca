@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from 'next/server'
 // would send /api/pdfs back through Nginx and recurse into this same handler.
 const BASE = process.env.INTERNAL_API_URL ?? 'http://backend:8000'
 const API_KEY = process.env.INTERNAL_API_KEY ?? process.env.NEXT_PUBLIC_API_KEY ?? ''
+const PDF_UPSTREAM_HEADER_TIMEOUT_MS = 30_000
+const PDF_UPSTREAM_ERROR_BODY_TIMEOUT_MS = 8_000
+const PDF_UPSTREAM_ERROR_MAX_CHARS = 16_384
 
 export async function GET(
   request: NextRequest,
@@ -35,13 +38,30 @@ export async function GET(
   if (forwardedApiKey) headers['X-API-Key'] = forwardedApiKey
   if (rangeHeader) headers.Range = rangeHeader
 
-  const res = await fetch(upstreamUrl.toString(), {
-    headers,
-    cache: 'no-store',
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), PDF_UPSTREAM_HEADER_TIMEOUT_MS)
+  let res: Response
+  try {
+    // Limita apenas a espera pelos cabeçalhos. O timer é removido antes de
+    // repassar o stream, portanto PDFs grandes não são interrompidos no meio.
+    res = await fetch(upstreamUrl.toString(), {
+      headers,
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+  } catch {
+    return NextResponse.json(
+      { detail: controller.signal.aborted
+        ? 'O servidor demorou demais para iniciar o PDF. Tente novamente.'
+        : 'Não foi possível iniciar o PDF.' },
+      { status: controller.signal.aborted ? 504 : 502 },
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!res.ok && res.status !== 206) {
-    const detail = await res.text().catch(() => 'Erro ao abrir PDF.')
+    const detail = await readUpstreamError(res, controller)
     return new NextResponse(detail, {
       status: res.status,
       headers: {
@@ -55,6 +75,25 @@ export async function GET(
     status: res.status,
     headers: copyPdfHeaders(res.headers),
   })
+}
+
+async function readUpstreamError(response: Response, controller: AbortController): Promise<string> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<string>((resolve) => {
+    timeoutId = setTimeout(() => {
+      controller.abort()
+      resolve('O servidor demorou demais para explicar o erro ao abrir o PDF.')
+    }, PDF_UPSTREAM_ERROR_BODY_TIMEOUT_MS)
+  })
+
+  try {
+    const detail = await Promise.race([response.text(), timeout])
+    return (detail || 'Erro ao abrir PDF.').slice(0, PDF_UPSTREAM_ERROR_MAX_CHARS)
+  } catch {
+    return 'Erro ao abrir PDF.'
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
 }
 
 function copyPdfHeaders(headers: Headers): Headers {
