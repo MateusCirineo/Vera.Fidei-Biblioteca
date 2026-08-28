@@ -1469,6 +1469,76 @@ def search_chunks(
 
 # ─── Endpoint 2: citação do dia por autor ────────────────────────────────────
 
+def _daily_quotable_source_hits(hits: list, *, limit: int = 500) -> list:
+    """Return source-faithful body passages, never editorial apparatus.
+
+    Source fidelity proves that wording came from an edition or a visually
+    checked page. It does not prove that the wording is attributable to the
+    indexed author: introductions, footnotes and bibliographies inherit the
+    book author too. Classify the complete carrier chunk before any excerpt is
+    made, then expose only a coherent body passage.
+    """
+
+    hydrated = _hydrate_quote_hit_authors(hits)
+    public_ids = _public_source_chunk_ids(hydrated)
+    accepted = []
+    for hit in hydrated:
+        if int(hit.chunk_id) not in public_ids:
+            continue
+        effective_author = getattr(hit, "chunk_author", None) or getattr(hit, "author", None)
+        passage = extract_semantic_passage(
+            getattr(hit, "text", "") or "",
+            section=getattr(hit, "chapter_or_section", None),
+            author=effective_author,
+            work_title=getattr(hit, "work_title", None),
+            pdf_page=getattr(hit, "pdf_page", None),
+            min_chars=80,
+            max_chars=700,
+        )
+        if not passage:
+            continue
+        accepted.append(
+            replace(
+                hit,
+                author=effective_author or getattr(hit, "author", ""),
+                text=passage,
+                translation_text=None,
+            )
+        )
+        if len(accepted) >= max(0, limit):
+            break
+    return accepted
+
+
+def _daily_quotable_enriched(results: list[AcervoResult]) -> list[AcervoResult]:
+    """Recheck the authoritative public wording after DB enrichment."""
+
+    accepted: list[AcervoResult] = []
+    for result in results:
+        effective_author = result.chunk_author or result.author
+        passage = extract_semantic_passage(
+            result.text,
+            section=result.chapter_or_section,
+            author=effective_author,
+            work_title=result.work_title,
+            pdf_page=result.pdf_page,
+            min_chars=80,
+            max_chars=700,
+        )
+        if not passage:
+            continue
+        accepted.append(
+            result.model_copy(
+                update={
+                    "text": passage,
+                    "translation_text": None,
+                    "content_role": None,
+                }
+            )
+        )
+    return accepted
+
+
 @router.get("/daily-citation", response_model=DailyCitationResponse)
 def daily_citation(
     author: str = Query(..., min_length=2, max_length=200, description="Nome do autor (keyword do ES)"),
@@ -1477,16 +1547,7 @@ def daily_citation(
     day = datetime.date.today().timetuple().tm_yday
     hits = _client().author_chunks(author=author, limit=500)
 
-    # Preferir trechos com tradução PT e texto substancial
-    candidates = [
-        h for h in hits
-        if (h.translation_text or "").strip() and len((h.translation_text or "").strip()) >= 80
-    ]
-    if not candidates:
-        candidates = [h for h in hits if len((h.text or "").strip()) >= 80]
-    if not candidates:
-        candidates = hits
-
+    candidates = _daily_quotable_source_hits(hits, limit=500)
     if not candidates:
         return DailyCitationResponse(
             chunk_id=None, text=None, author=author, work_title=None,
@@ -1498,7 +1559,13 @@ def daily_citation(
     # Pick the daily passage only after the source-fidelity gate. Otherwise a
     # deterministic selection could still publish a different OCR corruption
     # every day.
-    enriched = _enrich_with_db(candidates, require_source_verified=True)
+    enriched = _daily_quotable_enriched(
+        _enrich_with_db(
+            candidates,
+            preexcerpted=True,
+            require_source_verified=True,
+        )
+    )
     if not enriched:
         return DailyCitationResponse(
             chunk_id=None, text=None, author=author, work_title=None,

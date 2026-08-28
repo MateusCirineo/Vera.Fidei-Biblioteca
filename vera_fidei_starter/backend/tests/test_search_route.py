@@ -469,6 +469,164 @@ class TestCatechismThemeQueries(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Daily citation must never promote editorial apparatus to a saint quotation
+# ---------------------------------------------------------------------------
+
+class TestDailyCitationQualityGate(unittest.TestCase):
+    EDITORIAL_NOTES = (
+        "MAYER, C. (org.), op. cit., vol. 2, 1996-2002, cc. 1311-1317; "
+        "c. 1312, sugere que as referências aos batizados — veja-se, abaixo, "
+        "nota 29 — sejam um recurso de Agostinho para tornar a obra útil além "
+        "do círculo episcopal conciliar. 12 POSSÍDIO, Vida de Santo Agostinho, "
+        "5, 2; Paulus, 2011, p. 41. 13 Cf. SCHINDLER, A., loc. cit. 14 Cf. "
+        "Retractationes I, 17. 15 Ver, abaixo, p. 58, nota 118. 16 Se bem que, "
+        "com esse mesmo significado, fora usado em textos clássicos; cf., por "
+        "exemplo, PLAUTO, Pseudolus, I, 1, 55; II, 2, 598 e 4, 696a. 17 Acerca "
+        "dos diversos significados do termo, vejam-se, sub voce ‘símbolon’, "
+        "LIDDELL, H. G.; SCOTT, R., A Greek-English Lexicon, Oxford, 1940."
+    )
+    AUTHENTIC_BODY = (
+        "Quando vos aproximais do altar, reconhecei no pão aquilo que pendeu "
+        "da cruz e no cálice aquilo que jorrou do lado do Senhor. Recebei com "
+        "fé o sacramento da unidade, para que permaneçais no corpo de Cristo "
+        "e vivais de sua vida."
+    )
+
+    @classmethod
+    def _editorial_hit(cls) -> _TestHit:
+        return _make_hit(
+            73870,
+            text=cls.EDITORIAL_NOTES,
+            author="Santo Agostinho",
+            work_title=(
+                "Patrística Vol. 32 — A Fé e o Símbolo; A Disciplina Cristã; "
+                "A Continência"
+            ),
+            book_id=2035,
+            book_file_id=3999,
+            pdf_page=18,
+            source_fidelity="source_text",
+            matched_query=None,
+        )
+
+    @classmethod
+    def _body_hit(cls, chunk_id: int = 11111, *, fidelity: str = "source_text") -> _TestHit:
+        return _make_hit(
+            chunk_id,
+            text=cls.AUTHENTIC_BODY,
+            author="Santo Agostinho",
+            work_title="Sermão aos fiéis",
+            book_id=2001,
+            book_file_id=3001,
+            pdf_page=8,
+            source_fidelity=fidelity,
+            matched_query=None,
+        )
+
+    @classmethod
+    def _result(cls, chunk_id: int, text: str) -> Any:
+        from api.routes.search import AcervoResult
+
+        return AcervoResult(
+            chunk_id=chunk_id,
+            text=text,
+            author="Santo Agostinho",
+            chunk_author=None,
+            translator=None,
+            editor=None,
+            work_title="Sermão aos fiéis",
+            pdf_page=8,
+            chapter_or_section=None,
+            collection="PT",
+            volume=None,
+            edition_label="Edição conferida",
+            language="pt",
+            translation_text=None,
+            relevance_score=5.0,
+            book_id=2001,
+            book_file_id=3001,
+            library_section="patristica",
+            patristic_tradition="latina",
+            source_fidelity="source_text",
+            source_fidelity_label="Texto nativo da edição indexada",
+        )
+
+    def test_source_gate_discards_notes_and_unverified_body(self) -> None:
+        import api.routes.search as route
+
+        editorial = self._editorial_hit()
+        authentic = self._body_hit()
+        unchecked = self._body_hit(22222, fidelity="unverified")
+        hits = [editorial, authentic, unchecked]
+
+        with (
+            patch("api.routes.search._hydrate_quote_hit_authors", return_value=hits),
+            patch("api.routes.search._public_source_chunk_ids", return_value={73870, 11111}),
+        ):
+            accepted = route._daily_quotable_source_hits(hits)
+
+        self.assertEqual([hit.chunk_id for hit in accepted], [11111])
+        self.assertEqual(accepted[0].text, self.AUTHENTIC_BODY)
+        self.assertNotIn("MAYER", accepted[0].text)
+
+    def test_enriched_gate_rechecks_authoritative_wording(self) -> None:
+        import api.routes.search as route
+
+        editorial = self._result(73870, self.EDITORIAL_NOTES)
+        authentic = self._result(11111, self.AUTHENTIC_BODY)
+
+        accepted = route._daily_quotable_enriched([editorial, authentic])
+
+        self.assertEqual([result.chunk_id for result in accepted], [11111])
+        self.assertEqual(accepted[0].text, self.AUTHENTIC_BODY)
+
+    def test_endpoint_returns_only_verified_authentic_passage(self) -> None:
+        import api.routes.search as route
+
+        editorial = self._editorial_hit()
+        authentic = self._body_hit()
+        hits = [editorial, authentic]
+        search_client = SimpleNamespace(author_chunks=Mock(return_value=hits))
+        enriched = self._result(11111, self.AUTHENTIC_BODY)
+
+        with (
+            patch("api.routes.search._client", return_value=search_client),
+            patch("api.routes.search._hydrate_quote_hit_authors", return_value=hits),
+            patch("api.routes.search._public_source_chunk_ids", return_value={73870, 11111}),
+            patch("api.routes.search._enrich_with_db", return_value=[enriched]) as enrich,
+        ):
+            response = route.daily_citation(author="Santo Agostinho")
+
+        candidates = enrich.call_args.args[0]
+        self.assertEqual([hit.chunk_id for hit in candidates], [11111])
+        self.assertTrue(enrich.call_args.kwargs["preexcerpted"])
+        self.assertTrue(enrich.call_args.kwargs["require_source_verified"])
+        self.assertEqual(response.chunk_id, 11111)
+        self.assertEqual(response.text, self.AUTHENTIC_BODY)
+        self.assertEqual(response.source_fidelity, "source_text")
+        self.assertNotIn("MAYER", response.text or "")
+
+    def test_endpoint_fails_closed_when_author_has_only_editorial_text(self) -> None:
+        import api.routes.search as route
+
+        editorial = self._editorial_hit()
+        search_client = SimpleNamespace(author_chunks=Mock(return_value=[editorial]))
+
+        with (
+            patch("api.routes.search._client", return_value=search_client),
+            patch("api.routes.search._hydrate_quote_hit_authors", return_value=[editorial]),
+            patch("api.routes.search._public_source_chunk_ids", return_value={73870}),
+            patch("api.routes.search._enrich_with_db") as enrich,
+        ):
+            response = route.daily_citation(author="Santo Agostinho")
+
+        enrich.assert_not_called()
+        self.assertIsNone(response.chunk_id)
+        self.assertIsNone(response.text)
+        self.assertEqual(response.author, "Santo Agostinho")
+
+
+# ---------------------------------------------------------------------------
 # Patristic control tests (require Ignatius/Justin text to be in test fixtures)
 # These are integration-style and are skipped when the DB is not available.
 # ---------------------------------------------------------------------------

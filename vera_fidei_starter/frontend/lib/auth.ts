@@ -1,4 +1,6 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+export const AUTH_STATE_CHANGED_EVENT = 'vf:auth-state-changed'
+export const PROFILE_AVATAR_CHANGED_EVENT = 'vf:profile-avatar-changed'
 
 export interface UserInfo {
   id: number
@@ -11,6 +13,31 @@ export interface UserInfo {
   billing_current_period_end?: string | null
   billing_cancel_at_period_end?: boolean
   is_owner?: boolean
+  avatar_url?: string | null
+}
+
+export function profileAvatarStorageKey(userId: number): string {
+  return `vf_profile_avatar_${userId}`
+}
+
+function notifyAuthStateChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_STATE_CHANGED_EVENT))
+  }
+}
+
+function resolveAvatarUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  if (/^(?:https?:|data:)/i.test(url)) return url
+
+  try {
+    const base = /^https?:/i.test(BASE)
+      ? BASE
+      : (typeof window !== 'undefined' ? window.location.origin : BASE)
+    return new URL(url, base).toString()
+  } catch {
+    return url
+  }
 }
 
 export function authBearerHeaders(extra: Record<string, string> = {}): Record<string, string> {
@@ -33,6 +60,7 @@ export async function register(name: string, email: string, password: string): P
     body: JSON.stringify({ name, email, password }),
   })
   if (!res.ok) throw await readError(res, 'Erro ao cadastrar')
+  notifyAuthStateChanged()
 }
 
 export async function login(email: string, password: string): Promise<void> {
@@ -43,6 +71,7 @@ export async function login(email: string, password: string): Promise<void> {
     body: JSON.stringify({ email, password }),
   })
   if (!res.ok) throw await readError(res, 'Credenciais inválidas')
+  notifyAuthStateChanged()
 }
 
 export async function logout(): Promise<void> {
@@ -50,6 +79,7 @@ export async function logout(): Promise<void> {
     method: 'POST',
     credentials: 'include',
   }).catch(() => undefined)
+  notifyAuthStateChanged()
 }
 
 export async function forgotPassword(email: string): Promise<void> {
@@ -93,9 +123,56 @@ export async function getUser(): Promise<UserInfo | null> {
       cache: 'no-store',
     })
     if (!res.ok) return null
-    return res.json()
+    const user = await res.json() as UserInfo
+    return { ...user, avatar_url: resolveAvatarUrl(user.avatar_url) }
   } catch {
     return null
+  }
+}
+
+export async function uploadProfileAvatar(file: Blob): Promise<{ avatar_url: string }> {
+  const res = await fetch(`${BASE}/auth/avatar`, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    credentials: 'include',
+    body: file,
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao salvar a foto do perfil')
+
+  const result = await res.json() as { avatar_url: string }
+  return { avatar_url: resolveAvatarUrl(result.avatar_url) ?? result.avatar_url }
+}
+
+export async function removeProfileAvatar(): Promise<void> {
+  const res = await fetch(`${BASE}/auth/avatar`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!res.ok) throw await readError(res, 'Erro ao remover a foto do perfil')
+}
+
+export async function migrateLegacyProfileAvatar(user: UserInfo): Promise<string> {
+  if (typeof window === 'undefined') return user.avatar_url ?? ''
+
+  const key = profileAvatarStorageKey(user.id)
+  const legacyAvatar = localStorage.getItem(key) ?? ''
+  if (user.avatar_url) {
+    if (legacyAvatar) localStorage.removeItem(key)
+    return user.avatar_url
+  }
+  if (!legacyAvatar.startsWith('data:image/')) return ''
+
+  try {
+    const blob = await fetch(legacyAvatar).then((response) => response.blob())
+    const saved = await uploadProfileAvatar(blob)
+    localStorage.removeItem(key)
+    window.dispatchEvent(new CustomEvent(PROFILE_AVATAR_CHANGED_EVENT, {
+      detail: { userId: user.id, avatar: saved.avatar_url },
+    }))
+    return saved.avatar_url
+  } catch {
+    // Preserve the local photo if the one-time migration cannot reach the API.
+    return legacyAvatar
   }
 }
 

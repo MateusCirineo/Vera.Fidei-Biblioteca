@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import threading
 
-from sqlalchemy import create_engine, String, Integer, Boolean, Float, ForeignKey, Text, DateTime, Date, UniqueConstraint
+from sqlalchemy import create_engine, String, Integer, Boolean, Float, ForeignKey, Text, DateTime, Date, LargeBinary, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
 import json
@@ -34,6 +34,9 @@ class User(Base):
     # which keeps them compatible until the next password reset.
     session_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    avatar_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    avatar_content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    avatar_updated_at: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
     verifications: Mapped[list["VerificationHistory"]] = relationship(
@@ -579,6 +582,9 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_cancel_at_period_end BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_play_account_id VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_data BYTEA",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_content_type VARCHAR(50)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_updated_at TIMESTAMP",
         "CREATE INDEX IF NOT EXISTS idx_users_billing_customer_id ON users(billing_customer_id)",
         "CREATE INDEX IF NOT EXISTS idx_users_billing_subscription_id ON users(billing_subscription_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_play_account_id ON users(google_play_account_id) WHERE google_play_account_id IS NOT NULL",

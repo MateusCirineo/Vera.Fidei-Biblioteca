@@ -84,6 +84,9 @@ class AccountPrivacyTests(unittest.TestCase):
                 plan="fiel",
                 is_active=True,
                 email_verified=True,
+                avatar_data=b"SUPER-SECRET-AVATAR-BYTES",
+                avatar_content_type="image/webp",
+                avatar_updated_at=datetime.datetime(2026, 8, 28, 3, 2, 1),
             )
             db.add(user)
             db.flush()
@@ -167,6 +170,14 @@ class AccountPrivacyTests(unittest.TestCase):
         serialized = response.body.decode("utf-8")
         self.assertEqual(payload["format"], "vera-fidei-personal-data-v1")
         self.assertEqual(payload["account"]["email"], "reader@example.com")
+        self.assertEqual(
+            payload["account"]["profile_photo"],
+            {
+                "present": True,
+                "content_type": "image/webp",
+                "updated_at": "2026-08-28T03:02:01Z",
+            },
+        )
         self.assertEqual(payload["favorites"][0]["metadata"], {"page": 12})
         self.assertEqual(payload["citation_verifications"][0]["citation_text"], "Texto enviado pelo titular")
         self.assertEqual(payload["api_keys"][0]["label"], "Minha integração")
@@ -175,6 +186,8 @@ class AccountPrivacyTests(unittest.TestCase):
         self.assertNotIn("reset-hash", serialized)
         self.assertNotIn("purchase-token-hash-secret", serialized)
         self.assertNotIn("purchase-token-ciphertext-secret", serialized)
+        self.assertNotIn("SUPER-SECRET-AVATAR-BYTES", serialized)
+        self.assertNotIn("avatar_data", serialized)
         self.assertEqual(payload["billing_subscriptions"][0]["provider"], "google_play")
         self.assertIn("attachment;", response.headers["content-disposition"])
         self.assertEqual(response.headers["cache-control"], "no-store, max-age=0")

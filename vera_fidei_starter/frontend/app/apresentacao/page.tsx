@@ -38,10 +38,22 @@ const socialLinks: { label: string; value: string; href: string; icon: IconName 
   },
 ]
 
-const coverHighlights: { label: string; icon: IconName }[] = [
-  { label: 'Fontes primárias', icon: 'book' },
-  { label: 'Tradição católica', icon: 'database' },
-  { label: 'Verificação de citações', icon: 'shield' },
+const coverHighlights: { label: string; icon: IconName; image: string }[] = [
+  {
+    label: 'Fontes primárias',
+    icon: 'book',
+    image: '/branding/presentation-primary-sources.webp',
+  },
+  {
+    label: 'Tradição católica',
+    icon: 'database',
+    image: '/branding/presentation-tradition.webp',
+  },
+  {
+    label: 'Verificação de citações',
+    icon: 'shield',
+    image: '/branding/presentation-verification.webp',
+  },
 ]
 
 const presentationFeatures: { title: string; desc: string; icon: IconName }[] = [
@@ -241,12 +253,24 @@ function PresentationCover() {
           {coverHighlights.map((item) => (
             <div
               key={item.label}
-              className="flex items-center gap-3 rounded-lg border border-dourado/15 bg-[linear-gradient(105deg,rgba(201,168,76,0.08),rgba(17,17,17,0.74))] px-3 py-2.5 sm:flex-col sm:text-center"
+              className="group relative isolate flex min-h-24 items-center overflow-hidden rounded-lg border border-dourado/20 px-3 py-3 shadow-[inset_0_0_30px_rgba(0,0,0,0.3)] sm:min-h-28"
             >
-              <IconMedallion size="sm">
-                <LineIcon name={item.icon} className="h-4 w-4" />
-              </IconMedallion>
-              <p className="text-xs font-medium text-dourado">{item.label}</p>
+              <Image
+                src={item.image}
+                alt=""
+                fill
+                sizes="(max-width: 639px) 100vw, 33vw"
+                className="-z-20 object-cover object-right transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+              <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(7,8,8,0.98)_0%,rgba(7,8,8,0.9)_42%,rgba(7,8,8,0.32)_78%,rgba(7,8,8,0.18)_100%)]" />
+              <div className="relative z-10 flex max-w-[74%] items-center gap-3 sm:max-w-full sm:flex-col sm:items-start sm:text-left">
+                <IconMedallion size="sm">
+                  <LineIcon name={item.icon} className="h-4 w-4" />
+                </IconMedallion>
+                <p className="text-xs font-medium text-dourado drop-shadow-[0_1px_5px_rgba(0,0,0,0.95)]">
+                  {item.label}
+                </p>
+              </div>
             </div>
           ))}
         </div>

@@ -58,5 +58,6 @@ class UserResponse(BaseModel):
     billing_current_period_end: datetime.datetime | None = None
     billing_cancel_at_period_end: bool | None = False
     is_owner: bool = False
+    avatar_url: str | None = None
 
     model_config = {"from_attributes": True}

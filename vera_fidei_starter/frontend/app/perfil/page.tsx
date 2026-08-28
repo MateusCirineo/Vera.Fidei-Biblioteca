@@ -4,15 +4,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
+  AUTH_STATE_CHANGED_EVENT,
+  PROFILE_AVATAR_CHANGED_EVENT,
   createApiKey,
   deleteAccount,
   downloadPersonalData,
   getApiKeys,
   getUser,
   logout,
+  migrateLegacyProfileAvatar,
   openBillingPortal,
+  profileAvatarStorageKey,
+  removeProfileAvatar,
   revokeApiKey,
   syncBillingSubscription,
+  uploadProfileAvatar,
   type UserInfo,
 } from '@/lib/auth'
 import ProfileFavorites from '@/components/perfil/ProfileFavorites'
@@ -46,10 +52,7 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
 }
 
 const AVATAR_MAX_SIZE = 700 * 1024
-
-function storageKey(kind: 'avatar', userId: number) {
-  return `vf_profile_${kind}_${userId}`
-}
+const AVATAR_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
 function planRank(plan: string | undefined) {
   const index = PLAN_ORDER.indexOf(plan ?? 'fiel')
@@ -79,6 +82,7 @@ export default function PerfilPage() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [avatar, setAvatar] = useState('')
+  const [avatarSaving, setAvatarSaving] = useState(false)
   const [favoriteTotal, setFavoriteTotal] = useState(0)
   const [profileNotice, setProfileNotice] = useState('')
   const [billingNotice, setBillingNotice] = useState('')
@@ -122,7 +126,14 @@ export default function PerfilPage() {
       setLoadError('')
       setUser(u)
       setLoading(false)
-      setAvatar(localStorage.getItem(storageKey('avatar', u.id)) ?? '')
+      setAvatar(u.avatar_url ?? localStorage.getItem(profileAvatarStorageKey(u.id)) ?? '')
+      window.dispatchEvent(new Event(AUTH_STATE_CHANGED_EVENT))
+
+      void migrateLegacyProfileAvatar(u).then((migratedAvatar) => {
+        if (!active) return
+        setAvatar(migratedAvatar)
+        setUser((current) => current ? { ...current, avatar_url: migratedAvatar || null } : current)
+      })
     }).catch(() => {
       if (!active) return
       settled = true
@@ -150,7 +161,10 @@ export default function PerfilPage() {
       try {
         const result = await syncBillingSubscription()
         const refreshedUser = await getUser()
-        if (refreshedUser) setUser(refreshedUser)
+        if (refreshedUser) {
+          setUser(refreshedUser)
+          window.dispatchEvent(new Event(AUTH_STATE_CHANGED_EVENT))
+        }
 
         const effectiveStatus = refreshedUser?.billing_status ?? result.billing_status
         const activated = result.synced || effectiveStatus === 'active' || effectiveStatus === 'trialing'
@@ -193,13 +207,14 @@ export default function PerfilPage() {
     }
   }
 
-  function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
+    event.currentTarget.value = ''
     if (!file || !user) return
 
     setProfileNotice('')
-    if (!file.type.startsWith('image/')) {
-      setProfileNotice('Escolha um arquivo de imagem.')
+    if (!AVATAR_ALLOWED_TYPES.has(file.type)) {
+      setProfileNotice('Escolha uma imagem JPEG, PNG ou WebP.')
       return
     }
     if (file.size > AVATAR_MAX_SIZE) {
@@ -207,25 +222,40 @@ export default function PerfilPage() {
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const value = typeof reader.result === 'string' ? reader.result : ''
-      setAvatar(value)
-      localStorage.setItem(storageKey('avatar', user.id), value)
-      window.dispatchEvent(new CustomEvent('vf:profile-avatar-changed', {
-        detail: { userId: user.id, avatar: value },
+    setAvatarSaving(true)
+    try {
+      const saved = await uploadProfileAvatar(file)
+      setAvatar(saved.avatar_url)
+      setUser((current) => current ? { ...current, avatar_url: saved.avatar_url } : current)
+      localStorage.removeItem(profileAvatarStorageKey(user.id))
+      window.dispatchEvent(new CustomEvent(PROFILE_AVATAR_CHANGED_EVENT, {
+        detail: { userId: user.id, avatar: saved.avatar_url },
       }))
+    } catch (err: unknown) {
+      setProfileNotice(err instanceof Error ? err.message : 'Não foi possível salvar a foto do perfil.')
+    } finally {
+      setAvatarSaving(false)
     }
-    reader.readAsDataURL(file)
   }
 
-  function removeAvatar() {
-    if (!user) return
-    setAvatar('')
-    localStorage.removeItem(storageKey('avatar', user.id))
-    window.dispatchEvent(new CustomEvent('vf:profile-avatar-changed', {
-      detail: { userId: user.id, avatar: '' },
-    }))
+  async function removeAvatar() {
+    if (!user || avatarSaving) return
+
+    setProfileNotice('')
+    setAvatarSaving(true)
+    try {
+      await removeProfileAvatar()
+      setAvatar('')
+      setUser((current) => current ? { ...current, avatar_url: null } : current)
+      localStorage.removeItem(profileAvatarStorageKey(user.id))
+      window.dispatchEvent(new CustomEvent(PROFILE_AVATAR_CHANGED_EVENT, {
+        detail: { userId: user.id, avatar: '' },
+      }))
+    } catch (err: unknown) {
+      setProfileNotice(err instanceof Error ? err.message : 'Não foi possível remover a foto do perfil.')
+    } finally {
+      setAvatarSaving(false)
+    }
   }
 
   async function handleGenerateKey() {
@@ -310,7 +340,7 @@ export default function PerfilPage() {
     setDeletingAccount(true)
     try {
       await deleteAccount(deletePassword, deleteConfirmation)
-      localStorage.removeItem(storageKey('avatar', user.id))
+      localStorage.removeItem(profileAvatarStorageKey(user.id))
       router.replace('/')
       router.refresh()
     } catch (err: unknown) {
@@ -374,22 +404,25 @@ export default function PerfilPage() {
               <div className="flex flex-wrap gap-2">
                 <label
                   htmlFor="profile-photo"
-                  className="cursor-pointer rounded-md bg-dourado px-3 py-2 text-xs font-medium text-fundo transition-colors hover:bg-dourado-claro"
+                  aria-disabled={avatarSaving}
+                  className={`rounded-md bg-dourado px-3 py-2 text-xs font-medium text-fundo transition-colors hover:bg-dourado-claro ${avatarSaving ? 'pointer-events-none cursor-wait opacity-60' : 'cursor-pointer'}`}
                 >
-                  Trocar foto
+                  {avatarSaving ? 'Salvando...' : 'Trocar foto'}
                 </label>
                 <input
                   id="profile-photo"
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
                   className="sr-only"
                   onChange={handleAvatarChange}
+                  disabled={avatarSaving}
                 />
                 {avatar && (
                   <button
                     type="button"
                     onClick={removeAvatar}
-                    className="rounded-md border border-fundo-borda px-3 py-2 text-xs text-texto-terciario transition-colors hover:border-vermelho hover:text-vermelho"
+                    disabled={avatarSaving}
+                    className="rounded-md border border-fundo-borda px-3 py-2 text-xs text-texto-terciario transition-colors hover:border-vermelho hover:text-vermelho disabled:cursor-wait disabled:opacity-50"
                   >
                     Remover
                   </button>

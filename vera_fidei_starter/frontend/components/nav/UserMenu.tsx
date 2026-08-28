@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { getUser, logout, type UserInfo } from '@/lib/auth'
-
-function avatarStorageKey(userId: number) {
-  return `vf_profile_avatar_${userId}`
-}
+import {
+  AUTH_STATE_CHANGED_EVENT,
+  PROFILE_AVATAR_CHANGED_EVENT,
+  getUser,
+  logout,
+  migrateLegacyProfileAvatar,
+  type UserInfo,
+} from '@/lib/auth'
 
 const PLAN_LABELS: Record<string, string> = {
   fiel: 'Fiel',
@@ -20,6 +23,7 @@ const PLAN_LABELS: Record<string, string> = {
 export default function UserMenu() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [avatar, setAvatar] = useState('')
+  const [resolved, setResolved] = useState(false)
   const [open, setOpen] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
@@ -27,17 +31,47 @@ export default function UserMenu() {
 
   useEffect(() => {
     let active = true
-    getUser().then((currentUser) => {
-      if (!active) return
+    let refreshSequence = 0
+
+    async function refreshUser() {
+      const requestId = ++refreshSequence
+      const currentUser = await getUser()
+      if (!active || requestId !== refreshSequence) return
+
       setUser(currentUser)
-      if (currentUser) {
-        setAvatar(localStorage.getItem(avatarStorageKey(currentUser.id)) ?? '')
+      setResolved(true)
+      if (!currentUser) {
+        setAvatar('')
+        setOpen(false)
+        return
       }
-    })
+
+      setAvatar(currentUser.avatar_url ?? '')
+      const migratedAvatar = await migrateLegacyProfileAvatar(currentUser)
+      if (!active || requestId !== refreshSequence) return
+      setAvatar(migratedAvatar)
+    }
+
+    function handleRefresh() {
+      void refreshUser()
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') handleRefresh()
+    }
+
+    setOpen(false)
+    void refreshUser()
+    window.addEventListener(AUTH_STATE_CHANGED_EVENT, handleRefresh)
+    window.addEventListener('focus', handleRefresh)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       active = false
+      window.removeEventListener(AUTH_STATE_CHANGED_EVENT, handleRefresh)
+      window.removeEventListener('focus', handleRefresh)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [pathname])
 
   useEffect(() => {
     if (!user) return
@@ -50,17 +84,9 @@ export default function UserMenu() {
       }
     }
 
-    function handleStorage(event: StorageEvent) {
-      if (event.key === avatarStorageKey(userId)) {
-        setAvatar(event.newValue ?? '')
-      }
-    }
-
-    window.addEventListener('vf:profile-avatar-changed', handleAvatarChanged)
-    window.addEventListener('storage', handleStorage)
+    window.addEventListener(PROFILE_AVATAR_CHANGED_EVENT, handleAvatarChanged)
     return () => {
-      window.removeEventListener('vf:profile-avatar-changed', handleAvatarChanged)
-      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener(PROFILE_AVATAR_CHANGED_EVENT, handleAvatarChanged)
     }
   }, [user])
 
@@ -72,6 +98,8 @@ export default function UserMenu() {
     router.replace('/verificador')
     router.refresh()
   }
+
+  if (!resolved) return null
 
   if (!user) {
     if (isAuthPage) return null

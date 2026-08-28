@@ -4,6 +4,7 @@ from dataclasses import replace
 from search.content_quality import (
     assess_content,
     extract_query_passage,
+    extract_semantic_passage,
     filter_quotable_hits,
 )
 from search.text_search import AcervoSearchHit
@@ -168,6 +169,18 @@ influência sobre Anatólio de Laodiceia (240-325). 116 Porfírio (233-304) foi
 considerado discípulo de Plotino (204-270), segundo a nota biográfica do editor.
 """
 
+MAYER_POSSIDIO_LIDDELL_NOTES = """
+MAYER, C. (org.), op. cit., vol. 2, 1996-2002, cc. 1311-1317; c. 1312,
+sugere que as referências aos batizados — veja-se, abaixo, nota 29 — sejam um
+recurso de Agostinho para tornar a obra útil além do círculo episcopal conciliar.
+12 POSSÍDIO, Vida de Santo Agostinho, 5, 2; Paulus, 2011, p. 41. 13 Cf.
+SCHINDLER, A., loc. cit. 14 Cf. Retractationes I, 17. 15 Ver, abaixo, p. 58,
+nota 118. 16 Se bem que, com esse mesmo significado, fora usado em textos
+clássicos; cf., por exemplo, PLAUTO, Pseudolus, I, 1, 55; II, 2, 598 e 4,
+696a. 17 Acerca dos diversos significados do termo, vejam-se, sub voce
+“símbolon”, LIDDELL, H. G.; SCOTT, R., A Greek-English Lexicon, Oxford, 1940.
+"""
+
 STALE_COLLECTIVE_BIOGRAPHY = """
 Ainda segundo Ireneu, Policarpo empreendeu uma viagem a Roma sob o pontificado de
 Aniceto, por volta do ano 155, para discutir a data da celebração da Páscoa. No tempo
@@ -296,6 +309,34 @@ class ContentAssessmentTests(unittest.TestCase):
         )
         self.assertFalse(assessment.is_quotable)
         self.assertIn(assessment.role, {"notes", "toc"})
+
+    def test_live_mayer_possidio_liddell_apparatus_is_not_quotable(self) -> None:
+        assessment = assess_content(
+            MAYER_POSSIDIO_LIDDELL_NOTES,
+            author="Santo Agostinho",
+            work_title=(
+                "Patrística Vol. 32 — A Fé e o Símbolo; A Disciplina Cristã; "
+                "A Continência"
+            ),
+            pdf_page=18,
+        )
+
+        self.assertFalse(assessment.is_quotable)
+        self.assertEqual(assessment.role, "notes")
+        self.assertEqual(
+            extract_semantic_passage(
+                MAYER_POSSIDIO_LIDDELL_NOTES,
+                author="Santo Agostinho",
+                work_title=(
+                    "Patrística Vol. 32 — A Fé e o Símbolo; A Disciplina Cristã; "
+                    "A Continência"
+                ),
+                pdf_page=18,
+                min_chars=80,
+                max_chars=700,
+            ),
+            "",
+        )
 
     def test_stale_collective_author_tag_does_not_turn_biography_into_quote(self) -> None:
         assessment = assess_content(

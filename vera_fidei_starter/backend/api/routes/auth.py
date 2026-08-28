@@ -7,7 +7,7 @@ import logging
 import re
 import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import func
 
@@ -66,6 +66,8 @@ MOBILE_WEB_SESSION_MINUTES = 15
 _MOBILE_REDIRECT_RE = re.compile(r"^/visualizar/([1-9][0-9]*)\?page=([1-9][0-9]*)$")
 _MOBILE_ACCOUNT_REDIRECTS = frozenset({"/perfil", "/planos"})
 logger = logging.getLogger(__name__)
+AVATAR_MAX_BYTES = 700 * 1024
+_AVATAR_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 
 BLOCKING_STRIPE_SUBSCRIPTION_STATUSES = {
     "active",
@@ -77,6 +79,52 @@ BLOCKING_STRIPE_SUBSCRIPTION_STATUSES = {
     "checkout_open",
     "checkout_unresolved",
 }
+
+
+def _avatar_url(user: User) -> str | None:
+    updated_at = getattr(user, "avatar_updated_at", None)
+    if updated_at is None or not getattr(user, "avatar_content_type", None):
+        return None
+    # Include microseconds so two photo changes made within the same second do
+    # not reuse a browser-cached URL.
+    version = int(updated_at.replace(tzinfo=datetime.timezone.utc).timestamp() * 1_000_000)
+    return f"/api/auth/avatar?v={version}"
+
+
+def _validate_avatar_payload(payload: bytes, content_type: str | None) -> str:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if media_type not in _AVATAR_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Use uma imagem JPEG, PNG ou WebP.",
+        )
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A imagem está vazia.",
+        )
+    if len(payload) > AVATAR_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Use uma imagem com até 700 KB.",
+        )
+
+    valid_signature = (
+        (media_type == "image/jpeg" and payload.startswith(b"\xff\xd8\xff"))
+        or (media_type == "image/png" and payload.startswith(b"\x89PNG\r\n\x1a\n"))
+        or (
+            media_type == "image/webp"
+            and len(payload) >= 12
+            and payload.startswith(b"RIFF")
+            and payload[8:12] == b"WEBP"
+        )
+    )
+    if not valid_signature:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O conteúdo enviado não corresponde ao formato da imagem.",
+        )
+    return media_type
 
 
 def _session_cookie_secure() -> bool:
@@ -614,16 +662,104 @@ def logout(response: Response) -> dict[str, bool]:
     return {"authenticated": False}
 
 
+@router.get("/avatar", response_class=Response)
+def profile_avatar(current_user: User = Depends(get_current_user)) -> Response:
+    with SessionLocal() as db:
+        user = db.get(User, current_user.id)
+        if user is None or user.avatar_updated_at is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto não encontrada.")
+        payload = bytes(user.avatar_data or b"")
+        media_type = (user.avatar_content_type or "").strip().lower()
+        if not payload or media_type not in _AVATAR_TYPES:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Foto não encontrada.")
+
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Content-Security-Policy": "default-src 'none'",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.put("/avatar")
+async def update_profile_avatar(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    declared_size = request.headers.get("content-length")
+    if declared_size:
+        try:
+            if int(declared_size) > AVATAR_MAX_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Use uma imagem com até 700 KB.",
+                )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tamanho de imagem inválido.",
+            ) from exc
+
+    # Do not buffer an unbounded chunked request before enforcing the limit.
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > AVATAR_MAX_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Use uma imagem com até 700 KB.",
+            )
+        chunks.append(chunk)
+    payload = b"".join(chunks)
+    media_type = _validate_avatar_payload(payload, request.headers.get("content-type"))
+    with SessionLocal() as db:
+        user = db.get(User, current_user.id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conta não encontrada.")
+        user.avatar_data = payload
+        user.avatar_content_type = media_type
+        user.avatar_updated_at = datetime.datetime.utcnow()
+        db.commit()
+        db.refresh(user)
+        avatar_url = _avatar_url(user)
+
+    if avatar_url is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Falha ao salvar a foto.")
+    return {"avatar_url": avatar_url}
+
+
+@router.delete("/avatar")
+def delete_profile_avatar(current_user: User = Depends(get_current_user)) -> dict[str, bool]:
+    with SessionLocal() as db:
+        user = db.get(User, current_user.id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conta não encontrada.")
+        user.avatar_data = None
+        user.avatar_content_type = None
+        user.avatar_updated_at = None
+        db.commit()
+    return {"removed": True}
+
+
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(current_user).model_copy(
-        update={"is_owner": is_owner_email(current_user.email)}
+        update={
+            "is_owner": is_owner_email(current_user.email),
+            "avatar_url": _avatar_url(current_user),
+        }
     )
 
 
 @router.get("/admin", response_model=UserResponse)
 def admin_session(current_user: User = Depends(require_owner)) -> UserResponse:
-    return UserResponse.model_validate(current_user).model_copy(update={"is_owner": True})
+    return UserResponse.model_validate(current_user).model_copy(
+        update={"is_owner": True, "avatar_url": _avatar_url(current_user)}
+    )
 
 
 def _iso(value: datetime.date | datetime.datetime | None) -> str | None:
@@ -683,6 +819,11 @@ def export_personal_data(current_user: User = Depends(get_current_user)) -> JSON
                 "plan": user.plan,
                 "is_active": bool(user.is_active),
                 "created_at": _iso(user.created_at),
+                "profile_photo": {
+                    "present": user.avatar_updated_at is not None,
+                    "content_type": user.avatar_content_type,
+                    "updated_at": _iso(user.avatar_updated_at),
+                },
                 "billing": {
                     "provider": user.billing_provider,
                     "status": user.billing_status,
