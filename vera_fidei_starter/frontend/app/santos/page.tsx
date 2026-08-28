@@ -8,6 +8,7 @@ import {
   normalizeText,
 } from '@/lib/roman-calendar'
 import type { Book } from '@/lib/types'
+import { getDailySaintPortrait } from '@/lib/daily-saint-portrait.server'
 
 export const revalidate = 300
 
@@ -38,6 +39,8 @@ export default async function SantosPage() {
   const today = getRomanSaintForDate()
   const upcoming = getUpcomingRomanSaints(5)
 
+  const portraitPromise = getDailySaintPortrait(today)
+
   let books: Book[] = []
   try {
     books = await listBooks()
@@ -46,6 +49,7 @@ export default async function SantosPage() {
   }
 
   const saintBooks = filterBooksForSaints(books, [today.name, ...today.aliases])
+  const portrait = await portraitPromise
 
   return (
     <div className="mx-auto max-w-2xl px-4 pt-8 pb-4">
@@ -54,7 +58,7 @@ export default async function SantosPage() {
         description="Santo do dia, calendário romano e obras dos santos já presentes na Biblioteca."
       />
 
-      <SantosView books={saintBooks} today={today} upcoming={upcoming} />
+      <SantosView books={saintBooks} today={today} upcoming={upcoming} portrait={portrait} />
     </div>
   )
 }

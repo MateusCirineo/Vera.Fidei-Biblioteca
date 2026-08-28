@@ -129,8 +129,11 @@ export default function BottomNav() {
   const pathname = usePathname()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-fundo-borda bg-fundo-card/95 backdrop-blur">
-      <div className="grid grid-cols-6 items-stretch">
+    <nav
+      className="vf-bottom-nav fixed inset-x-0 bottom-0 z-50 border-t border-dourado/15 bg-fundo-card/95 backdrop-blur-xl"
+      aria-label="Navegação principal"
+    >
+      <div className="vf-bottom-nav__inner grid grid-cols-6 items-stretch">
         {tabs.map((tab) => {
           const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`)
           return (
@@ -138,13 +141,16 @@ export default function BottomNav() {
               key={tab.href}
               href={tab.href}
               prefetch
-              className={`flex min-w-0 flex-col items-center justify-center gap-1 py-2.5 text-[10px] transition-colors sm:py-3 sm:text-xs ${
+              aria-current={active ? 'page' : undefined}
+              className={`vf-bottom-nav__link${active ? ' vf-bottom-nav__link--active' : ''} flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 px-0.5 py-2 text-[10px] transition-colors sm:min-h-16 sm:text-xs ${
                 active
                   ? 'text-dourado'
                   : 'text-texto-terciario hover:text-texto-secundario'
               }`}
             >
-              {tab.icon(active)}
+              <span className="vf-bottom-nav__icon" aria-hidden="true">
+                {tab.icon(active)}
+              </span>
               <span className={`max-w-full truncate px-0.5 ${active ? 'font-medium' : ''}`}>
                 {tab.label}
               </span>
