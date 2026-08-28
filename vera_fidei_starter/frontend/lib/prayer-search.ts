@@ -48,9 +48,7 @@ function includesEveryToken(value: string, tokens: string[]): boolean {
 
 function matchScore(
   normalizedTitle: string,
-  normalizedCategory: string,
-  normalizedBody: string,
-  normalizedSource: string,
+  normalizedVersions: string[],
   query: string,
   tokens: string[],
 ): number {
@@ -58,12 +56,9 @@ function matchScore(
   if (normalizedTitle.startsWith(query)) return 10
   if (normalizedTitle.includes(query)) return 20
   if (includesEveryToken(normalizedTitle, tokens)) return 25
-  if (normalizedCategory.includes(query)) return 30
-  if (includesEveryToken(normalizedCategory, tokens)) return 35
-  if (normalizedBody.includes(query)) return 40
-  if (includesEveryToken(normalizedBody, tokens)) return 45
-  if (normalizedSource.includes(query)) return 50
-  return 55
+  if (normalizedVersions.some(version => version.includes(query))) return 30
+  if (normalizedVersions.some(version => includesEveryToken(version, tokens))) return 35
+  return 40
 }
 
 function excerptAroundMatch(value: string, query: string, tokens: string[]): string | undefined {
@@ -109,43 +104,30 @@ export function searchPrayerGroups(
   const results: PrayerSearchResult[] = []
 
   groups.forEach(group => {
-    const normalizedCategory = normalizePrayerSearch(`${group.title} ${group.description} ${group.code}`)
-
     group.items.forEach(item => {
       const normalizedTitle = normalizePrayerSearch(item.title)
-      const normalizedSource = normalizePrayerSearch(`${item.source ?? ''} ${item.note ?? ''}`)
       const normalizedVersions = item.versions.map(version => ({
         ...version,
-        normalized: normalizePrayerSearch(`${version.lang} ${version.text}`),
+        normalized: normalizePrayerSearch(version.text),
       }))
-      const normalizedBody = normalizedVersions.map(version => version.normalized).join(' ')
-      const searchable = [
-        normalizedTitle,
-        normalizedCategory,
-        normalizedBody,
-        normalizedSource,
-      ].join(' ')
-
-      if (!includesEveryToken(searchable, tokens)) return
-
       const matchedVersions = normalizedVersions.filter(version =>
         version.normalized.includes(query) || includesEveryToken(version.normalized, tokens)
       )
+      const titleMatches = normalizedTitle.includes(query) || includesEveryToken(normalizedTitle, tokens)
+
+      // All query terms must occur in the title or together inside one real version.
+      // Never join metadata or separate translations to manufacture a match.
+      if (!titleMatches && matchedVersions.length === 0) return
+
       const excerptVersion = matchedVersions.find(version =>
         normalizePrayerSearch(version.text).includes(query)
       ) ?? matchedVersions.find(version =>
         tokens.some(token => normalizePrayerSearch(version.text).includes(token))
       )
 
-      let excerpt = excerptVersion
+      const excerpt = excerptVersion
         ? excerptAroundMatch(excerptVersion.text, query, tokens)
         : undefined
-      if (!excerpt && includesEveryToken(normalizedCategory, tokens)) {
-        excerpt = excerptAroundMatch(group.description, query, tokens)
-      }
-      if (!excerpt && includesEveryToken(normalizedSource, tokens)) {
-        excerpt = excerptAroundMatch(`${item.source ?? ''} ${item.note ?? ''}`, query, tokens)
-      }
 
       results.push({
         key: `${group.code}:${item.id}`,
@@ -160,9 +142,7 @@ export function searchPrayerGroups(
         excerpt,
         score: matchScore(
           normalizedTitle,
-          normalizedCategory,
-          normalizedBody,
-          normalizedSource,
+          normalizedVersions.map(version => version.normalized),
           query,
           tokens,
         ),
@@ -171,5 +151,10 @@ export function searchPrayerGroups(
   })
 
   // Modern JavaScript sort is stable, preserving catalogue order for equal scores.
-  return results.sort((left, right) => left.score - right.score)
+  const rankedResults = results.sort((left, right) => left.score - right.score)
+  const titleResults = rankedResults.filter(result => result.score < 30)
+
+  // A name search must not be polluted by other prayers that only mention that name.
+  // Search inside the prayer text only when no title itself matches the query.
+  return titleResults.length > 0 ? titleResults : rankedResults
 }

@@ -6,6 +6,7 @@ interface IconMedallionProps {
   tone?: 'gold' | 'wine'
   label?: string
   className?: string
+  artwork?: boolean
 }
 
 export default function IconMedallion({
@@ -14,10 +15,11 @@ export default function IconMedallion({
   tone = 'gold',
   label,
   className = '',
+  artwork = false,
 }: IconMedallionProps) {
   return (
     <span
-      className={`vf-icon-medallion vf-icon-medallion--${size} vf-icon-medallion--${tone} ${className}`.trim()}
+      className={`vf-icon-medallion vf-icon-medallion--${size} vf-icon-medallion--${tone} ${artwork ? 'vf-icon-medallion--artwork' : ''} ${className}`.trim()}
       role={label ? 'img' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : true}

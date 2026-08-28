@@ -424,7 +424,7 @@ export default function OracoesView({
                 onKeyDown={handleSearchKeyDown}
                 aria-describedby={hasSearch ? 'prayer-search-status' : undefined}
                 aria-controls="prayer-search-results"
-                placeholder="Buscar oração, categoria ou trecho"
+                placeholder="Buscar nome ou trecho da oração"
                 autoComplete="off"
                 className="min-h-11 w-full rounded-lg border border-dourado/25 bg-fundo-card/80 py-2 pl-10 pr-11 text-sm text-texto outline-none transition-[border-color,box-shadow] placeholder:text-texto-terciario/75 focus:border-dourado/55 focus:shadow-[0_0_0_3px_rgba(201,168,76,0.1)] sm:min-h-12"
               />
@@ -464,7 +464,7 @@ export default function OracoesView({
                             onClick={() => openSearchResult(result.groupCode, result.itemId)}
                             className="grid min-h-[82px] w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-3 text-left outline-none transition-colors focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:px-4"
                           >
-                            <IconMedallion size="sm" className="shrink-0 self-start sm:self-center">
+                            <IconMedallion size="sm" artwork className="shrink-0 self-start sm:self-center">
                               <PrayerCategoryIcon code={result.groupCode} />
                             </IconMedallion>
                             <span className="min-w-0">
@@ -509,7 +509,7 @@ export default function OracoesView({
                       Nenhuma oração encontrada
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-texto-terciario">
-                      Tente outra palavra, um idioma, uma categoria ou um trecho da oração.
+                      Tente o nome da oração ou um trecho do próprio texto.
                     </p>
                     <button
                       type="button"
@@ -535,7 +535,7 @@ export default function OracoesView({
                   }}
                   className="grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 px-2.5 py-2 text-left text-sm text-texto-secundario outline-none transition-colors hover:text-texto focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:px-3"
                 >
-                  <IconMedallion size="compact" className="shrink-0">
+                  <IconMedallion size="compact" artwork className="shrink-0">
                     <PrayerCategoryIcon code={group.code} />
                   </IconMedallion>
                   <span className="min-w-0 flex-1">
@@ -575,7 +575,7 @@ export default function OracoesView({
                 Voltar para categorias
               </BackButton>
               <div className="flex items-start gap-3.5">
-                <IconMedallion size="lg" className="shrink-0">
+                <IconMedallion size="lg" artwork className="shrink-0">
                   <PrayerCategoryIcon code={activeGroup.code} />
                 </IconMedallion>
                 <div className="min-w-0 flex-1">
@@ -636,7 +636,7 @@ export default function OracoesView({
                 Voltar para {activeGroup.title}
               </BackButton>
               <div className="flex items-start gap-3.5">
-                <IconMedallion size="lg" className="shrink-0">
+                <IconMedallion size="lg" artwork className="shrink-0">
                   <PrayerCategoryIcon code={activeGroup.code} />
                 </IconMedallion>
                 <div className="min-w-0 flex-1">

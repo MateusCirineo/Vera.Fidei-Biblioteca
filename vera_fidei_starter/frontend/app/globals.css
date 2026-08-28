@@ -340,6 +340,26 @@ h3 {
   stroke: currentColor;
 }
 
+.vf-icon-medallion--artwork {
+  border-color: transparent;
+  background: #080908;
+}
+
+.vf-icon-medallion--artwork .vf-icon-medallion__glyph {
+  width: 100%;
+  height: 100%;
+}
+
+.vf-prayer-category-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  object-position: center;
+  user-select: none;
+}
+
 .vf-icon-medallion--sm {
   width: 2.25rem;
   height: 2.25rem;
@@ -353,6 +373,11 @@ h3 {
 .vf-icon-medallion--compact .vf-icon-medallion__glyph {
   width: 60%;
   height: 60%;
+}
+
+.vf-icon-medallion--artwork.vf-icon-medallion--compact .vf-icon-medallion__glyph {
+  width: 100%;
+  height: 100%;
 }
 
 .vf-icon-medallion--md {

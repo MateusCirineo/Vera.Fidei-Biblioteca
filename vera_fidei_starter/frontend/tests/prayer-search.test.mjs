@@ -48,6 +48,37 @@ const groups = [
       },
     ],
   },
+  {
+    code: 'BASE',
+    title: 'Principais Orações Diárias',
+    description: 'Orações fundamentais e fórmulas comuns da vida católica.',
+    items: [
+      {
+        id: 'pai-nosso',
+        title: 'Pai Nosso',
+        source: 'Vera.Fidei',
+        versions: [
+          {
+            lang: 'Português',
+            text: 'Pai nosso, que estais nos céus, santificado seja o vosso nome.',
+          },
+        ],
+      },
+      {
+        id: 'oracao-manha-referenciada',
+        title: 'Oração da manhã',
+        source: 'Referência editorial: Pai Nosso, edição de estudo',
+        note: 'Ver também Pai Nosso na página anterior.',
+        url: 'https://example.test/referencias/pai-nosso',
+        versions: [
+          {
+            lang: 'Português',
+            text: 'Eu vos adoro, meu Deus, e vos ofereço todas as ações deste dia. Ao final, reze um Pai Nosso.',
+          },
+        ],
+      },
+    ],
+  },
 ]
 
 test('normaliza acentos, caixa, espaços e apóstrofos', () => {
@@ -70,26 +101,55 @@ test('não duplica uma oração quando várias versões correspondem', () => {
   )
 })
 
-test('pesquisa descrição da categoria sem acento', () => {
-  const results = searchPrayerGroups(groups, 'paraclito')
-
-  assert.deepEqual(results.map(result => result.itemId), ['veni-creator'])
-  assert.match(results[0].excerpt, /Paráclito/)
+test('pesquisa somente título e texto próprio das versões', () => {
+  assert.deepEqual(searchPrayerGroups(groups, 'gratia plena').map(result => result.itemId), ['ave-maria-1'])
+  assert.deepEqual(searchPrayerGroups(groups, 'espirito criador').map(result => result.itemId), ['veni-creator'])
+  assert.match(searchPrayerGroups(groups, 'espirito criador')[0].excerpt, /Espírito Criador/)
 })
 
-test('pesquisa conteúdo, idioma e fonte', () => {
-  assert.deepEqual(searchPrayerGroups(groups, 'gratia plena').map(result => result.itemId), ['ave-maria-1'])
-  assert.deepEqual(searchPrayerGroups(groups, 'ingles').map(result => result.itemId), ['ave-maria-1'])
+test('ignora categoria, descrição, idioma, fonte, nota e URL', () => {
+  for (const metadataOnlyQuery of [
+    'oracoes marianas',
+    'paraclito',
+    'ingles',
+    'cancao nova',
+    'hino tradicional',
+    'example test referencias',
+  ]) {
+    assert.deepEqual(
+      searchPrayerGroups(groups, metadataOnlyQuery),
+      [],
+      `não deveria casar metadado: ${metadataOnlyQuery}`,
+    )
+  }
+})
+
+test('Pai Nosso retorna a oração real, não item cuja referência contém o nome', () => {
+  const results = searchPrayerGroups(groups, 'Pai Nosso')
+
+  assert.deepEqual(results.map(result => result.itemId), ['pai-nosso'])
+  assert.equal(results.some(result => result.itemId === 'oracao-manha-referenciada'), false)
+})
+
+test('uma correspondência de título prevalece sobre menções no texto de outras orações', () => {
   assert.deepEqual(
-    searchPrayerGroups(groups, 'cancao nova').map(result => result.itemId),
-    ['ave-maria-1', 'ave-maria-2'],
+    searchPrayerGroups(groups, 'oracao da manha').map(result => result.itemId),
+    ['oracao-manha-referenciada'],
   )
 })
 
-test('aceita termos distribuídos entre título e idioma', () => {
-  const results = searchPrayerGroups(groups, 'creator portugues')
+test('preserva pesquisa acentuada ou sem acento e por trecho do texto', () => {
+  assert.deepEqual(searchPrayerGroups(groups, 'Espírito').map(result => result.itemId), ['veni-creator'])
+  assert.deepEqual(searchPrayerGroups(groups, 'espirito').map(result => result.itemId), ['veni-creator'])
+  assert.deepEqual(
+    searchPrayerGroups(groups, 'santificado seja o vosso nome').map(result => result.itemId),
+    ['pai-nosso'],
+  )
+})
 
-  assert.deepEqual(results.map(result => result.itemId), ['veni-creator'])
+test('não mistura termos do título, metadados ou traduções diferentes', () => {
+  assert.deepEqual(searchPrayerGroups(groups, 'creator almas'), [])
+  assert.deepEqual(searchPrayerGroups(groups, 'gratia lord'), [])
 })
 
 test('retorna vazio para consulta vazia ou inexistente', () => {
