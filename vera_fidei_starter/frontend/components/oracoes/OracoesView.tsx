@@ -108,8 +108,8 @@ function LineIcon({ name, className = '' }: { name: PrayerIconName; className?: 
     case 'document':
       return (
         <svg {...common}>
-          <path d="M6 2h8l4 4v16H6V2Z" />
-          <path d="M14 2v5h5M9 12h6M9 16h6" />
+          <path d="M6 2.5h8l4 4V21.5H6v-19Z" />
+          <path d="M14 2.5v5h5M9 11h6M9 14.5h6M9 18h4.5" />
         </svg>
       )
     case 'dove':
@@ -172,8 +172,9 @@ function LineIcon({ name, className = '' }: { name: PrayerIconName; className?: 
     case 'prayer':
       return (
         <svg {...common}>
-          <path d="M10.3 21 6.8 10.8A2 2 0 0 1 8.6 8h.2l3.2 8 3.2-8h.2a2 2 0 0 1 1.8 2.8L13.7 21" />
-          <path d="M8.8 8V3.8A1.8 1.8 0 0 1 10.6 2v8M15.2 8V3.8A1.8 1.8 0 0 0 13.4 2v8M7 21h10" />
+          <path d="M11.8 2.5c-1 .5-1.55 1.6-1.7 3.1L9.3 12 7.2 7c-.45-1.05-2.05-.55-1.75.6l2 8.05L11.8 20" />
+          <path d="M12.2 2.5c1 .5 1.55 1.6 1.7 3.1l.8 6.4 2.1-5c.45-1.05 2.05-.55 1.75.6l-2 8.05L12.2 20" />
+          <path d="M12 3v17M8.15 16.3 5 19.5 8.8 22l3.2-2 3.2 2 3.8-2.5-3.15-3.2" />
         </svg>
       )
     case 'search':
@@ -196,6 +197,18 @@ function BackButton({ children, onClick }: { children: ReactNode; onClick: () =>
       <LineIcon name="back" className="h-4 w-4" />
       {children}
     </button>
+  )
+}
+
+function LanguageMark({ lang }: { lang: PrayerVersion['lang'] }) {
+  if (lang === 'Português') {
+    return <LineIcon name="globe" className="h-3 w-3 shrink-0 text-dourado" />
+  }
+
+  return (
+    <span className="inline-flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full border border-dourado/55 px-0.5 font-sans text-[6px] font-bold leading-none text-dourado">
+      {lang === 'Latim' ? 'A' : 'EN'}
+    </span>
   )
 }
 
@@ -332,117 +345,112 @@ export default function OracoesView({
     <>
       {!activeGroup && (
         <>
-          <section className="mb-5 space-y-4 border-y border-fundo-borda py-5">
+          <section className="mb-4 border-y border-fundo-borda py-4">
             <div>
-              <p className="font-garamond text-xl italic text-texto">
-                Ora et stude
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.13em] text-dourado">
+                <LineIcon name="book" className="h-3.5 w-3.5 shrink-0" />
+                <span>Ora et stude</span>
+                <span className="h-px w-8 bg-gradient-to-r from-dourado/65 to-transparent" aria-hidden="true" />
               </p>
-              <p className="mt-1 text-sm leading-relaxed text-texto-secundario">
+              <p className="mt-1.5 max-w-xl font-garamond text-[1.28rem] font-medium leading-[1.12] text-texto sm:text-[1.4rem]">
                 Escolha uma categoria para abrir uma tela própria de orações.
               </p>
-              <p className="mt-2 text-xs leading-relaxed text-texto-terciario">
+              <p className="mt-1.5 text-[10px] leading-relaxed text-texto-terciario sm:text-[11px]">
                 Fonte: {source}
                 {latestModified ? ` · atualizado em ${latestModified}` : ''}
                 {isFallback ? ' · modo fallback' : ''}
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <SurfaceCard tone="gold" className="p-0">
-                <div className="flex min-h-24 items-center gap-3 px-3 py-3.5 sm:px-4">
-                  <IconMedallion size="md" className="shrink-0">
+                <div className="flex min-h-16 items-center gap-2.5 px-2.5 py-2 sm:px-3">
+                  <IconMedallion size="sm" className="shrink-0">
                     <LineIcon name="prayer" />
                   </IconMedallion>
                   <div className="min-w-0">
-                    <p className="font-mono text-2xl font-semibold leading-none text-texto sm:text-3xl">
+                    <p className="font-garamond text-2xl font-semibold leading-none text-texto">
                       {totalPrayers}
                     </p>
-                    <p className="mt-1.5 text-xs text-texto-terciario">orações</p>
+                    <p className="mt-1 text-[10px] text-texto-terciario sm:text-[11px]">orações</p>
                   </div>
                 </div>
               </SurfaceCard>
               <SurfaceCard tone="gold" className="p-0">
-                <div className="flex min-h-24 items-center gap-3 px-3 py-3.5 sm:px-4">
-                  <IconMedallion size="md" className="shrink-0">
+                <div className="flex min-h-16 items-center gap-2.5 px-2.5 py-2 sm:px-3">
+                  <IconMedallion size="sm" className="shrink-0">
                     <LineIcon name="document" />
                   </IconMedallion>
                   <div className="min-w-0">
-                    <p className="font-mono text-2xl font-semibold leading-none text-texto sm:text-3xl">
+                    <p className="font-garamond text-2xl font-semibold leading-none text-texto">
                       {totalVersions}
                     </p>
-                    <p className="mt-1.5 text-xs text-texto-terciario">versões</p>
+                    <p className="mt-1 text-[10px] text-texto-terciario sm:text-[11px]">versões</p>
                   </div>
                 </div>
               </SurfaceCard>
             </div>
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {languageStats.map(stat => (
-                <span
-                  key={stat.lang}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-dourado/15 bg-fundo/80 px-3 py-2 text-xs text-texto-terciario"
-                >
-                  <LineIcon name="globe" className="h-4 w-4 shrink-0 text-dourado" />
-                  {stat.lang}: <span className="font-mono font-semibold text-dourado">{stat.count}</span>
-                </span>
-              ))}
-            </div>
+            <SurfaceCard tone="transparent" className="mt-2 p-0">
+              <div className="grid grid-cols-3 divide-x divide-dourado/10">
+                {languageStats.map(stat => (
+                  <span
+                    key={stat.lang}
+                    className="inline-flex min-w-0 items-center justify-center gap-1 whitespace-nowrap px-1 py-2 text-[9px] text-texto-terciario sm:gap-1.5 sm:px-2 sm:text-[10px]"
+                  >
+                    <LanguageMark lang={stat.lang} />
+                    <span>{stat.lang}:</span>
+                    <span className="font-mono font-semibold text-dourado">{stat.count}</span>
+                  </span>
+                ))}
+              </div>
+            </SurfaceCard>
           </section>
 
-          <section className="mb-5" aria-labelledby="prayer-search-label">
-            <SurfaceCard tone="gold" className="p-3 sm:p-4">
-              <label
-                id="prayer-search-label"
-                htmlFor="prayer-search"
-                className="block font-garamond text-lg font-medium text-texto"
-              >
-                Pesquisar orações
-              </label>
-              <p id="prayer-search-help" className="mt-1 text-xs leading-relaxed text-texto-terciario">
-                Busque pelo título, categoria, fonte, idioma ou por palavras do texto.
-              </p>
+          <section className="mb-4" aria-labelledby="prayer-search-label">
+            <label id="prayer-search-label" htmlFor="prayer-search" className="sr-only">
+              Pesquisar orações
+            </label>
+            <div className="relative">
+              <LineIcon
+                name="search"
+                className="pointer-events-none absolute left-3 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-dourado"
+              />
+              <input
+                id="prayer-search"
+                type="search"
+                value={searchQuery}
+                onChange={event => setSearchQuery(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                aria-describedby={hasSearch ? 'prayer-search-status' : undefined}
+                aria-controls="prayer-search-results"
+                placeholder="Buscar oração, categoria ou trecho"
+                autoComplete="off"
+                className="min-h-11 w-full rounded-lg border border-dourado/25 bg-fundo-card/80 py-2 pl-10 pr-11 text-sm text-texto outline-none transition-[border-color,box-shadow] placeholder:text-texto-terciario/75 focus:border-dourado/55 focus:shadow-[0_0_0_3px_rgba(201,168,76,0.1)] sm:min-h-12"
+              />
+              {hasSearch && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  aria-label="Limpar pesquisa de orações"
+                  title="Limpar pesquisa (Esc)"
+                  className="absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-texto-terciario transition-colors hover:bg-dourado/10 hover:text-dourado focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dourado/50"
+                >
+                  <LineIcon name="close" className="h-4 w-4" />
+                </button>
+              )}
+            </div>
 
-              <div className="relative mt-3">
-                <LineIcon
-                  name="search"
-                  className="pointer-events-none absolute left-3 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-dourado"
-                />
-                <input
-                  id="prayer-search"
-                  type="search"
-                  value={searchQuery}
-                  onChange={event => setSearchQuery(event.target.value)}
-                  onKeyDown={handleSearchKeyDown}
-                  aria-describedby="prayer-search-help prayer-search-status"
-                  aria-controls="prayer-search-results"
-                  placeholder="Ex.: Eucaristia, Ave Maria, gratia plena"
-                  autoComplete="off"
-                  className="min-h-12 w-full rounded-lg border border-dourado/25 bg-fundo/80 py-2.5 pl-10 pr-11 text-sm text-texto outline-none transition-[border-color,box-shadow] placeholder:text-texto-terciario/75 focus:border-dourado/55 focus:shadow-[0_0_0_3px_rgba(201,168,76,0.1)]"
-                />
-                {hasSearch && (
-                  <button
-                    type="button"
-                    onClick={clearSearch}
-                    aria-label="Limpar pesquisa de orações"
-                    title="Limpar pesquisa (Esc)"
-                    className="absolute right-1.5 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-texto-terciario transition-colors hover:bg-dourado/10 hover:text-dourado focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dourado/50"
-                  >
-                    <LineIcon name="close" className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-
+            {hasSearch && (
               <p
                 id="prayer-search-status"
-                className="mt-2 min-h-5 text-xs text-texto-terciario"
+                className="mt-1.5 text-[10px] text-texto-terciario sm:text-[11px]"
                 aria-live="polite"
                 aria-atomic="true"
               >
-                {hasSearch
-                  ? `${searchResults.length} ${searchResults.length === 1 ? 'oração encontrada' : 'orações encontradas'}${matchedVersionCount > 0 ? ` · correspondência em ${matchedVersionCount} ${matchedVersionCount === 1 ? 'versão' : 'versões'}` : ''}`
-                  : `${totalPrayers} orações disponíveis`}
+                {`${searchResults.length} ${searchResults.length === 1 ? 'oração encontrada' : 'orações encontradas'}${matchedVersionCount > 0 ? ` · correspondência em ${matchedVersionCount} ${matchedVersionCount === 1 ? 'versão' : 'versões'}` : ''}`}
               </p>
-            </SurfaceCard>
+            )}
 
             {hasSearch && (
               <div id="prayer-search-results" className="mt-3" role="region" aria-label="Resultados da pesquisa de orações">
@@ -516,7 +524,7 @@ export default function OracoesView({
             )}
           </section>
 
-          <nav className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <nav className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {groups.map(group => (
               <SurfaceCard key={group.code} interactive className="group p-0">
                 <button
@@ -525,26 +533,26 @@ export default function OracoesView({
                     setActiveCode(group.code)
                     setActivePrayerId(null)
                   }}
-                  className="grid min-h-[88px] w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-3 text-left text-sm text-texto-secundario outline-none transition-colors hover:text-texto focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:min-h-[96px] sm:px-4 sm:py-3.5"
+                  className="grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 px-2.5 py-2 text-left text-sm text-texto-secundario outline-none transition-colors hover:text-texto focus-visible:bg-dourado/5 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-dourado/50 sm:px-3"
                 >
-                  <IconMedallion size="md" className="shrink-0">
+                  <IconMedallion size="compact" className="shrink-0">
                     <PrayerCategoryIcon code={group.code} />
                   </IconMedallion>
                   <span className="min-w-0 flex-1">
-                    <span className="block font-garamond text-lg font-medium leading-tight text-texto">
+                    <span className="block font-garamond text-base font-medium leading-[1.05] text-texto">
                       {group.title}
                     </span>
-                    <span className="mt-1 block text-xs leading-relaxed text-texto-terciario">
+                    <span className="mt-0.5 block text-[10px] leading-[1.3] text-texto-terciario">
                       {group.description}
                     </span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-1.5 self-center">
-                    <span className="inline-flex min-w-9 justify-center rounded-full border border-dourado/25 bg-dourado/5 px-2 py-1 font-mono text-xs text-dourado">
+                  <span className="flex shrink-0 items-center gap-1 self-center">
+                    <span className="inline-flex min-w-8 justify-center rounded-full border border-dourado/25 bg-dourado/5 px-1.5 py-0.5 font-mono text-[10px] text-dourado">
                       {group.items.length}
                     </span>
                     <LineIcon
                       name="chevron"
-                      className="h-4 w-4 shrink-0 text-dourado/70 transition-transform group-hover:translate-x-0.5"
+                      className="h-3.5 w-3.5 shrink-0 text-dourado/70 transition-transform group-hover:translate-x-0.5"
                     />
                   </span>
                 </button>

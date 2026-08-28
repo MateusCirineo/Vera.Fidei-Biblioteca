@@ -345,6 +345,16 @@ h3 {
   height: 2.25rem;
 }
 
+.vf-icon-medallion--compact {
+  width: 2.625rem;
+  height: 2.625rem;
+}
+
+.vf-icon-medallion--compact .vf-icon-medallion__glyph {
+  width: 60%;
+  height: 60%;
+}
+
 .vf-icon-medallion--md {
   width: 2.875rem;
   height: 2.875rem;

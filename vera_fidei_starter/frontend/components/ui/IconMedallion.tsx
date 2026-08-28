@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 interface IconMedallionProps {
   children: ReactNode
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'compact' | 'md' | 'lg'
   tone?: 'gold' | 'wine'
   label?: string
   className?: string
