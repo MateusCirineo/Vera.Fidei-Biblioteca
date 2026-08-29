@@ -4,7 +4,8 @@ set -Eeuo pipefail
 project_dir="${VERA_PROJECT_DIR:-/opt/vera_fidei}"
 backup_dir="${VERA_BACKUP_DIR:-/var/backups/vera-fidei/postgres}"
 state_dir="${VERA_MONITOR_STATE_DIR:-/var/lib/vera-fidei-monitor}"
-public_url="${VERA_PUBLIC_URL:-https://verafidei.oialfred.com/apresentacao}"
+public_url="${VERA_PUBLIC_URL:-https://verafidei.com.br/apresentacao}"
+legacy_public_url="${VERA_LEGACY_PUBLIC_URL-https://verafidei.oialfred.com/apresentacao}"
 disk_limit="${VERA_DISK_LIMIT_PERCENT:-80}"
 backup_max_age_hours="${VERA_BACKUP_MAX_AGE_HOURS:-36}"
 offsite_marker="${VERA_OFFSITE_SUCCESS_MARKER:-/var/lib/vera-fidei/offsite-backup-success}"
@@ -30,6 +31,19 @@ mkdir -p "$state_dir"
 status_file="$state_dir/status"
 previous_status="$(cat "$status_file" 2>/dev/null || printf 'unknown')"
 failures=()
+curl_health_args=(
+    --fail
+    --silent
+    --show-error
+    --location
+    --connect-timeout 10
+    --max-time 25
+    --retry 3
+    --retry-all-errors
+    --retry-delay 2
+    --retry-max-time 45
+    --output /dev/null
+)
 
 fail() {
     failures+=("$1")
@@ -48,9 +62,13 @@ send_email() {
     ) || echo "Monitor could not send the notification email" >&2
 }
 
-if ! curl --fail --silent --show-error --location --max-time 25 \
-    --output /dev/null "$public_url"; then
+if ! curl "${curl_health_args[@]}" "$public_url"; then
     fail "site público indisponível: $public_url"
+fi
+
+if [[ -n "$legacy_public_url" && "$legacy_public_url" != "$public_url" ]] && \
+    ! curl "${curl_health_args[@]}" "$legacy_public_url"; then
+    fail "legacy public site unavailable: $legacy_public_url"
 fi
 
 cd "$project_dir"

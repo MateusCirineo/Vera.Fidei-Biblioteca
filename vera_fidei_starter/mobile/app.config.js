@@ -52,8 +52,8 @@ export default ({ config }) => ({
     favicon: './assets/favicon.png',
   },
   extra: {
-    apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api',
-    webUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://verafidei.oialfred.com',
+    apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://verafidei.com.br/api',
+    webUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://verafidei.com.br',
     distributionMode: DISTRIBUTION_MODE,
     eas: {
       projectId: '88255b06-a482-42f8-bc2c-ea69ae091e04',

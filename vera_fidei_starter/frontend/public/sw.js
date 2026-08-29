@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vera-fidei-pwa-v14'
+const CACHE_NAME = 'vera-fidei-pwa-v15'
 const APP_SHELL = [
   '/offline.html',
   '/icons/icon-192.png',
@@ -21,6 +21,13 @@ async function fetchWithNetworkTimeout(request) {
       fetch(request, { signal: controller.signal }),
       timeout,
     ])
+
+    // Navigation requests use redirect="manual" inside a service worker.
+    // Rebuilding an opaque redirect throws and previously sent visits to `/`
+    // (which redirects to `/apresentacao`) to the cached offline page.
+    if (response.type === 'opaqueredirect') {
+      return response
+    }
 
     // fetch() termina nos cabeçalhos. Para navegação e assets do shell, o
     // corpo também precisa caber no prazo; caso contrário a PWA poderia ficar

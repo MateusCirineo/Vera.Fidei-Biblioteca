@@ -6,6 +6,10 @@ import AppSplash from '@/components/AppSplash'
 import AppChrome from '@/components/AppChrome'
 import SiteAnalytics from '@/components/SiteAnalytics'
 
+const PUBLIC_SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://verafidei.com.br'
+).replace(/\/+$/, '')
+
 const ebGaramond = EB_Garamond({
   variable: '--font-eb-garamond',
   subsets: ['latin'],
@@ -18,7 +22,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://verafidei.oialfred.com'),
+  metadataBase: new URL(PUBLIC_SITE_URL),
   title: 'Vera.Fidei — Biblioteca Católica Digital',
   description:
     'Aplicativo católico criado e desenvolvido por Mateus Cirineo para biblioteca digital, consulta de fontes primárias e verificação de citações.',
@@ -59,7 +63,7 @@ export const metadata: Metadata = {
     title: 'Vera.Fidei',
     description:
       'Biblioteca católica digital e verificador de citações criado por Mateus Cirineo.',
-    url: 'https://verafidei.oialfred.com',
+    url: PUBLIC_SITE_URL,
     siteName: 'Vera.Fidei',
     images: [{ url: '/branding/Logo-VF.png', width: 1024, height: 1024 }],
     locale: 'pt_BR',

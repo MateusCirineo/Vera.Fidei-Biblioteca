@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { LONG_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '@/lib/http'
+import { getServerApiBase } from '@/lib/api-base'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
+const BASE = getServerApiBase()
+const API_KEY = process.env.INTERNAL_API_KEY ?? process.env.NEXT_PUBLIC_API_KEY ?? ''
 
 export async function GET(
   request: NextRequest,

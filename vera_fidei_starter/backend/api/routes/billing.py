@@ -123,8 +123,28 @@ class AdminCouponCreateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=100)
 
 
-def _site_url() -> str:
-    return settings.site_url.rstrip("/")
+def _site_url(request: Request | None = None) -> str:
+    """Return only a trusted public origin for browser redirects.
+
+    Session cookies are host-only. During the domain transition, a checkout
+    opened on the legacy host must return there or the paid user would appear
+    signed out. An arbitrary Host header always falls back to the configured
+    canonical URL.
+    """
+    canonical = settings.site_url.rstrip("/")
+    if request is None:
+        return canonical
+
+    host = request.headers.get("host", "").split(",", 1)[0].strip().lower()
+    if host.endswith(":443"):
+        host = host[:-4]
+    trusted_returns = {
+        "verafidei.com.br": "https://verafidei.com.br",
+        # www is redirected to the apex before the application is reached.
+        "www.verafidei.com.br": "https://verafidei.com.br",
+        "verafidei.oialfred.com": "https://verafidei.oialfred.com",
+    }
+    return trusted_returns.get(host, canonical)
 
 
 def _amount_label(amount_cents: int) -> str:
@@ -441,10 +461,10 @@ def _close_checkout_intent_for_event(
     _mark_checkout_intent_terminal(db, intent, terminal_status)
 
 
-def _portal_url(customer_id: str) -> str:
+def _portal_url(customer_id: str, request: Request | None = None) -> str:
     session_args = {
         "customer": customer_id,
-        "return_url": f"{_site_url()}/perfil?assinatura=portal",
+        "return_url": f"{_site_url(request)}/perfil?assinatura=portal",
     }
     if settings.stripe_portal_configuration_id:
         session_args["configuration"] = settings.stripe_portal_configuration_id
@@ -703,12 +723,14 @@ def _authoritative_subscription_for_event(user: User, candidate: Any | None) -> 
 def create_checkout_session(
     payload: CheckoutRequest,
     current_user: User = Depends(get_current_user),
+    request: Request = None,
 ) -> BillingUrlResponse:
+    site_url = _site_url(request)
     plan = payload.plan.strip().lower()
     if plan not in PAID_PLANS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plano inválido.")
     if is_owner_email(current_user.email):
-        return BillingUrlResponse(url=f"{_site_url()}/perfil?assinatura=owner")
+        return BillingUrlResponse(url=f"{site_url}/perfil?assinatura=owner")
 
     with SessionLocal() as db:
         user = lock_user_for_billing_mutation(db, current_user.id)
@@ -731,7 +753,7 @@ def create_checkout_session(
         if not _stripe_ready_for_plan(plan):
             billing_request = _create_manual_pix_request(db, user, plan)
             return BillingUrlResponse(
-                url=f"{_site_url()}/assinatura/pix?ref={billing_request.reference_code}"
+                url=f"{site_url}/assinatura/pix?ref={billing_request.reference_code}"
             )
 
         _configure_stripe()
@@ -762,7 +784,7 @@ def create_checkout_session(
 
         if user.billing_subscription_id and user.billing_status in ACTIVE_BILLING_STATUSES:
             db.commit()
-            return BillingUrlResponse(url=_portal_url(customer_id))
+            return BillingUrlResponse(url=_portal_url(customer_id, request))
 
         price_id = _price_id_for_plan(plan)
         session_args: dict[str, Any] = {
@@ -770,8 +792,8 @@ def create_checkout_session(
             "customer": customer_id,
             "client_reference_id": str(user.id),
             "line_items": [{"price": price_id, "quantity": 1}],
-            "success_url": f"{_site_url()}/perfil?assinatura=sucesso",
-            "cancel_url": f"{_site_url()}/planos?assinatura=cancelada",
+            "success_url": f"{site_url}/perfil?assinatura=sucesso",
+            "cancel_url": f"{site_url}/planos?assinatura=cancelada",
             "metadata": {"user_id": str(user.id), "plan": plan},
             "subscription_data": {"metadata": {"user_id": str(user.id), "plan": plan}},
         }
@@ -919,9 +941,12 @@ def get_pix_request(
 
 
 @router.post("/portal", response_model=BillingUrlResponse, dependencies=[Depends(require_api_key)])
-def create_portal_session(current_user: User = Depends(get_current_user)) -> BillingUrlResponse:
+def create_portal_session(
+    current_user: User = Depends(get_current_user),
+    request: Request = None,
+) -> BillingUrlResponse:
     if is_owner_email(current_user.email):
-        return BillingUrlResponse(url=f"{_site_url()}/perfil?assinatura=owner")
+        return BillingUrlResponse(url=f"{_site_url(request)}/perfil?assinatura=owner")
     _configure_stripe()
 
     with SessionLocal() as db:
@@ -932,7 +957,7 @@ def create_portal_session(current_user: User = Depends(get_current_user)) -> Bil
             detail="Nenhuma assinatura encontrada para gerenciar.",
             )
         try:
-            return BillingUrlResponse(url=_portal_url(user.billing_customer_id))
+            return BillingUrlResponse(url=_portal_url(user.billing_customer_id, request))
         except stripe.error.StripeError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

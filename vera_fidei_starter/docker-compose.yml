@@ -33,6 +33,8 @@ services:
       VERA_FLAT_SEMANTIC_INDEX: /app/chroma_db/flat_semantic
       VERA_DISABLE_CHROMA_QUERY_FALLBACK: "true"
       VERA_QUERY_EMBEDDING_MODEL: intfloat/multilingual-e5-small
+      SITE_URL: ${SITE_URL:-https://verafidei.com.br}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://verafidei.com.br,https://www.verafidei.com.br,https://verafidei.oialfred.com,http://5.161.115.95,http://localhost:3000,http://192.168.0.3:3000}
       HF_HOME: /app/model_cache
     volumes:
       - ./backend/chroma_db:/app/chroma_db
@@ -53,7 +55,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://verafidei.oialfred.com/api
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_SITE_URL: https://verafidei.com.br
+        SERVER_BUILD_API_URL: https://verafidei.oialfred.com/api
         NEXT_PUBLIC_API_KEY: ${VERA_PUBLIC_API_KEY:?Defina VERA_PUBLIC_API_KEY no arquivo .env do deploy}
     restart: unless-stopped
     environment:

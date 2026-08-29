@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { isBookOffline, saveBookOffline, removeBookOffline } from '@/lib/offlineBooks'
+import { getPublicApiBase } from '@/lib/api-base'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+const API_BASE = getPublicApiBase()
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
 
 type Status = 'idle' | 'saving' | 'done' | 'error'

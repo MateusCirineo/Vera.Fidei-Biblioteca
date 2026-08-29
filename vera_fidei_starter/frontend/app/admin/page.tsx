@@ -1,8 +1,9 @@
 import AdminTabs from '@/components/admin/AdminTabs'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { getServerApiBase } from '@/lib/api-base'
 
-const INTERNAL_API = process.env.INTERNAL_API_URL ?? 'https://verafidei.oialfred.com/api'
+const INTERNAL_API = getServerApiBase()
 
 export default async function AdminPage() {
   const token = (await cookies()).get('vf_token')?.value

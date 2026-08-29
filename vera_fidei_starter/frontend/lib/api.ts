@@ -1,4 +1,5 @@
 import { authBearerHeaders } from './auth'
+import { getApiBase } from './api-base'
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   LONG_REQUEST_TIMEOUT_MS,
@@ -21,7 +22,7 @@ import type {
   SearchUsageInfo,
 } from './types'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+const BASE = getApiBase()
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
 const SEARCH_REQUEST_TIMEOUT_MS = 25_000
 const USAGE_REQUEST_TIMEOUT_MS = 10_000

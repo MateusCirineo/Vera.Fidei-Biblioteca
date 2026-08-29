@@ -4,8 +4,8 @@ import test from 'node:test'
 
 import { AUTH_STATE_CHANGED_EVENT, login } from '../lib/auth.ts'
 
-const LOGIN_URL = 'https://verafidei.oialfred.com/api/auth/web-login'
-const ME_URL = 'https://verafidei.oialfred.com/api/auth/me'
+const LOGIN_URL = '/api/auth/web-login'
+const ME_URL = '/api/auth/me'
 
 async function withBrowserEnvironment(fetchImplementation, callback, timers = null) {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')

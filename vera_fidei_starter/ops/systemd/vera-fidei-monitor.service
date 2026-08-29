@@ -10,7 +10,8 @@ User=root
 Environment=VERA_PROJECT_DIR=/opt/vera_fidei
 Environment=VERA_BACKUP_DIR=/var/backups/vera-fidei/postgres
 Environment=VERA_MONITOR_STATE_DIR=/var/lib/vera-fidei-monitor
-Environment=VERA_PUBLIC_URL=https://verafidei.oialfred.com/apresentacao
+Environment=VERA_PUBLIC_URL=https://verafidei.com.br/apresentacao
+Environment=VERA_LEGACY_PUBLIC_URL=https://verafidei.oialfred.com/apresentacao
 Environment=VERA_DISK_LIMIT_PERCENT=80
 Environment=VERA_BACKUP_MAX_AGE_HOURS=36
 Environment=VERA_OFFSITE_SUCCESS_MARKER=/var/lib/vera-fidei/offsite-backup-success

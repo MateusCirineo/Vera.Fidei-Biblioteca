@@ -7,7 +7,9 @@ RUN npm ci
 
 COPY . .
 
-ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_SITE_URL=https://verafidei.com.br
+ARG SERVER_BUILD_API_URL=https://verafidei.oialfred.com/api
 ARG NEXT_PUBLIC_API_KEY
 
 RUN npm run build

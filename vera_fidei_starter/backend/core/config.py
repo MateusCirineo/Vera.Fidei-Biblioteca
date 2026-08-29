@@ -27,7 +27,17 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 dias
     owner_email: str = "mateuscirineo@gmail.com"
     vera_environment: str = "development"
-    site_url: str = "https://verafidei.oialfred.com"
+    # Public canonical URL. The former oialfred.com host remains accepted by
+    # CORS during the transition, but new e-mails and billing redirects should
+    # point to the owned domain.
+    site_url: str = "https://verafidei.com.br"
+    cors_origins: str = (
+        "https://verafidei.com.br,"
+        "https://www.verafidei.com.br,"
+        "https://verafidei.oialfred.com,"
+        "http://localhost:3000,"
+        "http://192.168.0.3:3000"
+    )
     usage_reset_timezone: str = "America/Sao_Paulo"
 
     # E-mail (Resend)
@@ -56,7 +66,7 @@ class Settings(BaseSettings):
     deploy_ssh_key_path: str = ""
     deploy_ssh_known_hosts: str = ""
     deploy_social_cards_dir: str = "/var/www/verafidei-social-cards"
-    deploy_social_cards_public_base_url: str = "https://verafidei.oialfred.com/social-cards"
+    deploy_social_cards_public_base_url: str = "https://verafidei.com.br/social-cards"
 
     # Identidade visual e auditoria do Instagram
     social_body_font_path: str = "C:/Windows/Fonts/ARLRDBD.TTF"
@@ -102,6 +112,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    def parsed_cors_origins(self) -> list[str]:
+        """Return a stable, de-duplicated CORS allowlist from CORS_ORIGINS."""
+        origins: list[str] = []
+        for raw_origin in self.cors_origins.split(","):
+            origin = raw_origin.strip().rstrip("/")
+            if origin and origin not in origins:
+                origins.append(origin)
+        return origins
 
 
 settings = Settings()

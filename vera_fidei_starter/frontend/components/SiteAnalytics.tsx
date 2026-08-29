@@ -3,8 +3,9 @@
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
 import { fetchWithTimeout } from '@/lib/http'
+import { getPublicApiBase } from '@/lib/api-base'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+const API_BASE = getPublicApiBase()
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? ''
 const HEARTBEAT_MS = 60_000
 const ANALYTICS_TIMEOUT_MS = 8_000

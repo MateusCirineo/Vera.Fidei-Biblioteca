@@ -3,8 +3,9 @@ import {
   LONG_REQUEST_TIMEOUT_MS,
   fetchWithTimeout,
 } from './http.ts'
+import { getPublicApiBase } from './api-base.ts'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+const BASE = getPublicApiBase()
 const AUTH_REQUEST_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS
 const BILLING_REQUEST_TIMEOUT_MS = 20_000
 export const AUTH_STATE_CHANGED_EVENT = 'vf:auth-state-changed'

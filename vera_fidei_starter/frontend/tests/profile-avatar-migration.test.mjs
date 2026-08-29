@@ -6,7 +6,7 @@ import {
   profileAvatarStorageKey,
 } from '../lib/auth.ts'
 
-const API_AVATAR_URL = 'https://verafidei.oialfred.com/api/auth/avatar'
+const API_AVATAR_URL = '/api/auth/avatar'
 
 function testUser(avatarUrl = null) {
   return {

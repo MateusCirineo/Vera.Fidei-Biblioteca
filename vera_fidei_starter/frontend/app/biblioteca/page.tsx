@@ -2,6 +2,7 @@ import { listBooks, listAuthorsCatalog } from '@/lib/api'
 import type { Book, AuthorCatalogEntry } from '@/lib/types'
 import LibraryView from '@/components/biblioteca/LibraryView'
 import BrandHeader from '@/components/BrandHeader'
+import { getPublicApiBase } from '@/lib/api-base'
 
 export const revalidate = 300
 
@@ -29,7 +30,7 @@ export default async function BibliotecaPage() {
             Não foi possível carregar as obras. Verifique se o backend está
             rodando em{' '}
             <span className="font-mono">
-              {process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'}
+              {getPublicApiBase()}
             </span>
             .
           </p>

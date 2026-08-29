@@ -174,7 +174,7 @@ GOOGLE_PLAY_SERVICE_ACCOUNT_FILE=/run/secrets/vera-fidei/google-play-service-acc
 GOOGLE_PLAY_TOKEN_ENCRYPTION_KEY=<segredo-fernet>
 GOOGLE_PLAY_ACCOUNT_HMAC_SECRET=<segredo-hmac>
 GOOGLE_PLAY_REQUIRE_OBFUSCATED_ACCOUNT_ID=true
-GOOGLE_PLAY_PUBSUB_AUDIENCE=https://verafidei.oialfred.com/api/billing/google-play/rtdn
+GOOGLE_PLAY_PUBSUB_AUDIENCE=https://verafidei.com.br/api/billing/google-play/rtdn
 GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT_EMAIL=vera-fidei-rtdn-push@<PROJECT_ID>.iam.gserviceaccount.com
 GOOGLE_PLAY_PUBSUB_SUBSCRIPTION=projects/<PROJECT_ID>/subscriptions/<RTDN_SUBSCRIPTION_ID>
 GOOGLE_PLAY_HTTP_TIMEOUT_SECONDS=15
@@ -245,7 +245,7 @@ RTDN_SUB=vera-fidei-google-play-rtdn-push
 RTDN_DLQ_TOPIC=vera-fidei-google-play-rtdn-dlq
 RTDN_DLQ_SUB=vera-fidei-google-play-rtdn-dlq-inspect
 PUSH_SA=vera-fidei-rtdn-push@${PROJECT_ID}.iam.gserviceaccount.com
-PUSH_ENDPOINT=https://verafidei.oialfred.com/api/billing/google-play/rtdn
+PUSH_ENDPOINT=https://verafidei.com.br/api/billing/google-play/rtdn
 ```
 
 Crie os recursos e aplique as permissões com o projeto explicitamente
@@ -334,7 +334,7 @@ Nada nesta lista deve ser marcado sem conferência direta no Console.
       suporte, cobrança e SDKs efetivamente presentes no AAB; não copiar uma
       declaração genérica.
 - [ ] Publicar e informar a política de privacidade em
-      `https://verafidei.oialfred.com/privacidade`, depois testar a URL fora de
+      `https://verafidei.com.br/privacidade`, depois testar a URL fora de
       uma sessão autenticada.
 - [ ] Informar uma URL de exclusão de conta que leve diretamente ao fluxo web.
       O Vera Fidei possui exclusão autenticada em `/perfil`, mas a URL declarada

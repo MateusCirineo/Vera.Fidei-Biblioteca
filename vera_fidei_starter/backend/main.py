@@ -52,14 +52,9 @@ async def prevent_billing_response_caching(request, call_next):
         response.headers["Cache-Control"] = "no-store, max-age=0"
     return response
 
-_cors_origins = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:3000,http://192.168.0.3:3000",
-).split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=settings.parsed_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,

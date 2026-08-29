@@ -35,6 +35,12 @@ test('a WebView permite somente HTTPS no origin oficial', () => {
   assert.equal(isTrustedWebNavigation('javascript:alert(1)', webBase), false)
 })
 
+test('o novo domÃ­nio Ã© aceito quando configurado como origin oficial', () => {
+  const webBase = 'https://verafidei.com.br'
+  assert.equal(isTrustedWebNavigation('https://verafidei.com.br/viewer/pdf?page=2', webBase), true)
+  assert.equal(isTrustedWebNavigation('https://verafidei.oialfred.com/viewer/pdf?page=2', webBase), false)
+})
+
 test('o handoff da conta aceita apenas perfil e planos', () => {
   assert.equal(buildMobileAccountRedirect('profile'), '/perfil')
   assert.equal(buildMobileAccountRedirect('plans'), '/planos')

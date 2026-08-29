@@ -1,195 +1,141 @@
-# Manifesto da release 1.3.0
+# Manifesto da release 1.3.1
 
-Este documento registra o corte reproduzível do Vera.Fidei 1.3.0. A identidade
-canônica da release é a tag anotada `v1.3.0`; o commit exato é obtido por:
+Este documento registra o corte reproduzível do Vera.Fidei 1.3.1. A identidade
+canônica da release é a tag anotada `v1.3.1`; o commit exato é obtido por:
 
 ```bash
-git rev-list -n 1 v1.3.0
+git rev-list -n 1 v1.3.1
 ```
+
+O manifesto completo das funcionalidades da PWA 1.3.0 permanece disponível no
+commit apontado pela tag `v1.3.0`. A versão 1.3.1 é uma release de migração de
+domínio e robustez de sessão/PWA, sem migração destrutiva de dados.
 
 ## Identidade e escopo
 
 | Campo | Valor |
 | --- | --- |
-| Versão | `1.3.0` |
-| Tag canônica | `v1.3.0` anotada |
-| Commit da release | commit apontado por `v1.3.0` |
-| Commit do runtime implantado | `c6d7515d3e0d1b743d2ae8e812ba9ffec89c541e` |
-| Data do corte | `2026-08-28`, `America/Sao_Paulo` |
-| Escopo desta entrega | backend, frontend e PWA |
-| Mobile | código validado; versão pública permanece `1.2.0` |
-| Google Play | integração preparada e desativada; nenhum novo AAB faz parte deste corte |
+| Versão da PWA | `1.3.1` |
+| Tag canônica | `v1.3.1` anotada |
+| Data do corte | `2026-08-29`, `America/Sao_Paulo` |
+| Domínio canônico | `https://verafidei.com.br` |
+| Domínio de transição | `https://verafidei.oialfred.com` |
+| Escopo | backend, frontend, PWA, proxy e monitoramento |
+| Mobile | código aponta ao domínio novo; versão pública continua `1.2.0` |
+| Google Play | integração preparada e desativada até homologação externa |
 
-A release reúne nove commits depois de `v1.2.0`. Ela inclui as páginas públicas
-responsivas, santos, orações, avatar sincronizado, login confirmado, biblioteca
-com PDFs para o plano Fiel, preparação do Google Play Billing e a eliminação de
-carregamentos indefinidos nas operações de rede e de armazenamento local.
+## Migração de domínio
 
-O manifesto anterior foi preservado sem alteração em
-`docs/releases/v1.2.0.md`; ele continua sendo a fonte canônica dos APK/AAB
-assinados da versão 1.2.0.
+- O domínio raiz e `www` apontam para `5.161.115.95` por DNS autoritativo da
+  Locaweb.
+- `www.verafidei.com.br` redireciona permanentemente ao domínio raiz,
+  preservando caminho e consulta.
+- HTTP redireciona para HTTPS.
+- O certificado Let's Encrypt cobre o domínio raiz e `www` e é válido até
+  `2026-11-27`.
+- O domínio antigo permanece funcional durante a transição e usa a mesma
+  aplicação, banco, acervo, PDFs e assinaturas.
+- O frontend usa `/api` na mesma origem; nenhuma URL privada do Docker é
+  exposta ao navegador.
+- O backend permite CORS apenas para o domínio novo, `www`, o domínio legado e
+  as origens operacionais explicitamente configuradas. Origem não confiável é
+  recusada.
 
-## Correção de carregamentos indefinidos
+## Sessão, cobrança e PWA
 
-O frontend passou a usar uma única implementação de requisição com prazo total,
-inclusive durante a leitura do corpo da resposta. Foram cobertos:
+- Login web continua usando cookie de sessão `Secure` e `HttpOnly`, separado
+  por host.
+- Checkout, Pix e portal Stripe retornam ao host seguro onde o fluxo começou;
+  `www` volta ao domínio raiz. Hosts desconhecidos caem no canônico e não podem
+  produzir redirecionamento aberto.
+- O service worker foi atualizado para o cache `vera-fidei-pwa-v15` e preserva
+  respostas `opaqueredirect` sem tentar reconstruir o corpo.
+- A rota `/` agora renderiza diretamente a mesma apresentação de
+  `/apresentacao`, com HTTP 200 e sem redirecionamento. Isso também recupera
+  instalações antigas ainda controladas pelo service worker anterior.
 
-- cadastro, login, recuperação e redefinição de senha;
-- verificador, pesquisa, histórico, favoritos e administração;
-- avatar, perfil, exportação e exclusão de conta;
-- assinatura, checkout, portal, Pix e consulta de situação do plano;
-- abertura, renderização, extração textual e nova tentativa de páginas PDF;
-- IndexedDB bloqueado, abortado ou sem resposta;
-- proxy de PDF, downloads, service worker e telemetria.
+## Implantação e rollback
 
-As telas encerram o estado de carregamento em sucesso, erro, cancelamento ou
-tempo excedido. O streaming normal de PDFs grandes permanece sem limite total:
-somente a espera pelos cabeçalhos e os corpos de erro possuem prazo.
+O deploy foi seletivo, sem `--delete`, preservando `.env`, segredos, PDFs,
+banco PostgreSQL, Elasticsearch, índices, rclone, backups e arquivos do acervo.
+PostgreSQL e Elasticsearch não foram recriados.
 
-## Proveniência e reprodução
-
-Os objetos Git dos componentes no commit do runtime e na tag são:
-
-| Componente | Objeto Git |
+| Componente | Image ID 1.3.1 |
 | --- | --- |
-| Backend | `3e10ec82128f0b31d57e2d4f79726509a87a93fe` |
-| Frontend | `682477682a195850fcdbecbc25b6cce2c547a2fe` |
-| Mobile | `02fcf1db42152df6fe38f70b916a5cd82c74edb7` |
+| Backend | `sha256:30724aa71bf804f04e4a792cdc4cafd86bd98b009d61111458f5d4cbf784fe31` |
+| Frontend | `sha256:6f3a698e6068b4db5a527c866518138754b23168f00fca5db1780e7a7d8d9fc1` |
 
-Reprodução local:
+O backup principal dos 32 destinos substituídos foi salvo em
+`/opt/vera_fidei/backups/dual-domain-final-active-before-20260829T024216Z.tgz`,
+com SHA-256
+`d931fad81f436fdee54d5c302776efd5499015c0e85c3cb278e317f4cc675119`.
+Também foram criados backups independentes antes da ativação TLS, do hotfix do
+service worker, da raiz sem redirecionamento e do ajuste de versão do frontend.
+
+## Evidências automatizadas
+
+| Portão | Resultado |
+| --- | --- |
+| Backend | `333 passed`, `3 skipped` |
+| Domínio, Stripe/webhook e Google Play | `54/54` testes relevantes |
+| Frontend | `42/42` testes e lint aprovados |
+| Build Next.js | TypeScript aprovado e 31 rotas geradas |
+| Dependências frontend | `npm ci`: 0 vulnerabilidades |
+| Mobile | `36/36` testes, lint e TypeScript aprovados |
+| Compose | configuração de produção válida |
+| Higiene Git | `git diff --check` aprovado |
+
+## Smoke real em produção
+
+| Cenário | Resultado observado |
+| --- | --- |
+| Rotas públicas | raiz, apresentação, biblioteca, login, planos, orações e santos: HTTP 200 |
+| Raiz da PWA | HTTP 200 sem `Location`; conteúdo visual equivalente a `/apresentacao` |
+| Assets | CSS e JavaScript reais: HTTP 200 e tipos corretos |
+| PWA | manifest HTTP 200; service worker `vera-fidei-pwa-v15` HTTP 200 |
+| Segurança | HSTS, CSP, `nosniff`, `DENY`, política de referência e permissões presentes |
+| CORS | novo domínio, `www` e legado aceitos exatamente; origem hostil recusada |
+| Login novo | HTTP 200; sessão confirmada; cookie `Secure` e `HttpOnly` |
+| Login legado | HTTP 200; sessão confirmada; cookie `Secure` e `HttpOnly` |
+| Plano gratuito | conta temporária carregou plano `fiel` |
+| PDF PG001 | HTTP 206; 65.536 bytes; `application/pdf` |
+| Verificador | `CONFIRMADA_EXATA`, confiança `Alta` |
+| Exclusão | conta removida e sessão do outro host invalidada |
+| Limpeza | 0 contas e 0 históricos de smoke restantes |
+| Containers | backend saudável; frontend, Nginx, PostgreSQL e Elasticsearch ativos |
+| Monitor | execução manual aprovada; unidade success; timer habilitado e ativo |
+| Logs após a troca | 0 marcadores de erro no backend/frontend e 0 respostas Nginx 5xx |
+| Disco | 53% utilizado; 69 GB disponíveis |
+
+A sessão gráfica integrada de navegador não estava disponível neste ambiente.
+Por isso, a validação visual automatizada foi feita pela equivalência do HTML e
+pelos assets reais; a validação funcional usou HTTPS e sessão autenticada de
+produção. Isso não é apresentado como teste em um aparelho físico novo.
+
+## Limites preservados
+
+- A release não afirma revisão palavra por palavra de todo o OCR das coleções
+  PG/PL/PO. Texto não conferido continua bloqueado como citação literal.
+- Nenhuma compra real foi criada durante o smoke. O retorno por host da Stripe
+  foi coberto por testes automatizados para não cobrar nem alterar assinaturas.
+- O envio de e-mail continua usando o remetente já validado; ele não foi
+  trocado para o domínio novo sem configuração SPF/DKIM/DMARC específica.
+- Google Play permanece desativado até produtos, RTDN, AAB assinado e compras
+  licenciadas serem homologados no Play Console.
+
+## Reprodução
 
 ```bash
 git clone https://github.com/MateusCirineo/Vera.Fidei-Biblioteca.git
 cd Vera.Fidei-Biblioteca
-git checkout v1.3.0
+git checkout v1.3.1
 cd vera_fidei_starter
 docker compose build backend frontend
 ```
 
-O backend instala `requirements.lock` com hashes em Python 3.11/Linux x86_64.
-Frontend e mobile usam os respectivos `package-lock.json`. As imagens-base
-continuam fixadas por digest conforme os Dockerfiles e o Compose versionados.
+## Decisão
 
-## Imagens implantadas e rollback
-
-| Componente | Image ID 1.3.0 |
-| --- | --- |
-| Backend | `sha256:826f87ffb633c209b323706d42a3f22e40c934b09b4346617a92d92ac1da4876` |
-| Frontend | `sha256:ff64385dbaa8bfb17d1421843d908ce07c7a52251d2afb70cc0d89f5e4dbc026` |
-
-Antes da troca, o código de produção foi salvo em
-`/var/backups/vera-fidei/code/pre-v1.3.0-20260828T233308Z/code.tar.gz`, com
-SHA-256 `6a3cb51a29e404569000669735241171ce35d32cc2d979b85d722f1d82e4fb2a`.
-As imagens anteriores foram preservadas como:
-
-- `vera_fidei-backend:pre-v1.3.0-c6d7515`;
-- `vera_fidei-frontend:pre-v1.3.0-c6d7515`.
-
-O deploy foi seletivo, sem `--delete`, preservando `.env`, PDFs, banco,
-índices, modelos, configuração do rclone, dados e segredos. Não houve migração
-destrutiva nem reinicialização do PostgreSQL ou Elasticsearch.
-
-## Evidências automatizadas
-
-| Portão | Resultado no código da release |
-| --- | --- |
-| Backend | `332 passed`, `3 skipped`, `158 subtests passed` |
-| Lock Python | `pip-audit`: 0 vulnerabilidades; OSV para `torch 2.13.0`: 0 |
-| Análise Python | Bandit: 0 achados médios ou altos |
-| Imagem Linux | `python -m pip check`: nenhuma dependência quebrada |
-| Frontend | `36/36` testes, lint e TypeScript aprovados |
-| Build Next.js | aprovado, 31 páginas geradas |
-| Auditoria frontend | 0 vulnerabilidades, inclusive dependências de desenvolvimento |
-| Mobile | `35/35` testes, lint e TypeScript aprovados |
-| Expo Doctor | `21/21` verificações aprovadas |
-| Bundle Android local | 985 módulos e exportação concluída; não é AAB assinado desta release |
-| Auditoria mobile | 0 vulnerabilidades |
-| Higiene Git | `git diff --check` aprovado e árvore limpa no corte |
-
-Os três testes ignorados do backend são integrações que exigem instâncias
-externas reais de PostgreSQL/Elasticsearch; produção foi validada separadamente.
-O `.venv` histórico do computador contém pacotes antigos que não pertencem ao
-lock. O gate autoritativo foi executado na nova imagem Linux de produção.
-
-## Smoke real em produção
-
-Executado depois da troca dos containers, em `2026-08-28`:
-
-| Cenário | Resultado observado |
-| --- | --- |
-| Containers | backend saudável; frontend, Nginx, PostgreSQL e Elasticsearch em execução |
-| Rotas públicas | apresentação, login, cadastro, biblioteca, orações e santos responderam 200 |
-| Segurança | HSTS, CSP, `nosniff`, `DENY`, política de referência e permissões presentes |
-| Documentação interna | `/api/docs` respondeu 404 |
-| PWA | manifest e service worker responderam 200; cache `vera-fidei-pwa-v14` |
-| Ícones PWA | 192, 512, 1024 e maskable responderam 200 |
-| Cadastro e sessão | conta temporária criada; plano `fiel`; logout e novo login aprovados |
-| Biblioteca gratuita | conta Fiel abriu a obra canário PG001 (`book_id=32`, `file_id=28`) |
-| PDF grande | 211.280.137 bytes; HTTP 206; somente bytes `0-65535` transferidos |
-| Verificador | citação de Agostinho: `CONFIRMADA_EXATA`, confiança alta, histórico criado |
-| Limpeza do smoke | conta e histórico temporários excluídos; 0 contas de smoke restantes |
-| Logs | nenhuma ocorrência 5xx, traceback ou exceção depois do deploy |
-
-A sessão de navegador gráfico integrada ao ambiente de desenvolvimento não
-estava disponível. Por isso, a evidência desta release é formada por testes de
-componentes, build, chamadas HTTPS autenticadas e o smoke público acima; ela não
-é apresentada como inspeção visual em um aparelho físico novo.
-
-## Dados e operações
-
-| Item | Situação no corte |
-| --- | --- |
-| Acervo | 632 obras, 1.839 registros de PDF e 117.337 trechos |
-| Backup PostgreSQL | dump de 115.215.845 bytes com SHA, criado em `2026-08-28T06:19:05Z` |
-| Backup externo | monitor confirmou cópia externa saudável depois do deploy |
-| Monitor | execução manual e timer de cinco minutos aprovados |
-| Stripe | reconciliador executado após o deploy: 3 verificados, 0 alterações, 0 erros |
-| Timers | backup local, backup externo, monitor e reconciliador ativos |
-| Disco | 72 GB usados de 150 GB, 50% de ocupação |
-| Serviços Vera.Fidei falhos | 0 |
-
-O OCR Oriental já havia concluído as oito obras em `2026-08-14` com
-`ok=8, failed=0`. O serviço histórico de execução única tentou repetir o lote
-antes do Elasticsearch subir no reboot de `2026-08-19`; ele foi desabilitado e
-seu estado de falha foi limpo, sem apagar textos ou PDFs.
-
-## PWA e Google Play
-
-O produto distribuível desta release é a PWA 1.3.0. A recomendação de lançamento
-é publicar e divulgar primeiro a PWA, acompanhar erros e conversões reais e usar
-o mesmo backend durante a homologação Android.
-
-O código `production-play` e o Google Play Billing estão preparados, mas
-`GOOGLE_PLAY_ENABLED` permanece desativado. A publicação na Play Store exige,
-fora deste repositório:
-
-1. criar produtos e planos-base no Play Console;
-2. configurar conta de serviço, permissões e RTDN;
-3. preencher ficha da loja, política de dados e assinatura do aplicativo;
-4. gerar e enviar um AAB assinado para a faixa interna;
-5. testar compra, pendência, restauração, troca, cancelamento, renovação,
-   reembolso e revogação com comprador licenciado;
-6. habilitar `GOOGLE_PLAY_ENABLED=true` somente depois da homologação.
-
-Portanto, esta release não afirma que o aplicativo já foi publicado ou aprovado
-pela Play Store. Lançamento simultâneo adicionaria risco sem benefício técnico;
-PWA primeiro e Play depois da faixa interna é o corte recomendado.
-
-## Limites editoriais declarados
-
-- Existem 37.783 trechos de OCR ainda não conferidos nas coleções PG/PL/PO:
-  9.235 PG, 17.862 PL e 10.686 PO.
-- Há 102 trechos visuais marcados como verificados, 2 passagens verificadas e
-  69 revisões de página registradas.
-- OCR não conferido permanece bloqueado como citação literal e só pode fornecer
-  localização no PDF. Não se afirma revisão palavra por palavra do acervo.
-- A revisão editorial pode continuar depois do lançamento sem bloquear a PWA,
-  pois o comportamento público é fail-closed.
-- A validação dos artefatos móveis da versão 1.2.0 continua documentada no
-  manifesto anterior; nenhum novo APK, AAB ou IPA foi assinado neste corte.
-
-## Decisão de lançamento
-
-O corte PWA/API 1.3.0 está aprovado tecnicamente para divulgação, dentro dos
-limites explicitados acima. Google Play permanece uma entrega posterior e só
-deve ser anunciada depois da homologação externa e dos testes de compra na loja.
+A PWA/API 1.3.1 está aprovada tecnicamente para divulgação em
+`https://verafidei.com.br`. O domínio antigo pode permanecer durante a transição
+e depois ser redirecionado quando a base instalada tiver atualizado o service
+worker.

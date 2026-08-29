@@ -558,7 +558,7 @@ export default function PerfilPage() {
                   Endpoint REST
                 </p>
                 <pre className="mt-2 overflow-x-auto rounded-md bg-black/30 p-3 text-[11px] leading-relaxed text-texto-secundario">
-{`curl -X POST https://verafidei.oialfred.com/api/v1/verificar \\
+{`curl -X POST https://verafidei.com.br/api/v1/verificar \\
   -H "X-VF-Api-Key: SUA_CHAVE" \\
   -H "Content-Type: application/json" \\
   -d '{"citacao":"...", "autor":"Santo Agostinho"}'`}

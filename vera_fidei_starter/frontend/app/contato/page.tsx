@@ -4,8 +4,9 @@ import { useState } from 'react'
 import Link from 'next/link'
 import BrandHeader from '@/components/BrandHeader'
 import { fetchWithTimeout } from '@/lib/http'
+import { getPublicApiBase } from '@/lib/api-base'
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://verafidei.oialfred.com/api'
+const BASE = getPublicApiBase()
 
 const channels = [
   {
