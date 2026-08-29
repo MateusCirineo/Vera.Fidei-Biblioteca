@@ -1,22 +1,23 @@
-# Manifesto da release 1.3.1
+# Manifesto da release 1.3.2
 
-Este documento registra o corte reproduzível do Vera.Fidei 1.3.1. A identidade
-canônica da release é a tag anotada `v1.3.1`; o commit exato é obtido por:
+Este documento registra o corte reproduzível do Vera.Fidei 1.3.2. A identidade
+canônica da release é a tag anotada `v1.3.2`; o commit exato é obtido por:
 
 ```bash
-git rev-list -n 1 v1.3.1
+git rev-list -n 1 v1.3.2
 ```
 
 O manifesto completo das funcionalidades da PWA 1.3.0 permanece disponível no
-commit apontado pela tag `v1.3.0`. A versão 1.3.1 é uma release de migração de
-domínio e robustez de sessão/PWA, sem migração destrutiva de dados.
+commit apontado pela tag `v1.3.0`. A versão 1.3.2 inclui a migração de domínio,
+a robustez de sessão/PWA da 1.3.1 e o hotfix de centralização responsiva das
+páginas do visualizador de PDF, sem migração destrutiva de dados.
 
 ## Identidade e escopo
 
 | Campo | Valor |
 | --- | --- |
-| Versão da PWA | `1.3.1` |
-| Tag canônica | `v1.3.1` anotada |
+| Versão da PWA | `1.3.2` |
+| Tag canônica | `v1.3.2` anotada |
 | Data do corte | `2026-08-29`, `America/Sao_Paulo` |
 | Domínio canônico | `https://verafidei.com.br` |
 | Domínio de transição | `https://verafidei.oialfred.com` |
@@ -54,16 +55,25 @@ domínio e robustez de sessão/PWA, sem migração destrutiva de dados.
   `/apresentacao`, com HTTP 200 e sem redirecionamento. Isso também recupera
   instalações antigas ainda controladas pelo service worker anterior.
 
+## Visualizador de PDF
+
+- A página renderizada e sua camada de destaques compartilham um contêiner de
+  largura real centralizado no espaço disponível.
+- O espaço reservado da renderização progressiva acompanha a largura da página
+  e o zoom, evitando deslocamento lateral durante o carregamento.
+- Quando o zoom torna a página maior que a tela, a rolagem horizontal continua
+  disponível; busca, navegação, destaques e carregamento parcial foram mantidos.
+
 ## Implantação e rollback
 
 O deploy foi seletivo, sem `--delete`, preservando `.env`, segredos, PDFs,
 banco PostgreSQL, Elasticsearch, índices, rclone, backups e arquivos do acervo.
 PostgreSQL e Elasticsearch não foram recriados.
 
-| Componente | Image ID 1.3.1 |
+| Componente | Image ID 1.3.2 |
 | --- | --- |
 | Backend | `sha256:30724aa71bf804f04e4a792cdc4cafd86bd98b009d61111458f5d4cbf784fe31` |
-| Frontend | `sha256:6f3a698e6068b4db5a527c866518138754b23168f00fca5db1780e7a7d8d9fc1` |
+| Frontend | `sha256:1f0a227be270c7dc84a5af1cf73d038a82d519f5a291f39f0089d82a0d1f6e47` |
 
 O backup principal dos 32 destinos substituídos foi salvo em
 `/opt/vera_fidei/backups/dual-domain-final-active-before-20260829T024216Z.tgz`,
@@ -71,6 +81,9 @@ com SHA-256
 `d931fad81f436fdee54d5c302776efd5499015c0e85c3cb278e317f4cc675119`.
 Também foram criados backups independentes antes da ativação TLS, do hotfix do
 service worker, da raiz sem redirecionamento e do ajuste de versão do frontend.
+O hotfix do visualizador possui ainda o backup
+`/opt/vera_fidei/backups/pdf-center-before-20260829T003039.tgz`, com SHA-256
+`90c8083711139b862f25b1bf22efea1a4a234c790578be6d0de48423d900719b`.
 
 ## Evidências automatizadas
 
@@ -78,7 +91,7 @@ service worker, da raiz sem redirecionamento e do ajuste de versão do frontend.
 | --- | --- |
 | Backend | `333 passed`, `3 skipped` |
 | Domínio, Stripe/webhook e Google Play | `54/54` testes relevantes |
-| Frontend | `42/42` testes e lint aprovados |
+| Frontend | `44/44` testes e lint aprovados |
 | Build Next.js | TypeScript aprovado e 31 rotas geradas |
 | Dependências frontend | `npm ci`: 0 vulnerabilidades |
 | Mobile | `36/36` testes, lint e TypeScript aprovados |
@@ -99,6 +112,7 @@ service worker, da raiz sem redirecionamento e do ajuste de versão do frontend.
 | Login legado | HTTP 200; sessão confirmada; cookie `Secure` e `HttpOnly` |
 | Plano gratuito | conta temporária carregou plano `fiel` |
 | PDF PG001 | HTTP 206; 65.536 bytes; `application/pdf` |
+| Layout do PDF | bundle público contém o contrato de centralização e largura responsiva |
 | Verificador | `CONFIRMADA_EXATA`, confiança `Alta` |
 | Exclusão | conta removida e sessão do outro host invalidada |
 | Limpeza | 0 contas e 0 históricos de smoke restantes |
@@ -128,14 +142,14 @@ produção. Isso não é apresentado como teste em um aparelho físico novo.
 ```bash
 git clone https://github.com/MateusCirineo/Vera.Fidei-Biblioteca.git
 cd Vera.Fidei-Biblioteca
-git checkout v1.3.1
+git checkout v1.3.2
 cd vera_fidei_starter
 docker compose build backend frontend
 ```
 
 ## Decisão
 
-A PWA/API 1.3.1 está aprovada tecnicamente para divulgação em
+A PWA/API 1.3.2 está aprovada tecnicamente para divulgação em
 `https://verafidei.com.br`. O domínio antigo pode permanecer durante a transição
 e depois ser redirecionado quando a base instalada tiver atualizado o service
 worker.

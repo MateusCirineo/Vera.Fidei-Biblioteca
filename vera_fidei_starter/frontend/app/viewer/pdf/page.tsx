@@ -116,7 +116,7 @@ function getItemBox(
 // ─── Página individual (mobile e desktop compartilham) ────────────────────────
 
 function PdfPageCanvas({
-  pdfjsLib, pdfDoc, pageNum, scale, quote, fallbackQuote, searchTerm, activeSearchPage, activeSearchOccurrence, onVisible, placeholderHeight,
+  pdfjsLib, pdfDoc, pageNum, scale, quote, fallbackQuote, searchTerm, activeSearchPage, activeSearchOccurrence, onVisible, placeholderHeight, placeholderWidth,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pdfjsLib: any; pdfDoc: any; pageNum: number; scale: number;
@@ -124,6 +124,7 @@ function PdfPageCanvas({
   searchTerm?: string; activeSearchPage?: number | null; activeSearchOccurrence?: number | null;
   onVisible?: (n: number) => void;
   placeholderHeight: number;
+  placeholderWidth: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -289,8 +290,10 @@ function PdfPageCanvas({
     >
       {rendered ? (
         <>
-          <canvas ref={canvasRef} className="block" style={{ imageRendering: 'auto' }} />
-          <div ref={overlayRef} className="pointer-events-none absolute left-0 top-0" />
+          <div className="relative mx-auto w-fit">
+            <canvas ref={canvasRef} className="block" style={{ imageRendering: 'auto' }} />
+            <div ref={overlayRef} className="pointer-events-none absolute left-0 top-0" />
+          </div>
           {renderError && (
             <div
               role="alert"
@@ -309,7 +312,10 @@ function PdfPageCanvas({
         </>
       ) : (
         // Placeholder com altura estimada para manter scroll correto
-        <div className="w-full bg-zinc-900" style={{ height: placeholderHeight }} />
+        <div
+          className="mx-auto bg-zinc-900"
+          style={{ height: placeholderHeight, width: placeholderWidth }}
+        />
       )}
     </div>
   )
@@ -363,6 +369,12 @@ function PdfViewerInner() {
     return Math.round(placeholderH * (targetScale / currentScale))
   }, [pageMetrics, placeholderH, scale])
 
+  const estimatePageWidth = useCallback((index: number, targetScale = scale) => {
+    const metric = pageMetrics[index] ?? pageMetrics[0]
+    if (metric?.width) return Math.round(metric.width * targetScale)
+    return 1
+  }, [pageMetrics, scale])
+
   const getPageTop = useCallback((pageNumber: number, targetScale = scale) => {
     const target = Math.min(Math.max(1, pageNumber), numPages || 1)
     const wrapperGap = isMobile ? 0 : 24
@@ -400,6 +412,10 @@ function PdfViewerInner() {
   const placeholderHeightForPage = useCallback((pageNum: number) => {
     return Math.max(120, estimatePageHeight(pageNum - 1, scale))
   }, [estimatePageHeight, scale])
+
+  const placeholderWidthForPage = useCallback((pageNum: number) => {
+    return Math.max(1, estimatePageWidth(pageNum - 1, scale))
+  }, [estimatePageWidth, scale])
 
   const handleScroll = useCallback(() => {
     const container = scrollRef.current
@@ -916,6 +932,7 @@ function PdfViewerInner() {
               activeSearchOccurrence={activeSearch?.occurrence ?? null}
               onVisible={handleVisible}
               placeholderHeight={placeholderHeightForPage(pageNum)}
+              placeholderWidth={placeholderWidthForPage(pageNum)}
             />
           </div>
         ))}
