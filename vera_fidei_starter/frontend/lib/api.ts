@@ -296,6 +296,39 @@ export async function createAdminCoupon(payload: CreateAdminCouponInput): Promis
   return res.json()
 }
 
+export interface AdminGrantPlanResult {
+  id: number
+  email: string
+  plan: string
+  plan_label: string
+  billing_status?: string | null
+  billing_current_period_end?: string | null
+}
+
+export async function grantAdminPlan(payload: {
+  email: string
+  plan: string
+  months?: number | null
+}): Promise<AdminGrantPlanResult> {
+  const res = await fetchApi(`${BASE}/billing/admin/gift`, {
+    method: 'POST',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao conceder plano')
+  return res.json()
+}
+
+export async function revokeAdminPlan(email: string): Promise<AdminGrantPlanResult> {
+  const res = await fetchApi(`${BASE}/billing/admin/gift/revoke`, {
+    method: 'POST',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao revogar plano')
+  return res.json()
+}
+
 export interface AdminMetricPeriod {
   today: number
   last_7_days: number
@@ -344,8 +377,8 @@ export interface AdminMetricsResponse {
   visitors_online_now: number
   visitors: AdminMetricPeriod
   page_views: AdminMetricPeriod
-  searches_today: number
-  verifications_today: number
+  searches: AdminMetricPeriod
+  verifications: AdminMetricPeriod
   plans: AdminMetricCount[]
   subscription_statuses: AdminMetricCount[]
   top_pages_7_days: AdminMetricCount[]
@@ -360,6 +393,34 @@ export async function getAdminMetrics(): Promise<AdminMetricsResponse> {
     headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
   })
   if (!res.ok) throw await readApiError(res, 'Erro ao carregar métricas')
+  return res.json()
+}
+
+export interface AdminAccountsPageResponse {
+  total: number
+  page: number
+  page_size: number
+  accounts: AdminRecentAccount[]
+}
+
+export async function getAdminAccounts(options: {
+  page?: number
+  pageSize?: number
+  search?: string
+  plan?: string
+} = {}): Promise<AdminAccountsPageResponse> {
+  const params = new URLSearchParams()
+  params.set('page', String(options.page ?? 1))
+  params.set('page_size', String(options.pageSize ?? 20))
+  if (options.search) params.set('search', options.search)
+  if (options.plan) params.set('plan', options.plan)
+
+  const res = await fetchApi(`${BASE}/analytics/admin/accounts?${params.toString()}`, {
+    cache: 'no-store',
+    credentials: 'include',
+    headers: authBearerHeaders({ 'Content-Type': 'application/json' }),
+  })
+  if (!res.ok) throw await readApiError(res, 'Erro ao carregar contas')
   return res.json()
 }
 
@@ -466,3 +527,8 @@ export async function getCatechismConcordance(
   if (!res.ok) throw await readApiError(res, 'Erro ao consultar a concordância dos catecismos')
   return res.json()
 }
+
+export {
+  listReadingHistory,
+  restartReadingProgress,
+} from './readingProgress'

@@ -303,6 +303,78 @@ class AdminAnalyticsTests(unittest.TestCase):
         self.assertEqual(response.headers["cache-control"], "private, no-store, max-age=0")
         self.assertEqual(response.headers["pragma"], "no-cache")
 
+    def test_admin_accounts_paginates_and_excludes_owner(self) -> None:
+        with self.Session() as db:
+            db.add(
+                User(
+                    email=settings.owner_email,
+                    name="Owner",
+                    password_hash="hash",
+                    plan="magisterio",
+                    billing_status="owner",
+                    email_verified=True,
+                )
+            )
+            for index in range(25):
+                db.add(
+                    User(
+                        email=f"reader{index:02d}@example.com",
+                        name=f"Leitor {index:02d}",
+                        password_hash="hash",
+                        plan="fiel",
+                        created_at=datetime.datetime(2026, 8, 1) + datetime.timedelta(minutes=index),
+                        email_verified=True,
+                    )
+                )
+            db.commit()
+
+        with patch.object(analytics, "SessionLocal", self.Session):
+            first_page = analytics.admin_accounts(Response(), page=1, page_size=20, search=None, plan=None)
+            second_page = analytics.admin_accounts(Response(), page=2, page_size=20, search=None, plan=None)
+
+        self.assertEqual(first_page.total, 25)
+        self.assertEqual(len(first_page.accounts), 20)
+        self.assertEqual(len(second_page.accounts), 5)
+        self.assertNotIn(settings.owner_email, {item.email for item in first_page.accounts})
+        # Newest registration (index 24) sorts first.
+        self.assertEqual(first_page.accounts[0].email, "reader24@example.com")
+
+    def test_admin_accounts_filters_by_search_and_plan(self) -> None:
+        with self.Session() as db:
+            db.add_all([
+                User(
+                    email="giovanna@example.com",
+                    name="Giovanna Lima",
+                    password_hash="hash",
+                    plan="catequista",
+                    billing_status="active",
+                    email_verified=True,
+                ),
+                User(
+                    email="renato@example.com",
+                    name="Renato",
+                    password_hash="hash",
+                    plan="fiel",
+                    email_verified=True,
+                ),
+            ])
+            db.commit()
+
+        with patch.object(analytics, "SessionLocal", self.Session):
+            by_name = analytics.admin_accounts(Response(), page=1, page_size=20, search="giovanna", plan=None)
+            by_plan = analytics.admin_accounts(Response(), page=1, page_size=20, search=None, plan="catequista")
+
+        self.assertEqual([item.email for item in by_name.accounts], ["giovanna@example.com"])
+        self.assertEqual([item.email for item in by_plan.accounts], ["giovanna@example.com"])
+
+    def test_admin_accounts_response_is_never_cacheable(self) -> None:
+        response = Response()
+        with patch.object(analytics, "SessionLocal", self.Session):
+            analytics.admin_accounts(response, page=1, page_size=20, search=None, plan=None)
+
+        self.assertEqual(response.headers["cache-control"], "private, no-store, max-age=0")
+        self.assertEqual(response.headers["pragma"], "no-cache")
+
 
 if __name__ == "__main__":
     unittest.main()

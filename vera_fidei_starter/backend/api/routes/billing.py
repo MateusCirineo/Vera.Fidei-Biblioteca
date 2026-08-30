@@ -14,7 +14,8 @@ from starlette.concurrency import run_in_threadpool
 from core.auth import require_api_key
 from core.config import settings
 from core.deps import get_current_user
-from core.plans import ensure_owner_access, is_owner_email
+from core.email import send_email
+from core.plans import ensure_owner_access, is_owner_email, normalize_email
 from models.database import (
     BillingRequest,
     BillingSubscription,
@@ -121,6 +122,25 @@ class AdminCouponCreateRequest(BaseModel):
     duration: Literal["once", "forever"] = "once"
     max_redemptions: int | None = Field(default=None, ge=1, le=100000)
     name: str | None = Field(default=None, max_length=100)
+
+
+class AdminGrantPlanRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    plan: str = Field(..., min_length=3, max_length=30)
+    months: int | None = Field(default=None, ge=1, le=60)
+
+
+class AdminRevokePlanRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+
+
+class AdminGrantPlanResponse(BaseModel):
+    id: int
+    email: str
+    plan: str
+    plan_label: str
+    billing_status: str | None
+    billing_current_period_end: datetime.datetime | None
 
 
 def _site_url(request: Request | None = None) -> str:
@@ -559,11 +579,29 @@ def _find_user(
     return None
 
 
+def _notify_owner_new_subscription(user: User, plan: str | None) -> None:
+    if not settings.owner_email:
+        return
+    plan_label = PLAN_NAMES.get(plan or "", plan or "plano desconhecido")
+    amount_cents = PLAN_AMOUNTS_CENTS.get(plan or "")
+    amount_line = f"<p>Valor: {_amount_label(amount_cents)}/mês</p>" if amount_cents else ""
+    html = (
+        f"<p>Nova assinatura confirmada no Vera.Fidei.</p>"
+        f"<p>Cliente: {user.name} ({user.email})</p>"
+        f"<p>Plano: {plan_label}</p>"
+        f"{amount_line}"
+    )
+    sent = send_email(settings.owner_email, f"Novo assinante — {plan_label}", html)
+    if not sent:
+        logger.warning("owner_subscription_notification_failed user_id=%s", user.id)
+
+
 def _apply_subscription(db, user: User, subscription: Any, fallback_plan: str | None = None) -> None:
     plan = _subscription_plan(subscription, fallback_plan=fallback_plan)
     status_value = _stripe_get(subscription, "status")
     customer_id = _stripe_id(_stripe_get(subscription, "customer"))
     subscription_id = _stripe_id(subscription)
+    was_active = user.billing_status in ACTIVE_BILLING_STATUSES
 
     user.billing_provider = "stripe"
     if customer_id:
@@ -588,6 +626,8 @@ def _apply_subscription(db, user: User, subscription: Any, fallback_plan: str | 
         cancel_at_period_end=user.billing_cancel_at_period_end,
     )
     recompute_user_plan(db, user)
+    if not was_active and user.billing_status in ACTIVE_BILLING_STATUSES:
+        _notify_owner_new_subscription(user, plan)
 
 
 def _latest_subscription_for_user(
@@ -1068,6 +1108,146 @@ def create_admin_coupon(
                 pass
         message = getattr(exc, "user_message", None) or "A Stripe recusou a criacao do cupom."
         raise HTTPException(status_code=400, detail=message) from exc
+
+
+def _find_user_by_email_for_grant(db, email: str) -> User:
+    user = (
+        db.query(User)
+        .filter(func.lower(User.email) == normalize_email(email))
+        .first()
+    )
+    if user is None:
+        raise HTTPException(status_code=404, detail="Nenhuma conta encontrada com esse e-mail.")
+    if is_owner_email(user.email):
+        raise HTTPException(status_code=400, detail="A conta do administrador já tem acesso total.")
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Essa conta está desativada.")
+    return user
+
+
+@router.post(
+    "/admin/gift",
+    response_model=AdminGrantPlanResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def grant_manual_plan(
+    payload: AdminGrantPlanRequest,
+    current_user: User = Depends(get_current_user),
+) -> AdminGrantPlanResponse:
+    """Grant a paid plan outside Stripe (e.g. a promotional gift).
+
+    Uses the same ``legacy_manual`` provider the startup migration assigns to
+    pre-existing paid accounts, so the periodic Stripe reconciler — which only
+    touches users with ``billing_provider == "stripe"`` or a Stripe customer
+    id — never overwrites it.
+    """
+    _require_owner_admin(current_user)
+
+    plan = payload.plan.strip().lower()
+    if plan not in PAID_PLANS:
+        raise HTTPException(status_code=400, detail="Plano inválido.")
+
+    with SessionLocal() as db:
+        user = _find_user_by_email_for_grant(db, payload.email)
+        user = lock_user_for_billing_mutation(db, user.id)
+        if user is None or not user.is_active:
+            raise HTTPException(status_code=404, detail="Nenhuma conta encontrada com esse e-mail.")
+
+        expiry = (
+            datetime.datetime.utcnow() + datetime.timedelta(days=30 * payload.months)
+            if payload.months
+            else None
+        )
+
+        user.billing_provider = "legacy_manual"
+        user.billing_status = "active"
+        user.billing_current_period_end = expiry
+        user.billing_cancel_at_period_end = False
+        upsert_subscription(
+            db,
+            user=user,
+            provider="legacy_manual",
+            package_name="",
+            provider_status="active",
+            entitlement_state="entitled",
+            items=[
+                SubscriptionItemInput(
+                    item_key=f"legacy_manual:{plan}",
+                    product_id=f"legacy_manual:{plan}",
+                    plan=plan,
+                    expiry_time=expiry,
+                    auto_renew_enabled=False,
+                    entitled=True,
+                )
+            ],
+            external_subscription_id=f"gift-{user.id}",
+        )
+        recompute_user_plan(db, user)
+        db.commit()
+        db.refresh(user)
+
+        return AdminGrantPlanResponse(
+            id=user.id,
+            email=user.email,
+            plan=user.plan,
+            plan_label=PLAN_NAMES.get(user.plan, user.plan),
+            billing_status=user.billing_status,
+            billing_current_period_end=user.billing_current_period_end,
+        )
+
+
+@router.post(
+    "/admin/gift/revoke",
+    response_model=AdminGrantPlanResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def revoke_manual_plan(
+    payload: AdminRevokePlanRequest,
+    current_user: User = Depends(get_current_user),
+) -> AdminGrantPlanResponse:
+    """Undo a gift previously granted through ``/admin/gift``.
+
+    Refuses to touch any account whose active plan is not a ``legacy_manual``
+    grant, so this can never cancel a real Stripe or Google Play subscription.
+    """
+    _require_owner_admin(current_user)
+
+    with SessionLocal() as db:
+        user = _find_user_by_email_for_grant(db, payload.email)
+        user = lock_user_for_billing_mutation(db, user.id)
+        if user is None or not user.is_active:
+            raise HTTPException(status_code=404, detail="Nenhuma conta encontrada com esse e-mail.")
+        if user.billing_provider != "legacy_manual":
+            raise HTTPException(
+                status_code=400,
+                detail="Essa conta não tem um plano concedido manualmente para revogar.",
+            )
+
+        upsert_subscription(
+            db,
+            user=user,
+            provider="legacy_manual",
+            package_name="",
+            provider_status="revoked",
+            entitlement_state="inactive",
+            items=[],
+            external_subscription_id=f"gift-{user.id}",
+        )
+        user.billing_status = None
+        user.billing_provider = None
+        user.billing_current_period_end = None
+        recompute_user_plan(db, user)
+        db.commit()
+        db.refresh(user)
+
+        return AdminGrantPlanResponse(
+            id=user.id,
+            email=user.email,
+            plan=user.plan,
+            plan_label=PLAN_NAMES.get(user.plan, user.plan),
+            billing_status=user.billing_status,
+            billing_current_period_end=user.billing_current_period_end,
+        )
 
 
 CHECKOUT_WEBHOOK_EVENTS = {

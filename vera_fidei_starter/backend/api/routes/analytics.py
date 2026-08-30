@@ -8,7 +8,7 @@ import secrets
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 
@@ -68,6 +68,13 @@ class RecentAccount(BaseModel):
     created_at: datetime.datetime
 
 
+class AccountsPageResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    accounts: list[RecentAccount]
+
+
 class DailyActivity(BaseModel):
     date: datetime.date
     visitors: int
@@ -99,6 +106,20 @@ class AdminMetricsResponse(BaseModel):
     top_pages_7_days: list[MetricCount]
     daily_activity: list[DailyActivity]
     recent_accounts: list[RecentAccount]
+
+
+def _to_recent_account(user: User) -> RecentAccount:
+    return RecentAccount(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        plan=user.plan or "fiel",
+        plan_label=PLAN_LABELS.get(user.plan or "fiel", (user.plan or "Fiel").title()),
+        billing_status=user.billing_status,
+        email_verified=bool(user.email_verified),
+        is_active=bool(user.is_active),
+        created_at=_as_utc_aware(user.created_at),
+    )
 
 
 def _cookie_secret() -> bytes:
@@ -401,20 +422,7 @@ def _build_admin_metrics(db, *, now: datetime.datetime | None = None) -> AdminMe
         .limit(10)
         .all()
     )
-    recent_accounts = [
-        RecentAccount(
-            id=user.id,
-            name=user.name,
-            email=user.email,
-            plan=user.plan or "fiel",
-            plan_label=PLAN_LABELS.get(user.plan or "fiel", (user.plan or "Fiel").title()),
-            billing_status=user.billing_status,
-            email_verified=bool(user.email_verified),
-            is_active=bool(user.is_active),
-            created_at=_as_utc_aware(user.created_at),
-        )
-        for user in recent_rows
-    ]
+    recent_accounts = [_to_recent_account(user) for user in recent_rows]
 
     return AdminMetricsResponse(
         generated_at=now_utc,
@@ -451,3 +459,36 @@ def admin_metrics(
     response.headers["Pragma"] = "no-cache"
     with SessionLocal() as db:
         return _build_admin_metrics(db)
+
+
+@router.get("/admin/accounts", response_model=AccountsPageResponse)
+def admin_accounts(
+    response: Response,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=120),
+    plan: str | None = Query(default=None, max_length=30),
+    _owner: User = Depends(require_owner),
+) -> AccountsPageResponse:
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    owner_email = normalize_email(settings.owner_email)
+    with SessionLocal() as db:
+        query = db.query(User).filter(func.lower(User.email) != owner_email)
+        if plan:
+            query = query.filter(User.plan == plan)
+        term = (search or "").strip()
+        if term:
+            like = f"%{term}%"
+            query = query.filter(or_(User.name.ilike(like), User.email.ilike(like)))
+
+        total = int(query.count())
+        rows = (
+            query.order_by(User.created_at.desc(), User.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        accounts = [_to_recent_account(user) for user in rows]
+
+    return AccountsPageResponse(total=total, page=page, page_size=page_size, accounts=accounts)

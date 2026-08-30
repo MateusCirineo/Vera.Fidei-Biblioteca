@@ -302,6 +302,58 @@ class StripeBillingWebhookTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(checkout.provider_status, "checkout_failed")
             self.assertEqual(checkout.entitlement_state, "inactive")
 
+    async def test_first_activation_notifies_owner_by_email(self) -> None:
+        event = stripe_object(
+            id="evt_first_activation",
+            type="checkout.session.completed",
+            data=stripe_object(
+                object=stripe_object(
+                    id="cs_first_activation",
+                    payment_status="paid",
+                    client_reference_id="42",
+                    customer="cus_42",
+                    subscription="sub_42",
+                    metadata=stripe_object(user_id="42", plan="catequista"),
+                )
+            ),
+        )
+
+        with (
+            patch.object(settings, "owner_email", "owner@example.com"),
+            patch.object(billing, "send_email", return_value=True) as notify,
+        ):
+            await self._dispatch(event, retrieved_subscription=self._subscription())
+
+        notify.assert_called_once()
+        args, _ = notify.call_args
+        self.assertEqual(args[0], "owner@example.com")
+        self.assertIn("Catequista", args[1])
+
+    async def test_renewal_does_not_renotify_owner(self) -> None:
+        self._reset_user(billing_status="active")
+        event = stripe_object(
+            id="evt_renewal",
+            type="invoice.paid",
+            data=stripe_object(
+                object=stripe_object(
+                    id="in_renewal",
+                    status="paid",
+                    customer="cus_42",
+                    parent=stripe_object(
+                        subscription_details=stripe_object(subscription="sub_42")
+                    ),
+                )
+            ),
+        )
+
+        with (
+            patch.object(settings, "owner_email", "owner@example.com"),
+            patch.object(billing, "send_email", return_value=True) as notify,
+        ):
+            await self._dispatch(event, retrieved_subscription=self._subscription())
+
+        notify.assert_not_called()
+
     async def test_subscription_created_activates_plan_from_current_stripe_state(self) -> None:
         event = stripe_object(
             id="evt_subscription",
