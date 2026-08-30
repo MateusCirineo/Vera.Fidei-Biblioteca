@@ -37,7 +37,13 @@ const CONFIDENCE_COLOR: Record<string, string> = {
   Nenhuma: 'text-red-400',
 }
 
-export default function ProfileHistory({ userPlan }: { userPlan?: string }) {
+export default function ProfileHistory({
+  userPlan,
+  embedded = false,
+}: {
+  userPlan?: string
+  embedded?: boolean
+}) {
   const [items, setItems] = useState<HistoricoEntry[]>([])
   const [total, setTotal] = useState(0)
   const [totalAll, setTotalAll] = useState(0)
@@ -102,7 +108,12 @@ export default function ProfileHistory({ userPlan }: { userPlan?: string }) {
   const totalPages = Math.ceil(total / 20)
 
   return (
-    <section id="historico" className="mt-6 rounded-lg border border-fundo-borda bg-fundo-card p-5 sm:p-6">
+    <section
+      id={embedded ? 'historico-verificacoes' : 'historico'}
+      className={embedded
+        ? 'pt-5'
+        : 'mt-6 rounded-lg border border-fundo-borda bg-fundo-card p-5 sm:p-6'}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-texto-terciario">

@@ -45,6 +45,12 @@ def _print_pipeline(ctx) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--campaign",
+        choices=("citation", "launch"),
+        default="citation",
+        help="tipo de carrossel; launch gera somente a prévia oficial da PWA",
+    )
     parser.add_argument("--author", help="autor canônico; sem isso, usa o rodízio seguro")
     parser.add_argument("--day", type=int, help="dia do ano para reprodução determinística")
     parser.add_argument("--publish", action="store_true", help="solicita publicação após todas as travas")
@@ -55,6 +61,9 @@ def main() -> int:
     parser.add_argument("--scheduled", action="store_true", help="executa a rotina diária idempotente")
     parser.add_argument("--publish-package", metavar="PACKAGE", help="publica um pacote já aprovado")
     args = parser.parse_args()
+
+    if args.campaign == "launch" and args.publish:
+        parser.error("a campanha de lançamento exige prévia e aprovação explícita antes de publicar")
 
     if args.approve_style:
         approval = approve_current_style(args.approve_style)
@@ -82,10 +91,16 @@ def main() -> int:
         print(json.dumps({"status": "published", "remote_media_id": media_id}, indent=2))
         return 0
 
+    task = (
+        "Gerar prévia do carrossel oficial de lançamento da PWA no Instagram do Vera.Fidei"
+        if args.campaign == "launch"
+        else "Gerar carrossel rastreável para o Instagram do Vera.Fidei"
+    )
     ctx = PipelineDispatcher().run(
-        "Gerar carrossel rastreável para o Instagram do Vera.Fidei",
+        task,
         initial_findings={
             "social_options": {
+                "campaign_kind": args.campaign,
                 "author": args.author,
                 "day": args.day,
                 "publish_requested": args.publish,

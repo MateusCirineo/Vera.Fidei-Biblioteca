@@ -11,6 +11,12 @@ class SocialPublishAgent(BaseAgent):
 
     def run(self, ctx: PipelineContext) -> AgentResult:
         options = ctx.findings.get("social_options") or {}
+        if options.get("campaign_kind") == "launch":
+            return AgentResult(
+                self.name,
+                "skipped",
+                notes=["campanha de lançamento gerada somente como prévia; upload e Graph API bloqueados"],
+            )
         if not options.get("publish_requested"):
             return AgentResult(
                 self.name,

@@ -2,6 +2,12 @@
 
 import { Suspense, type FormEvent, useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { getUser } from '@/lib/auth'
+import {
+  extractBookFileId,
+  syncReadingProgressWithFallback,
+  type ReadingEvent,
+} from '@/lib/readingProgress'
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -330,6 +336,12 @@ function PdfViewerInner() {
   const quote = searchParams.get('quote') || ''
   const fallbackQuote = searchParams.get('fallbackQuote') || ''
   const initialPage = useMemo(() => Math.max(1, Number(searchParams.get('page') || '1')), [searchParams])
+  const trackingEnabled = searchParams.get('reading') === '1'
+  const bookId = useMemo(() => {
+    const value = Number(searchParams.get('book'))
+    return Number.isInteger(value) && value > 0 ? value : null
+  }, [searchParams])
+  const bookFileId = useMemo(() => extractBookFileId(fileUrl), [fileUrl])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pdfjsLib, setPdfjsLib] = useState<any>(null)
@@ -355,12 +367,79 @@ function PdfViewerInner() {
   const [searchMessage, setSearchMessage] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [isIosStandalone, setIsIosStandalone] = useState(false)
+  const [readingUserId, setReadingUserId] = useState<number | null>(null)
 
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const searchAbortRef = useRef<AbortController | null>(null)
+  const currentPageRef = useRef(initialPage)
+  const numPagesRef = useRef(0)
+  const readingUserIdRef = useRef<number | null>(null)
+  const lastPersistedPageRef = useRef<number | null>(null)
+  const readingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const openedReadingSessionRef = useRef('')
+
+  currentPageRef.current = currentPage
+  numPagesRef.current = numPages
+  readingUserIdRef.current = readingUserId
 
   useEffect(() => () => searchAbortRef.current?.abort(), [])
+
+  useEffect(() => {
+    let active = true
+    setReadingUserId(null)
+    openedReadingSessionRef.current = ''
+    lastPersistedPageRef.current = null
+    if (!trackingEnabled || !bookId || !bookFileId) return () => { active = false }
+
+    void getUser().then((user) => {
+      if (active) setReadingUserId(user?.id ?? null)
+    })
+    return () => {
+      active = false
+    }
+  }, [bookFileId, bookId, trackingEnabled])
+
+  useEffect(() => {
+    setCurrentPage(initialPage)
+    setPageInput(String(initialPage))
+  }, [fileUrl, initialPage])
+
+  const persistReadingPage = useCallback((
+    event: ReadingEvent,
+    keepalive = false,
+    pageOverride?: number,
+  ) => {
+    const userId = readingUserIdRef.current
+    const page = pageOverride ?? currentPageRef.current
+    const totalPages = numPagesRef.current
+    if (!trackingEnabled || !userId || !bookId || !bookFileId || totalPages < 1) return
+    const identity = `${userId}:${bookId}:${bookFileId}:`
+    if (!openedReadingSessionRef.current.startsWith(identity)) return
+
+    const clampedPage = Math.min(Math.max(1, Math.round(page)), totalPages)
+    lastPersistedPageRef.current = clampedPage
+    void syncReadingProgressWithFallback(userId, bookId, bookFileId, {
+      current_page: clampedPage,
+      total_pages: totalPages,
+      event,
+    }, { keepalive })
+  }, [bookFileId, bookId, trackingEnabled])
+
+  const flushReadingPage = useCallback((keepalive = false) => {
+    if (readingSaveTimerRef.current !== null) {
+      clearTimeout(readingSaveTimerRef.current)
+      readingSaveTimerRef.current = null
+    }
+    if (currentPageRef.current !== lastPersistedPageRef.current) {
+      persistReadingPage('progress', keepalive)
+    }
+  }, [persistReadingPage])
+
+  const leaveViewer = useCallback(() => {
+    flushReadingPage(true)
+    router.back()
+  }, [flushReadingPage, router])
 
   const estimatePageHeight = useCallback((index: number, targetScale = scale) => {
     const metric = pageMetrics[index] ?? pageMetrics[0]
@@ -576,6 +655,59 @@ function PdfViewerInner() {
     requestAnimationFrame(() => goToPage(initialPage))
   }, [pdfDoc, numPages, initialPage, goToPage])
 
+  // Reading progress is deliberately opt-in. Citation/search links do not carry
+  // reading=1, so opening an exact source page never overwrites a later bookmark.
+  useEffect(() => {
+    if (!trackingEnabled || !readingUserId || !bookId || !bookFileId || !pdfDoc || numPages <= 0) return
+    const sessionKey = `${readingUserId}:${bookId}:${bookFileId}:${numPages}`
+    if (openedReadingSessionRef.current === sessionKey) return
+
+    openedReadingSessionRef.current = sessionKey
+    lastPersistedPageRef.current = currentPageRef.current
+    persistReadingPage('open', false, initialPage)
+  }, [bookFileId, bookId, initialPage, numPages, pdfDoc, persistReadingPage, readingUserId, trackingEnabled])
+
+  useEffect(() => {
+    if (
+      !trackingEnabled
+      || !readingUserId
+      || !bookId
+      || !bookFileId
+      || numPages <= 0
+      || !openedReadingSessionRef.current
+      || currentPage === lastPersistedPageRef.current
+    ) return
+
+    if (readingSaveTimerRef.current !== null) clearTimeout(readingSaveTimerRef.current)
+    readingSaveTimerRef.current = setTimeout(() => {
+      readingSaveTimerRef.current = null
+      persistReadingPage('progress')
+    }, 1_500)
+
+    return () => {
+      if (readingSaveTimerRef.current !== null) {
+        clearTimeout(readingSaveTimerRef.current)
+        readingSaveTimerRef.current = null
+      }
+    }
+  }, [bookFileId, bookId, currentPage, numPages, persistReadingPage, readingUserId, trackingEnabled])
+
+  useEffect(() => {
+    if (!trackingEnabled) return
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushReadingPage(true)
+    }
+    const handlePageHide = () => flushReadingPage(true)
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+      flushReadingPage(true)
+    }
+  }, [flushReadingPage, trackingEnabled])
+
   useEffect(() => {
     if (!isEditingPage) setPageInput(String(currentPage))
   }, [currentPage, isEditingPage])
@@ -741,7 +873,7 @@ function PdfViewerInner() {
           style={{ paddingTop: isIosStandalone ? 'calc(max(env(safe-area-inset-top), 44px) + 4px)' : 'calc(env(safe-area-inset-top) + 4px)' }}
         >
           <div className="flex h-11 min-w-0 items-center gap-0.5 px-2">
-            <button type="button" onClick={() => router.back()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:bg-zinc-800" aria-label="Voltar">‹</button>
+            <button type="button" onClick={leaveViewer} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:bg-zinc-800" aria-label="Voltar">‹</button>
             <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-500">PDF</span>
             <button type="button" onClick={() => zoomBy(-0.15)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-zinc-300 transition-colors hover:bg-zinc-800" aria-label="Diminuir zoom">−</button>
             <button type="button" onClick={resetZoom} className="w-9 shrink-0 text-center text-[11px] tabular-nums text-zinc-500" aria-label="Redefinir zoom">{Math.round(scale * 100)}%</button>
@@ -798,7 +930,7 @@ function PdfViewerInner() {
         </div>
       ) : (
         <div className="shrink-0 sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-950/95 px-3 py-2 backdrop-blur-sm">
-          <button onClick={() => router.back()} className="flex items-center gap-1 rounded px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 active:scale-95 transition-all">
+          <button onClick={leaveViewer} className="flex items-center gap-1 rounded px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 active:scale-95 transition-all">
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" /></svg>
             Voltar
           </button>

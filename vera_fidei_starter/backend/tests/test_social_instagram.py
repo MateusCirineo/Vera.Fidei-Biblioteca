@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+import copy
+import json
+import tempfile
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +12,7 @@ from PIL import Image, ImageDraw
 
 from app.agents.base import PipelineContext
 from app.agents.orchestrator import OrchestratorAgent
+from app.services.dispatcher import PipelineDispatcher
 from app.social.carousel import (
     CANVAS_SIZE,
     _COVER_REFERENCE,
@@ -31,6 +35,13 @@ from app.social.instagram_publish import PublicationBlocked
 from app.social.ledger import SocialLedger
 from app.social.daily_card import _pick_portuguese_text
 from app.social.package import publish_package
+from app.social.promo_post import (
+    KEYWORD_RGB,
+    LaunchCampaign,
+    load_launch_campaign,
+    render_promo_carousel,
+    validate_launch_campaign,
+)
 from core.config import settings
 
 
@@ -152,6 +163,76 @@ class VisualPipelineTests(unittest.TestCase):
         self.assertIn("social_consistency_agent", ctx.mission["execution_order"])
         self.assertIn("social_copy_agent", ctx.mission["execution_order"])
         self.assertEqual(ctx.mission["execution_order"][-1], "social_publish_agent")
+
+    def test_launch_campaign_uses_same_agents_and_distinct_scope(self) -> None:
+        ctx = PipelineContext("Gerar carrossel de lançamento para Instagram")
+        ctx.findings["social_options"] = {"campaign_kind": "launch"}
+        result = OrchestratorAgent().run(ctx)
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            ctx.mission["execution_order"],
+            [
+                "planner",
+                "social_source_agent",
+                "social_consistency_agent",
+                "social_copy_agent",
+                "social_art_agent",
+                "social_approval_agent",
+                "social_publish_agent",
+            ],
+        )
+        self.assertIn("manifesto versionado", " ".join(ctx.mission["scope"]))
+
+
+class LaunchCampaignTests(unittest.TestCase):
+    def test_manifest_is_factual_and_renders_exact_contract(self) -> None:
+        campaign = load_launch_campaign()
+        report = validate_launch_campaign(campaign)
+        self.assertTrue(report.ok, report.errors)
+        self.assertEqual(KEYWORD_RGB, (102, 29, 20))
+        slides = render_promo_carousel(campaign)
+        self.assertEqual(len(slides), 3)
+        for payload in slides:
+            with Image.open(BytesIO(payload)) as image:
+                self.assertEqual(image.size, (1856, 2304))
+
+    def test_manifest_blocks_old_prelaunch_and_forbidden_claims(self) -> None:
+        payload = copy.deepcopy(load_launch_campaign().payload)
+        payload["caption"] += " Em breve: verificação infalível."
+        report = validate_launch_campaign(LaunchCampaign(payload))
+        self.assertFalse(report.ok)
+        self.assertTrue(any("em breve" in error for error in report.errors))
+        self.assertTrue(any("verificação infalível" in error for error in report.errors))
+
+    @patch("app.social.package.upload_card")
+    @patch("app.social.package.ensure_publication_enabled")
+    def test_full_launch_pipeline_stays_preview_only(self, _gate, upload_card) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "output"
+            ledger = Path(temp_dir) / "ledger.jsonl"
+            with patch.object(settings, "social_output_dir", str(output)), patch.object(
+                settings, "social_ledger_path", str(ledger)
+            ):
+                ctx = PipelineDispatcher().run(
+                    "Gerar prévia do carrossel oficial de lançamento da PWA no Instagram",
+                    initial_findings={
+                        "social_options": {
+                            "campaign_kind": "launch",
+                            "publish_requested": False,
+                        }
+                    },
+                )
+                package = Path(ctx.findings["social_package"])
+                manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(manifest["content_kind"], "launch")
+                self.assertFalse(manifest["publishable"])
+                self.assertFalse(manifest["published"])
+                self.assertEqual(len(manifest["artifacts"]), 3)
+                self.assertEqual(ctx.history[-2].status, "awaiting_approval")
+                self.assertEqual(ctx.history[-1].status, "skipped")
+                with self.assertRaisesRegex(ValueError, "não foi homologada"):
+                    publish_package(package, SocialLedger(ledger))
+        upload_card.assert_not_called()
 
 
 class InstagramApiWorkflowTests(unittest.TestCase):

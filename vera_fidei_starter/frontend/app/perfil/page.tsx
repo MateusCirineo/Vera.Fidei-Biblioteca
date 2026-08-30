@@ -22,7 +22,11 @@ import {
   type UserInfo,
 } from '@/lib/auth'
 import ProfileFavorites from '@/components/perfil/ProfileFavorites'
-import ProfileHistory from '@/components/perfil/ProfileHistory'
+import ProfileHistoryTabs from '@/components/perfil/ProfileHistoryTabs'
+import {
+  clearLocalReadingProgress,
+  flushPendingReadingProgress,
+} from '@/lib/readingProgress'
 
 interface ApiKeyEntry {
   id: number
@@ -309,15 +313,26 @@ export default function PerfilPage() {
   }
 
   async function handleLogout() {
+    if (!user) return
     await logout()
+    clearLocalReadingProgress(user.id)
     router.replace('/')
     router.refresh()
   }
 
   async function handleExportData() {
+    if (!user) return
     setPrivacyNotice('')
     setExportingData(true)
     try {
+      let readingSyncIncomplete = false
+      try {
+        const readingSync = await flushPendingReadingProgress(user.id)
+        readingSyncIncomplete = readingSync.remaining > 0
+      } catch {
+        readingSyncIncomplete = true
+      }
+
       const blob = await downloadPersonalData()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -327,7 +342,11 @@ export default function PerfilPage() {
       link.click()
       link.remove()
       URL.revokeObjectURL(url)
-      setPrivacyNotice('Arquivo com seus dados gerado com sucesso.')
+      setPrivacyNotice(
+        readingSyncIncomplete
+          ? 'Arquivo gerado. Não foi possível confirmar a inclusão de todo o progresso de leitura salvo neste aparelho.'
+          : 'Arquivo com seus dados gerado com sucesso.',
+      )
     } catch (err: unknown) {
       setPrivacyNotice(err instanceof Error ? err.message : 'Não foi possível exportar seus dados.')
     } finally {
@@ -341,6 +360,7 @@ export default function PerfilPage() {
     setDeletingAccount(true)
     try {
       await deleteAccount(deletePassword, deleteConfirmation)
+      clearLocalReadingProgress(user.id)
       localStorage.removeItem(profileAvatarStorageKey(user.id))
       router.replace('/')
       router.refresh()
@@ -651,7 +671,7 @@ export default function PerfilPage() {
         </section>
       )}
 
-      <ProfileHistory userPlan={user.plan} />
+      <ProfileHistoryTabs userId={user.id} userPlan={user.plan} />
 
       <section className="mt-6 rounded-lg border border-fundo-borda bg-fundo-card p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -706,7 +726,7 @@ export default function PerfilPage() {
           <div className="mt-5 rounded-md border border-vermelho/40 bg-vermelho/5 p-4">
             <h3 className="text-sm font-semibold text-vermelho">Exclusão permanente</h3>
             <p className="mt-2 text-xs leading-relaxed text-texto-terciario">
-              Esta ação remove perfil, favoritos, histórico de verificações, uso e chaves de API.
+              Esta ação remove perfil, favoritos, históricos de leitura e de verificações, uso e chaves de API.
               Se houver assinatura recorrente ativa, cancele-a primeiro na área de assinatura.
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">

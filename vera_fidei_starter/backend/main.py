@@ -22,6 +22,7 @@ from api.routes.favorites import router as favorites_router
 from api.routes.google_play_billing import router as google_play_billing_router
 from api.routes.institutions import router as institutions_router
 from api.routes.pdfs import router as pdfs_router
+from api.routes.reading import router as reading_router
 from api.routes.search import router as search_router
 from core.auth import require_api_key
 from core.config import settings, validate_runtime_security
@@ -48,6 +49,7 @@ async def prevent_billing_response_caching(request, call_next):
     if (
         request.url.path == "/billing/status"
         or request.url.path.startswith("/billing/google-play/")
+        or request.url.path.startswith("/reading/")
     ):
         response.headers["Cache-Control"] = "no-store, max-age=0"
     return response
@@ -88,6 +90,12 @@ app.include_router(
     favorites_router,
     prefix="/favorites",
     tags=["Favorites"],
+    dependencies=[Depends(require_api_key)],
+)
+app.include_router(
+    reading_router,
+    prefix="/reading",
+    tags=["Reading"],
     dependencies=[Depends(require_api_key)],
 )
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])

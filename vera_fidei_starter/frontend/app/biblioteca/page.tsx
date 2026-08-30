@@ -1,6 +1,7 @@
 import { listBooks, listAuthorsCatalog } from '@/lib/api'
 import type { Book, AuthorCatalogEntry } from '@/lib/types'
 import LibraryView from '@/components/biblioteca/LibraryView'
+import ContinueReadingCard from '@/components/biblioteca/ContinueReadingCard'
 import BrandHeader from '@/components/BrandHeader'
 import { getPublicApiBase } from '@/lib/api-base'
 
@@ -23,6 +24,8 @@ export default async function BibliotecaPage() {
         title="Biblioteca"
         description="Acervo de fontes patrísticas, concílios e documentos da Igreja."
       />
+
+      <ContinueReadingCard />
 
       {fetchError ? (
         <div className="rounded-lg border border-red-800/50 bg-red-900/20 p-4">

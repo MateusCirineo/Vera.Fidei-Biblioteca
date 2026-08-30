@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.agents.base import AgentResult, BaseAgent, PipelineContext
 from app.social.daily_card import pick_daily_card
 from app.social.ledger import SocialLedger
+from app.social.promo_post import LaunchCampaignError, load_launch_campaign
 from core.config import settings
 
 
@@ -11,6 +12,29 @@ class SocialSourceAgent(BaseAgent):
 
     def run(self, ctx: PipelineContext) -> AgentResult:
         options = ctx.findings.get("social_options") or {}
+        if options.get("campaign_kind") == "launch":
+            try:
+                campaign = load_launch_campaign()
+            except (LaunchCampaignError, OSError, ValueError) as exc:
+                return AgentResult(self.name, "error", warnings=[str(exc)])
+            ctx.findings["social_launch_campaign"] = campaign
+            ctx.handoff(
+                self.name,
+                "social_consistency_agent",
+                {"campaign_kind": "launch", "campaign_id": campaign.campaign_id},
+            )
+            return AgentResult(
+                self.name,
+                "ok",
+                data={
+                    "campaign_kind": "launch",
+                    "campaign_id": campaign.campaign_id,
+                    "release": campaign.release,
+                    "domain": campaign.domain,
+                    "source_fingerprint": campaign.fingerprint,
+                },
+                notes=["campanha carregada do manifesto versionado da release"],
+            )
         ledger = SocialLedger(settings.social_ledger_path)
         candidate = options.get("candidate") or pick_daily_card(
             day=options.get("day"),

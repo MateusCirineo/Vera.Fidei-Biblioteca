@@ -17,6 +17,8 @@ from api.routes import auth, billing
 from models.database import (
     ApiKey,
     Base,
+    Book,
+    BookFile,
     BillingEvent,
     BillingRateLimit,
     BillingRequest,
@@ -29,6 +31,7 @@ from models.database import (
     SearchUsage,
     User,
     UserFavorite,
+    UserReadingProgress,
     VerificationHistory,
 )
 from schemas.auth import DeleteAccountRequest
@@ -59,7 +62,10 @@ class AccountPrivacyTests(unittest.TestCase):
             self.engine,
             tables=[
                 User.__table__,
+                Book.__table__,
+                BookFile.__table__,
                 UserFavorite.__table__,
+                UserReadingProgress.__table__,
                 VerificationHistory.__table__,
                 BillingRequest.__table__,
                 BillingSubscription.__table__,
@@ -90,6 +96,24 @@ class AccountPrivacyTests(unittest.TestCase):
             )
             db.add(user)
             db.flush()
+            book = Book(
+                id=32,
+                collection="PG",
+                title="PG001",
+                author="Varios Padres Gregos",
+                language="grc",
+                edition_label="Migne",
+            )
+            db.add(book)
+            db.flush()
+            book_file = BookFile(
+                id=320,
+                book_id=book.id,
+                original_filename="PG001.pdf",
+                stored_path="pdfs/PG001.pdf",
+            )
+            db.add(book_file)
+            db.flush()
             db.add_all(
                 [
                     UserFavorite(
@@ -99,6 +123,13 @@ class AccountPrivacyTests(unittest.TestCase):
                         title="PG001",
                         href="/biblioteca/32",
                         metadata_json='{"page": 12}',
+                    ),
+                    UserReadingProgress(
+                        user_id=user.id,
+                        book_id=book.id,
+                        book_file_id=book_file.id,
+                        current_page=12,
+                        total_pages=380,
                     ),
                     VerificationHistory(
                         user_id=user.id,
@@ -179,6 +210,9 @@ class AccountPrivacyTests(unittest.TestCase):
             },
         )
         self.assertEqual(payload["favorites"][0]["metadata"], {"page": 12})
+        self.assertEqual(payload["reading_progress"][0]["book_title"], "PG001")
+        self.assertEqual(payload["reading_progress"][0]["current_page"], 12)
+        self.assertEqual(payload["reading_progress"][0]["revision"], 1)
         self.assertEqual(payload["citation_verifications"][0]["citation_text"], "Texto enviado pelo titular")
         self.assertEqual(payload["api_keys"][0]["label"], "Minha integração")
         self.assertNotIn("stored-password-hash", serialized)
@@ -207,6 +241,7 @@ class AccountPrivacyTests(unittest.TestCase):
             self.assertIsNone(db.get(User, 41))
             for model in (
                 UserFavorite,
+                UserReadingProgress,
                 VerificationHistory,
                 BillingRequest,
                 Institution,

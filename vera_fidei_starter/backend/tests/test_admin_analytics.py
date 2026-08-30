@@ -166,8 +166,15 @@ class AdminAnalyticsTests(unittest.TestCase):
         self.assertEqual(result.visitors_unique_total, 1)
         self.assertEqual(result.visitors_online_now, 1)
         self.assertEqual(result.page_views.today, 2)
-        self.assertEqual(result.searches_today, 3)
-        self.assertEqual(result.verifications_today, 1)
+        self.assertEqual(result.searches.today, 3)
+        self.assertEqual(result.searches.last_7_days, 3)
+        self.assertEqual(result.searches.last_30_days, 3)
+        self.assertEqual(result.verifications.today, 1)
+        self.assertEqual(result.verifications.last_7_days, 1)
+        self.assertEqual(result.verifications.last_30_days, 1)
+        # Backwards-compatible aliases protect older cached clients.
+        self.assertEqual(result.searches_today, result.searches.today)
+        self.assertEqual(result.verifications_today, result.verifications.today)
         self.assertEqual(len(result.recent_accounts), 2)
         self.assertNotIn(settings.owner_email, {item.email for item in result.recent_accounts})
 
@@ -225,8 +232,8 @@ class AdminAnalyticsTests(unittest.TestCase):
         self.assertEqual(result.registrations.today, 1)
         self.assertEqual(result.visitors.today, 1)
         self.assertEqual(result.page_views.today, 1)
-        self.assertEqual(result.searches_today, 4)
-        self.assertEqual(result.verifications_today, 1)
+        self.assertEqual(result.searches.today, 4)
+        self.assertEqual(result.verifications.today, 1)
         self.assertEqual(result.daily_activity[-1].date, datetime.date(2026, 8, 24))
         self.assertEqual(result.daily_activity[-1].page_views, 1)
 
@@ -294,6 +301,58 @@ class AdminAnalyticsTests(unittest.TestCase):
 
         self.assertEqual(result.page_views.last_7_days, 1)
         self.assertEqual(result.page_views.last_30_days, 3)
+
+    def test_searches_and_verifications_have_real_7_and_30_day_periods(self) -> None:
+        now_utc = datetime.datetime(2026, 8, 25, 12, 0)
+        with self.Session() as db:
+            user = User(
+                email="periods@example.com",
+                name="Períodos",
+                password_hash="hash",
+                plan="fiel",
+            )
+            db.add(user)
+            db.flush()
+            db.add_all([
+                SearchUsage(user_id=user.id, usage_date=datetime.date(2026, 8, 25), count=2),
+                SearchUsage(user_id=user.id, usage_date=datetime.date(2026, 8, 19), count=3),
+                SearchUsage(user_id=user.id, usage_date=datetime.date(2026, 7, 27), count=5),
+                SearchUsage(user_id=user.id, usage_date=datetime.date(2026, 7, 26), count=11),
+                VerificationHistory(
+                    user_id=user.id,
+                    citation_text="Hoje",
+                    created_at=datetime.datetime(2026, 8, 25, 11, 0),
+                ),
+                VerificationHistory(
+                    user_id=user.id,
+                    citation_text="Sete dias",
+                    created_at=datetime.datetime(2026, 8, 19, 3, 0),
+                ),
+                VerificationHistory(
+                    user_id=user.id,
+                    citation_text="Trinta dias",
+                    created_at=datetime.datetime(2026, 7, 27, 3, 0),
+                ),
+                VerificationHistory(
+                    user_id=user.id,
+                    citation_text="Fora da janela",
+                    created_at=datetime.datetime(2026, 7, 27, 2, 59),
+                ),
+            ])
+            db.commit()
+
+            result = analytics._build_admin_metrics(db, now=now_utc)
+
+        self.assertEqual(result.searches.model_dump(), {
+            "today": 2,
+            "last_7_days": 5,
+            "last_30_days": 10,
+        })
+        self.assertEqual(result.verifications.model_dump(), {
+            "today": 1,
+            "last_7_days": 2,
+            "last_30_days": 3,
+        })
 
     def test_admin_metrics_response_is_never_cacheable(self) -> None:
         response = Response()

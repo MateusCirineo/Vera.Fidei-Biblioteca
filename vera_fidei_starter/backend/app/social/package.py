@@ -21,6 +21,12 @@ from app.social.instagram_publish import (
 )
 from app.social.ledger import SocialLedger
 from app.social.post_model import SocialPostCandidate
+from app.social.promo_post import (
+    LaunchCampaign,
+    build_promo_caption,
+    launch_style_files,
+    render_promo_carousel,
+)
 from app.social.saint_portrait import approve_portrait, fetch_saint_portrait
 from core.config import settings
 
@@ -51,6 +57,16 @@ def current_style_digest() -> str:
     ]
     digest = hashlib.sha256()
     for path in files:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def current_launch_style_digest() -> str:
+    digest = hashlib.sha256()
+    for path in launch_style_files():
         if not path.is_file():
             raise FileNotFoundError(path)
         digest.update(path.name.encode("utf-8"))
@@ -100,6 +116,50 @@ def create_preview_package(
         "candidate": candidate.to_dict(),
         "artifacts": artifacts,
         "caption_sha256": _sha256_bytes(caption.encode("utf-8")),
+        "published": False,
+    }
+    (package / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return package
+
+
+def create_launch_preview_package(
+    *,
+    campaign: LaunchCampaign,
+    caption: str | None,
+    execution_id: str,
+) -> Path:
+    """Gera a prévia de lançamento sem torná-la publicável."""
+    root = _backend_path(settings.social_output_dir)
+    package = root / f"{dt.date.today().isoformat()}_{execution_id}_launch"
+    package.mkdir(parents=True, exist_ok=False)
+
+    slides = render_promo_carousel(campaign)
+    if len(slides) != 3:
+        raise ValueError("a campanha de lançamento exige exatamente três artes")
+    artifacts: list[dict[str, Any]] = []
+    for index, payload in enumerate(slides, 1):
+        name = f"slide_{index}.png"
+        path = package / name
+        path.write_bytes(payload)
+        artifacts.append({"file": name, "sha256": _sha256_bytes(payload)})
+
+    caption = caption or build_promo_caption(campaign)
+    (package / "caption.txt").write_text(caption, encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "content_kind": "launch",
+        "status": "awaiting_owner_approval",
+        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "execution_id": execution_id,
+        "style_digest": current_launch_style_digest(),
+        "source_fingerprint": campaign.fingerprint,
+        "campaign": campaign.to_dict(),
+        "artifacts": artifacts,
+        "caption_sha256": _sha256_bytes(caption.encode("utf-8")),
+        "publishable": False,
         "published": False,
     }
     (package / "manifest.json").write_text(
@@ -161,6 +221,8 @@ def style_is_approved() -> bool:
 def _verify_package(package: Path, manifest: dict[str, Any]) -> list[Path]:
     if manifest.get("published") is True:
         raise ValueError("pacote já marcado como publicado")
+    if manifest.get("content_kind") == "launch" or manifest.get("publishable") is False:
+        raise ValueError("prévia de lançamento ainda não foi homologada para publicação")
     if manifest.get("style_digest") != current_style_digest() or not style_is_approved():
         raise ValueError("estilo não aprovado ou alterado depois da aprovação")
     author = str((manifest.get("candidate") or {}).get("author") or "")

@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "campaign_kind": "launch",
+  "campaign_id": "pwa-launch-v1.3.2",
+  "release": "1.3.2",
+  "domain": "verafidei.com.br",
+  "canonical_url": "https://verafidei.com.br",
+  "copy": {
+    "cover_badge": "PWA OFICIAL",
+    "cover_status": "Disponível agora",
+    "cover_subtitle": "Biblioteca Católica Digital",
+    "feature_heading": "Uma biblioteca. Três caminhos.",
+    "feature_lead": "Conheça o que você encontra no Vera.Fidei.",
+    "features": [
+      {
+        "title": "Fontes primárias",
+        "body": "Obras patrísticas, coleções clássicas e PDFs organizados para estudo.",
+        "asset": "vera_fidei_starter/frontend/public/branding/presentation-primary-sources.webp",
+        "sha256": "ae96d560280168e35f124a1edc06462c70d42d12f50efbe5b2e0a98fe9baec78"
+      },
+      {
+        "title": "Tradição católica",
+        "body": "Magistério, concílios e textos fundamentais da tradição da Igreja.",
+        "asset": "vera_fidei_starter/frontend/public/branding/presentation-tradition.webp",
+        "sha256": "78db72610921e9eac3d8c146005b9548da22c5129b457a370740ab44a443a5e7"
+      },
+      {
+        "title": "Verificação de citações",
+        "body": "Confronte textos atribuídos com o acervo indexado e consulte a fonte.",
+        "asset": "vera_fidei_starter/frontend/public/branding/presentation-verification.webp",
+        "sha256": "f1426b9c428fd23fb39b18506c7459df7488bcf68fe8c5b566964ae36e17c6b7"
+      }
+    ],
+    "cta_message": "Estude a fé com mais fidelidade às fontes.",
+    "cta_button": "ACESSE AGORA"
+  },
+  "caption": "É oficial: a PWA do Vera.Fidei está disponível em https://verafidei.com.br.\n\nO Vera.Fidei é uma Biblioteca Católica Digital com fontes, PDFs, orações e verificação de citações.\n\nBusque por obra, autor e edição, abra PDFs diretamente no app e verifique citações analisando fonte, contexto e nível de confiança.\n\nA proposta é ajudar fiéis, catequistas, apologetas, pesquisadores e criadores de conteúdo a estudar a fé com mais fidelidade às fontes.\n\nAcesse: https://verafidei.com.br\n\n#VeraFidei #BibliotecaCatolica #Patristica #FeCatolica #Apologetica",
+  "forbidden_claims": [
+    "a maior biblioteca católica do mundo",
+    "verificação infalível",
+    "nunca erra",
+    "substitui pesquisa teológica"
+  ],
+  "evidence": [
+    {
+      "path": "docs/vera-fidei/09-lancamento-e-comunicacao.md",
+      "contains": "Biblioteca Católica Digital"
+    },
+    {
+      "path": "docs/vera-fidei/09-lancamento-e-comunicacao.md",
+      "contains": "Fontes, PDFs, orações e verificação de citações."
+    },
+    {
+      "path": "docs/vera-fidei/09-lancamento-e-comunicacao.md",
+      "contains": "A proposta é ajudar fiéis, catequistas, apologetas, pesquisadores e criadores de conteúdo a estudar a fé com mais fidelidade às fontes."
+    },
+    {
+      "path": "vera_fidei_starter/RELEASE_MANIFEST.md",
+      "contains": "| Versão da PWA | `1.3.2` |"
+    },
+    {
+      "path": "vera_fidei_starter/RELEASE_MANIFEST.md",
+      "contains": "| Domínio canônico | `https://verafidei.com.br` |"
+    },
+    {
+      "path": "vera_fidei_starter/RELEASE_MANIFEST.md",
+      "contains": "A PWA/API 1.3.2 está aprovada tecnicamente para divulgação"
+    },
+    {
+      "path": "vera_fidei_starter/frontend/app/apresentacao/page.tsx",
+      "contains": "label: 'Fontes primárias'"
+    },
+    {
+      "path": "vera_fidei_starter/frontend/app/apresentacao/page.tsx",
+      "contains": "label: 'Tradição católica'"
+    },
+    {
+      "path": "vera_fidei_starter/frontend/app/apresentacao/page.tsx",
+      "contains": "label: 'Verificação de citações'"
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "biblioteca.png",
+      "sha256": "decf7af2b28a659541d606b73fa9b24a62773054445045b0fec202db8d318e48",
+      "public_crop": [0, 0, 810, 861]
+    },
+    {
+      "file": "verificador.png",
+      "sha256": "074cd0268327f5a11044b766f5e95d1a865cc36d92ade6315603f56993f78371",
+      "public_crop": [0, 0, 810, 861]
+    }
+  ],
+  "proof_screenshot": {
+    "file": "citation-confirmed.png",
+    "sha256": "fadab950451dd334736683277298d3c75fa280256c646f82d09e2bf695c00602",
+    "public_crop": [250, 810, 1030, 1225]
+  }
+}

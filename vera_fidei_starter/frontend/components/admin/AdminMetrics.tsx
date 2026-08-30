@@ -30,8 +30,8 @@ const DEFAULT_REFRESH_MS = 15_000
 const ANALYTICS_TIME_ZONE = 'America/Sao_Paulo'
 const ANALYTICS_TIME_ZONE_LABEL = 'horário de Brasília'
 
-function number(value: number) {
-  return value.toLocaleString('pt-BR')
+function number(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('pt-BR') : '—'
 }
 
 function dateTime(value?: string | null) {
@@ -355,7 +355,10 @@ function PeriodMetrics({
   rows,
 }: {
   title?: string
-  rows: Array<{ label: string; period: { today: number; last_7_days: number; last_30_days: number } }>
+  rows: Array<{
+    label: string
+    period?: { today: number; last_7_days: number; last_30_days: number } | null
+  }>
 }) {
   return (
     <div className="mt-4 overflow-hidden rounded-md border border-fundo-borda">
@@ -378,9 +381,9 @@ function PeriodMetrics({
             {rows.map((row) => (
               <tr key={row.label}>
                 <th className="px-3 py-3 text-xs font-medium text-texto-secundario">{row.label}</th>
-                <td className="px-3 py-3 text-right font-eb-garamond text-xl text-texto">{number(row.period.today)}</td>
-                <td className="px-3 py-3 text-right font-eb-garamond text-xl text-texto">{number(row.period.last_7_days)}</td>
-                <td className="px-3 py-3 text-right font-eb-garamond text-xl text-texto">{number(row.period.last_30_days)}</td>
+                <td className="px-3 py-3 text-right font-eb-garamond text-xl text-texto">{number(row.period?.today)}</td>
+                <td className="px-3 py-3 text-right font-eb-garamond text-xl text-texto">{number(row.period?.last_7_days)}</td>
+                <td className="px-3 py-3 text-right font-eb-garamond text-xl text-texto">{number(row.period?.last_30_days)}</td>
               </tr>
             ))}
           </tbody>

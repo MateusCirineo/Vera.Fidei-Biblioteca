@@ -31,6 +31,7 @@ from models.database import (
     SessionLocal,
     User,
     UserFavorite,
+    UserReadingProgress,
     VerificationHistory,
 )
 from services.billing_entitlements import (
@@ -785,6 +786,12 @@ def export_personal_data(current_user: User = Depends(get_current_user)) -> JSON
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conta não encontrada.")
 
         favorites = db.query(UserFavorite).filter(UserFavorite.user_id == user.id).order_by(UserFavorite.id).all()
+        reading_progress = (
+            db.query(UserReadingProgress)
+            .filter(UserReadingProgress.user_id == user.id)
+            .order_by(UserReadingProgress.last_read_at.desc(), UserReadingProgress.id.desc())
+            .all()
+        )
         history = (
             db.query(VerificationHistory)
             .filter(VerificationHistory.user_id == user.id)
@@ -840,6 +847,22 @@ def export_personal_data(current_user: User = Depends(get_current_user)) -> JSON
                     "updated_at": _iso(row.updated_at),
                 }
                 for row in favorites
+            ],
+            "reading_progress": [
+                {
+                    "book_id": row.book_id,
+                    "book_file_id": row.book_file_id,
+                    "book_title": row.book.title,
+                    "book_author": row.book.author,
+                    "file_name": row.book_file.original_filename,
+                    "current_page": row.current_page,
+                    "total_pages": row.total_pages,
+                    "completed": bool(row.completed),
+                    "revision": row.revision,
+                    "first_opened_at": _iso(row.first_opened_at),
+                    "last_read_at": _iso(row.last_read_at),
+                }
+                for row in reading_progress
             ],
             "citation_verifications": [
                 {
@@ -976,6 +999,9 @@ def delete_account(
         db.query(EmailVerificationToken).filter(EmailVerificationToken.user_id == user.id).delete(synchronize_session=False)
         db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).delete(synchronize_session=False)
         db.query(UserFavorite).filter(UserFavorite.user_id == user.id).delete(synchronize_session=False)
+        db.query(UserReadingProgress).filter(UserReadingProgress.user_id == user.id).delete(
+            synchronize_session=False
+        )
         db.query(VerificationHistory).filter(VerificationHistory.user_id == user.id).delete(synchronize_session=False)
         db.delete(user)
         db.commit()

@@ -26,6 +26,34 @@ nunca devem ficar fixos no conteúdo de novos posts.
   fornecido.
 - Legenda rastreável, construída apenas com dados conferidos no acervo.
 
+## Linguagem visual aprovada para carrosséis
+
+O proprietário aprovou em 29 de agosto de 2026 a linguagem visual da prévia
+`2026-08-29_8a315b77-787a-4b33-bd16-ac3a8e0e9e68_launch`. Todo novo
+carrossel deve partir dessa direção, sem copiar marcas ou conteúdos externos:
+
+- acabamento católico editorial, sóbrio e premium;
+- fotografia escura e cinematográfica, com assunto religioso, arquitetura,
+  manuscritos ou fontes documentais integrados à composição;
+- títulos serifados grandes em branco ou creme e detalhes dourados discretos;
+- pouco texto por página, hierarquia forte e leitura preservada em celular;
+- os três slides devem formar uma sequência coerente, com numeração discreta,
+  linhas ou outros elementos recorrentes que indiquem continuidade;
+- telas do aplicativo devem aparecer como mockups integrados, sobrepostos e
+  com profundidade, nunca como prints crus colocados dentro de caixas pesadas;
+- remover barras fixas, navegação, dados pessoais e áreas irrelevantes das
+  capturas, preservando somente recortes verdadeiros e rastreáveis;
+- a logo deve funcionar como assinatura, sem competir com o assunto principal
+  nem aparecer duplicada;
+- evitar grandes vazios sem intenção, brasões desproporcionais, botões pesados,
+  excesso de molduras e textos microscópicos;
+- a 360 px de largura ainda devem ser legíveis o título, a chamada principal,
+  o domínio e a evidência essencial apresentada.
+
+Esse acabamento complementa, e não substitui, as regras de fonte, pergaminho,
+recorte comprobatório, dimensões, agentes e aprovação descritas neste contrato.
+Qualquer variação visual continua exigindo nova prévia e aprovação explícita.
+
 ## Elementos que obrigatoriamente mudam conforme a publicação
 
 - Nome do autor ou santo.

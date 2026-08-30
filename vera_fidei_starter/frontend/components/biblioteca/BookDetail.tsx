@@ -1,11 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import FavoriteButton from '@/components/favorites/FavoriteButton'
 import SaveOfflineButton from '@/components/SaveOfflineButton'
 import { getUser, type UserInfo } from '@/lib/auth'
 import { isBookOffline } from '@/lib/offlineBooks'
+import {
+  buildTrackedViewerHref,
+  loadReadingProgressWithFallback,
+  restartReadingProgress,
+  type ReadingProgressSnapshot,
+} from '@/lib/readingProgress'
 import type { Book } from '@/lib/types'
 import { formatLanguage } from '@/lib/language'
 import { publisherForBook, UNKNOWN_PUBLISHER } from '@/lib/publisher'
@@ -33,9 +40,13 @@ function metaValue(value: string | number | null | undefined): string {
 }
 
 export default function BookDetail({ book }: { book: Book }) {
+  const router = useRouter()
   const [copied, setCopied] = useState(false)
   const [user, setUser] = useState<UserInfo | null>(null)
   const [bookIsOffline, setBookIsOffline] = useState(false)
+  const [readingProgress, setReadingProgress] = useState<Record<number, ReadingProgressSnapshot | null>>({})
+  const [restartingFileId, setRestartingFileId] = useState<number | null>(null)
+  const files = useMemo(() => book.files ?? [], [book.files])
 
   useEffect(() => {
     isBookOffline(book.id).then(setBookIsOffline)
@@ -70,13 +81,48 @@ export default function BookDetail({ book }: { book: Book }) {
 
   useEffect(() => {
     let active = true
-    getUser().then((currentUser) => {
-      if (active) setUser(currentUser)
+    getUser().then(async (currentUser) => {
+      if (!active) return
+      setUser(currentUser)
+      if (!currentUser || files.length === 0) {
+        setReadingProgress({})
+        return
+      }
+
+      const entries = await Promise.all(files.map(async (file) => {
+        const progress = await loadReadingProgressWithFallback(
+          currentUser.id,
+          book.id,
+          file.id,
+        )
+        return [file.id, progress] as const
+      }))
+      if (active) setReadingProgress(Object.fromEntries(entries))
+    }).catch(() => {
+      if (active) setReadingProgress({})
     })
     return () => {
       active = false
     }
-  }, [])
+  }, [book.id, files])
+
+  async function restartFile(fileId: number, startPage: number, totalPages: number | null) {
+    if (!user) return
+    setRestartingFileId(fileId)
+    try {
+      const restarted = await restartReadingProgress(
+        user.id,
+        fileId,
+        book.id,
+        startPage,
+        totalPages,
+      )
+      setReadingProgress((current) => ({ ...current, [fileId]: restarted }))
+      router.push(buildTrackedViewerHref(fileId, book.id, startPage))
+    } finally {
+      setRestartingFileId(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -202,10 +248,18 @@ export default function BookDetail({ book }: { book: Book }) {
             </span>
           </div>
           <div className="space-y-3">
-            {book.files.map((file) => (
+            {book.files.map((file) => {
+              const startPage = file.start_page ?? 1
+              const progress = readingProgress[file.id]
+              const canResume = Boolean(progress && progress.current_page > startPage)
+              const resumePage = canResume ? progress!.current_page : startPage
+              const totalPages = progress?.total_pages ?? null
+              const restarting = restartingFileId === file.id
+
+              return (
               <div
                 key={file.id}
-                className="flex items-start justify-between gap-3 rounded-lg border border-fundo-borda bg-fundo-card p-4"
+                className="flex flex-col items-stretch justify-between gap-3 rounded-lg border border-fundo-borda bg-fundo-card p-4 sm:flex-row sm:items-start"
               >
                 <div className="min-w-0 space-y-1">
                   <p className="truncate text-sm text-texto">
@@ -220,7 +274,7 @@ export default function BookDetail({ book }: { book: Book }) {
                   </div>
                 </div>
                 {canOpenPdf ? (
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                     <SaveOfflineButton bookId={book.id} title={book.title} />
                     {bookIsOffline && (
                       <Link
@@ -231,12 +285,29 @@ export default function BookDetail({ book }: { book: Book }) {
                       </Link>
                     )}
                     <Link
-                      href={`/viewer/pdf?file=${encodeURIComponent(`/api/pdfs/${file.id}`)}&page=${file.start_page ?? 1}`}
-                      prefetch
-                      className="rounded-md border border-dourado/50 px-3 py-1.5 text-xs font-medium text-dourado transition-colors hover:bg-dourado/10"
+                      href={buildTrackedViewerHref(file.id, book.id, resumePage)}
+                      prefetch={false}
+                      className={`min-h-10 flex-1 rounded-md px-3 py-2 text-center text-xs font-medium transition-colors sm:flex-none ${
+                        canResume
+                          ? 'bg-dourado text-fundo hover:bg-dourado-claro'
+                          : 'border border-dourado/50 text-dourado hover:bg-dourado/10'
+                      }`}
                     >
-                      Ler PDF
+                      {canResume
+                        ? `Continuar lendo — página ${resumePage}${totalPages ? ` de ${totalPages}` : ''}`
+                        : 'Ler PDF'}
                     </Link>
+                    {canResume && (
+                      <button
+                        type="button"
+                        onClick={() => void restartFile(file.id, startPage, totalPages)}
+                        disabled={restarting}
+                        className="min-h-10 rounded-md border border-fundo-borda px-3 py-2 text-xs font-medium text-texto-secundario transition-colors hover:border-dourado hover:text-dourado disabled:cursor-wait disabled:opacity-50"
+                        aria-label={`Recomeçar ${book.title} na página ${startPage}`}
+                      >
+                        {restarting ? 'Recomeçando...' : 'Recomeçar'}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <Link
@@ -247,7 +318,8 @@ export default function BookDetail({ book }: { book: Book }) {
                   </Link>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}

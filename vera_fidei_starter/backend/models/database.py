@@ -3,7 +3,21 @@ from __future__ import annotations
 import datetime
 import threading
 
-from sqlalchemy import create_engine, String, Integer, Boolean, Float, ForeignKey, Text, DateTime, Date, LargeBinary, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from core.config import settings
 import json
@@ -43,6 +57,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     favorites: Mapped[list["UserFavorite"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    reading_progress: Mapped[list["UserReadingProgress"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -400,6 +417,9 @@ class Book(Base):
         back_populates="book",
         cascade="all, delete-orphan"
     )
+    reading_progress: Mapped[list["UserReadingProgress"]] = relationship(
+        back_populates="book", cascade="all, delete-orphan"
+    )
 
 
 class Chunk(Base):
@@ -505,6 +525,66 @@ class BookFile(Base):
 
     book: Mapped["Book"] = relationship(back_populates="files")
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="source_file")
+    reading_progress: Mapped[list["UserReadingProgress"]] = relationship(
+        back_populates="book_file", cascade="all, delete-orphan"
+    )
+
+
+class UserReadingProgress(Base):
+    """Durable, account-scoped resume position for one concrete PDF edition."""
+
+    __tablename__ = "user_reading_progress"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "book_id",
+            "book_file_id",
+            name="uq_user_reading_progress_file",
+        ),
+        CheckConstraint("current_page >= 1", name="ck_user_reading_progress_current_page"),
+        CheckConstraint(
+            "total_pages IS NULL OR total_pages >= 1",
+            name="ck_user_reading_progress_total_pages",
+        ),
+        CheckConstraint(
+            "total_pages IS NULL OR current_page <= total_pages",
+            name="ck_user_reading_progress_page_range",
+        ),
+        CheckConstraint("revision >= 1", name="ck_user_reading_progress_revision"),
+        Index(
+            "idx_user_reading_progress_history",
+            "user_id",
+            "last_read_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    book_id: Mapped[int] = mapped_column(
+        ForeignKey("books.id", ondelete="CASCADE"), nullable=False
+    )
+    book_file_id: Mapped[int] = mapped_column(
+        ForeignKey("book_files.id", ondelete="CASCADE"), nullable=False
+    )
+    current_page: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    total_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_opened_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.datetime.utcnow
+    )
+    last_read_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="reading_progress")
+    book: Mapped["Book"] = relationship(back_populates="reading_progress")
+    book_file: Mapped["BookFile"] = relationship(back_populates="reading_progress")
 
 
 class Translation(Base):
@@ -594,6 +674,13 @@ def _migrate_add_library_columns() -> None:
         "ALTER TABLE user_favorites ADD CONSTRAINT user_favorites_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_favorites_unique ON user_favorites(user_id, kind, item_id)",
         "CREATE INDEX IF NOT EXISTS idx_user_favorites_user_kind ON user_favorites(user_id, kind)",
+        "CREATE TABLE IF NOT EXISTS user_reading_progress (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE, book_file_id INTEGER NOT NULL REFERENCES book_files(id) ON DELETE CASCADE, current_page INTEGER NOT NULL DEFAULT 1 CHECK (current_page >= 1), total_pages INTEGER CHECK (total_pages IS NULL OR total_pages >= 1), completed BOOLEAN NOT NULL DEFAULT FALSE, revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1), first_opened_at TIMESTAMP NOT NULL DEFAULT NOW(), last_read_at TIMESTAMP NOT NULL DEFAULT NOW(), CONSTRAINT ck_user_reading_progress_page_range CHECK (total_pages IS NULL OR current_page <= total_pages))",
+        "ALTER TABLE user_reading_progress ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1",
+        "UPDATE user_reading_progress SET revision = 1 WHERE revision IS NULL OR revision < 1",
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_user_reading_progress_revision' AND conrelid = 'user_reading_progress'::regclass) THEN ALTER TABLE user_reading_progress ADD CONSTRAINT ck_user_reading_progress_revision CHECK (revision >= 1); END IF; END $$",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_reading_progress_file ON user_reading_progress(user_id, book_id, book_file_id)",
+        "CREATE INDEX IF NOT EXISTS idx_user_reading_progress_history ON user_reading_progress(user_id, last_read_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_user_reading_progress_file ON user_reading_progress(book_file_id)",
         # Tabela de histórico de verificações
         "CREATE TABLE IF NOT EXISTS verification_history (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, citation_text TEXT NOT NULL, attributed_to VARCHAR(255), status_code VARCHAR(50), label VARCHAR(100), confidence VARCHAR(20), author VARCHAR(255), work VARCHAR(255), reference_json TEXT, matched_excerpt TEXT, explanation TEXT, response_json TEXT, created_at TIMESTAMP DEFAULT NOW())",
         "CREATE INDEX IF NOT EXISTS idx_vhist_user_id ON verification_history(user_id)",

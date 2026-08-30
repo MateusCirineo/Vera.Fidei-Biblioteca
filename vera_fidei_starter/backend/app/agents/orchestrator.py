@@ -53,6 +53,9 @@ class OrchestratorAgent(BaseAgent):
         )
 
     def _social_mission(self, ctx: PipelineContext) -> dict:
+        options = ctx.findings.get("social_options") or {}
+        if options.get("campaign_kind") == "launch":
+            return self._launch_social_mission(ctx)
         return {
             "task": ctx.user_task,
             "objective": "Selecionar, validar, diagramar e, quando autorizado, publicar um carrossel rastreável no Instagram.",
@@ -107,6 +110,57 @@ class OrchestratorAgent(BaseAgent):
                 "três artes visualmente verificadas",
                 "nenhuma publicação sem aprovação e credenciais rotacionadas",
                 "publicação remota registrada quando autorizada",
+            ],
+            "execution_id": ctx.execution_id,
+        }
+
+    def _launch_social_mission(self, ctx: PipelineContext) -> dict:
+        agents = [
+            "planner",
+            "social_source_agent",
+            "social_consistency_agent",
+            "social_copy_agent",
+            "social_art_agent",
+            "social_approval_agent",
+            "social_publish_agent",
+        ]
+        return {
+            "task": ctx.user_task,
+            "objective": "Gerar uma prévia factual e rastreável do lançamento da PWA Vera.Fidei.",
+            "scope": [
+                "carregar o manifesto versionado da campanha",
+                "conferir release, domínio, alegações, capturas e hashes",
+                "usar capa, pergaminho e CTA do padrão visual homologado",
+                "gerar exatamente três artes de 1856 x 2304",
+                "parar para aprovação explícita do proprietário",
+            ],
+            "out_of_scope": [
+                "inventar autor, citação, página ou chunk para uma campanha promocional",
+                "anunciar Play Store ou revisão integral de OCR",
+                "publicar ou enviar imagens nesta execução de prévia",
+                "seguir, curtir, comentar ou enviar mensagens automaticamente",
+            ],
+            "agents": agents,
+            "execution_order": agents,
+            "dependencies": {
+                "social_source_agent": ["planner"],
+                "social_consistency_agent": ["social_source_agent"],
+                "social_copy_agent": ["social_consistency_agent"],
+                "social_art_agent": ["social_copy_agent"],
+                "social_approval_agent": ["social_art_agent"],
+                "social_publish_agent": ["social_approval_agent"],
+            },
+            "risks": [
+                "texto antigo de pré-lançamento ser reutilizado",
+                "captura expor dados da conta",
+                "alegação promocional exceder a evidência da release",
+                "aprovação patrística ser confundida com aprovação promocional",
+            ],
+            "done_definition": [
+                "manifesto e evidências conferidos",
+                "três artes nas dimensões homologadas",
+                "nenhum dado pessoal visível nas capturas públicas",
+                "pacote marcado como não publicável e aguardando aprovação",
             ],
             "execution_id": ctx.execution_id,
         }

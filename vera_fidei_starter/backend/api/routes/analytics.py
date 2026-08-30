@@ -99,6 +99,9 @@ class AdminMetricsResponse(BaseModel):
     visitors_online_now: int
     visitors: MetricPeriod
     page_views: MetricPeriod
+    searches: MetricPeriod
+    verifications: MetricPeriod
+    # Keep the original fields while older cached frontends are still in use.
     searches_today: int
     verifications_today: int
     plans: list[MetricCount]
@@ -226,6 +229,24 @@ def _period_count(db, model, column, *, today_start, week_start, month_start, fi
     )
 
 
+def _usage_period(db, *, today: datetime.date) -> MetricPeriod:
+    """Sum the daily search counters using the same inclusive local-day windows."""
+
+    def total_since(start: datetime.date) -> int:
+        return int(
+            db.query(func.coalesce(func.sum(SearchUsage.count), 0))
+            .filter(SearchUsage.usage_date >= start, SearchUsage.usage_date <= today)
+            .scalar()
+            or 0
+        )
+
+    return MetricPeriod(
+        today=total_since(today),
+        last_7_days=total_since(today - datetime.timedelta(days=6)),
+        last_30_days=total_since(today - datetime.timedelta(days=29)),
+    )
+
+
 def _as_utc_aware(value: datetime.datetime) -> datetime.datetime:
     """Treat database-naive timestamps as UTC and return an explicit UTC instant."""
 
@@ -324,17 +345,14 @@ def _build_admin_metrics(db, *, now: datetime.datetime | None = None) -> AdminMe
         or 0
     )
     tracking_started_at = db.query(func.min(SiteVisitor.first_seen_at)).scalar()
-    searches_today = int(
-        db.query(func.coalesce(func.sum(SearchUsage.count), 0))
-        .filter(SearchUsage.usage_date == local_today)
-        .scalar()
-        or 0
-    )
-    verifications_today = int(
-        db.query(func.count(VerificationHistory.id))
-        .filter(VerificationHistory.created_at >= today_start)
-        .scalar()
-        or 0
+    searches = _usage_period(db, today=local_today)
+    verifications = _period_count(
+        db,
+        VerificationHistory,
+        VerificationHistory.created_at,
+        today_start=today_start,
+        week_start=week_start,
+        month_start=month_start,
     )
 
     plan_rows = (
@@ -440,8 +458,10 @@ def _build_admin_metrics(db, *, now: datetime.datetime | None = None) -> AdminMe
         visitors_online_now=visitors_online_now,
         visitors=visitors,
         page_views=page_views,
-        searches_today=searches_today,
-        verifications_today=verifications_today,
+        searches=searches,
+        verifications=verifications,
+        searches_today=searches.today,
+        verifications_today=verifications.today,
         plans=plans,
         subscription_statuses=subscription_statuses,
         top_pages_7_days=top_pages,

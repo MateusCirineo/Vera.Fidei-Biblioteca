@@ -11,6 +11,15 @@ class SocialApprovalAgent(BaseAgent):
         package = ctx.findings.get("social_package")
         if package is None:
             return AgentResult(self.name, "blocked", warnings=["nenhuma prévia foi gerada"])
+        options = ctx.findings.get("social_options") or {}
+        if options.get("campaign_kind") == "launch":
+            ctx.findings["social_style_approved"] = False
+            return AgentResult(
+                self.name,
+                "awaiting_approval",
+                data={"campaign_kind": "launch", "package": str(package), "approved": False},
+                notes=["aguardando o proprietário conferir e aprovar explicitamente os três slides de lançamento"],
+            )
         approved = style_is_approved()
         ctx.findings["social_style_approved"] = approved
         if not approved:
